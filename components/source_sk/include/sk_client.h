@@ -12,4 +12,7 @@ void sk_client_start(void);                           // init first; runs sk_cli
 void sk_client_run_once(void);                        // one discover/connect/live cycle; returns when closed
 void sk_client_rebind(const bd_id_t *bound, size_t n);   // resubscribe with a new path set
 sk_state_t sk_client_state(void);
-int sk_client_backoff_ms(int attempt);                // 1000, 2000, 4000 ... capped at 30000
+int sk_client_backoff_ms(int attempt);
+
+// Increments each time a discovery (REST snapshot) completes; roles rebind when it changes.
+uint32_t sk_client_discovery_count(void);                // 1000, 2000, 4000 ... capped at 30000

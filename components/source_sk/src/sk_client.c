@@ -15,6 +15,7 @@ static struct {
   bool resubscribe;
   sk_state_t state;
   int attempt;
+  uint32_t discoveries;
   void *lock;
 } c;
 
@@ -92,7 +93,12 @@ void sk_client_run_once(void) {
   snprintf(url, sizeof url, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
   char *body = NULL;
   size_t len = 0;
-  if (sk_http_get(url, token, &body, &len)) sk_parse_full(body, len);
+  if (sk_http_get(url, token, &body, &len)) {
+    sk_parse_full(body, len);
+    platform_lock(c.lock);
+    c.discoveries++;
+    platform_unlock(c.lock);
+  }
   free(body);
 
   set_state(SK_CONNECTING);
@@ -122,3 +128,10 @@ static void run(void *arg) {
 }
 
 void sk_client_start(void) { platform_task(run, NULL, "signalk", 8192); }
+
+uint32_t sk_client_discovery_count(void) {
+  platform_lock(c.lock);
+  uint32_t n = c.discoveries;
+  platform_unlock(c.lock);
+  return n;
+}

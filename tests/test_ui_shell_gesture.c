@@ -34,9 +34,9 @@ static void overflow_page(lv_obj_t *area, uint8_t p, size_class_t sc, void *ctx)
   lv_obj_set_size(big, 900, 500);
 }
 
-static ui_role_view_t overflow_roles[] = {{"A", 2, overflow_page, NULL}, {"B", 1, overflow_page, NULL}};
+static ui_role_view_t overflow_roles[] = {{"A", 2, overflow_page, NULL, NULL}, {"B", 1, overflow_page, NULL, NULL}};
 
-static ui_role_view_t roles[] = {{"A", 2, page, NULL}, {"B", 1, page, NULL}, {"C", 1, page, NULL}};
+static ui_role_view_t roles[] = {{"A", 2, page, NULL, NULL}, {"B", 1, page, NULL, NULL}, {"C", 1, page, NULL, NULL}};
 static lv_indev_t *indev;
 static uint8_t buf[800 * 48 * 2];
 

@@ -10,6 +10,7 @@ typedef struct {
   const char *name;          // shown in the top strip, e.g. "ENGINE"
   uint8_t page_count;
   void (*build_page)(lv_obj_t *area, uint8_t page, size_class_t sc, void *ctx);
+  void (*refresh)(void *ctx);   // updates the visible page's widgets; may be NULL
   void *ctx;
 } ui_role_view_t;
 
@@ -21,6 +22,15 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
 void ui_shell_move(nav_dir_t dir);
 
 void ui_shell_set_palette(palette_t pal);
+
+// Rebuilds the visible page (after a role rebinds).
+void ui_shell_rebuild(void);
+
+// Calls the visible role's refresh. The app calls this about 10 times a second.
+void ui_shell_refresh(void);
+
+// Source status at the right of the top strip, e.g. "SK LIVE".
+void ui_shell_set_status(const char *text, lv_color_t color);
 
 // Current position, for snapshot file names.
 const ui_nav_t *ui_shell_nav(void);
