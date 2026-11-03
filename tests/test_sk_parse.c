@@ -121,6 +121,26 @@ static void test_full_model_sets_self(void) {
   TEST_ASSERT_TRUE(get("q").valid);
 }
 
+static void test_full_model_interns_only_discovery_prefixes(void) {
+  const char *prefixes[] = {"propulsion", NULL};
+  sk_parse_set_discovery_prefixes(prefixes);
+  const char *body = "{\"electrical\":{\"batteries\":{\"house\":{\"voltage\":{\"value\":12.8}}}},"
+                     "\"propulsion\":{\"port\":{\"revolutions\":{\"value\":30}}}}";
+  sk_parse_full(body, strlen(body));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.batteries.house.voltage"));
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, bd_find("propulsion.port.revolutions"));
+  sk_parse_set_discovery_prefixes(NULL);   // back to everything
+}
+
+static void test_full_model_prefix_is_a_whole_segment(void) {
+  const char *prefixes[] = {"propulsion", NULL};
+  sk_parse_set_discovery_prefixes(prefixes);
+  const char *body = "{\"propulsionExtra\":{\"x\":{\"value\":1}}}";
+  sk_parse_full(body, strlen(body));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("propulsionExtra.x"));
+  sk_parse_set_discovery_prefixes(NULL);
+}
+
 static void test_subscribe_json_shape(void) {
   bd_id_t ids[2] = {bd_intern("propulsion.port.revolutions"), bd_intern("tanks.fuel.0.currentLevel")};
   char *s = sk_build_subscribe(ids, 2);
@@ -145,6 +165,8 @@ int main(void) {
   RUN_TEST(test_full_model_interns_leaves);
   RUN_TEST(test_full_model_reads_meta_zones);
   RUN_TEST(test_full_model_sets_self);
+  RUN_TEST(test_full_model_interns_only_discovery_prefixes);
+  RUN_TEST(test_full_model_prefix_is_a_whole_segment);
   RUN_TEST(test_subscribe_json_shape);
   return UNITY_END();
 }

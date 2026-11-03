@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "role.h"
 #include "sk_client.h"
+#include "sk_parse.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -101,6 +102,18 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
 }
 
 void app_start_network(void) {
+  // Discovery keeps only the groups the configured roles read.
+  static const char *prefixes[CFG_MAX_ROLES + 1];
+  uint8_t n_prefix = 0;
+  for (uint8_t i = 0; i < a.count; i++) {
+    const role_def_t *d = a.roles[i].def;
+    bool dup = false;
+    if (!d) continue;
+    for (uint8_t j = 0; j < n_prefix; j++) dup |= !strcmp(prefixes[j], d->instance_prefix);
+    if (!dup) prefixes[n_prefix++] = d->instance_prefix;
+  }
+  prefixes[n_prefix] = NULL;
+  sk_parse_set_discovery_prefixes(prefixes);
   static bd_id_t ids[128];
   size_t n = bound_ids(ids, 128);
   sk_client_init(&a.cfg.sk, ids, n);

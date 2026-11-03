@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "app.h"
+#include "cJSON.h"
+#include "esp_heap_caps.h"
 #include "board.h"
 #include "board_probe.h"
 #include "esp_log.h"
@@ -12,6 +14,9 @@
 
 static const char *TAG = "main";
 static const board_t *board;
+
+// Signal K snapshots can be large; keep JSON parsing out of scarce internal RAM.
+static void *json_alloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
 
 static uint32_t tick_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -87,6 +92,7 @@ void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(5000));
   }
 #endif
+  cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_alloc, .free_fn = heap_caps_free});
   board = board_get();
   ESP_LOGI(TAG, "board %s %ux%u", board->id, board->width, board->height);
   ESP_ERROR_CHECK(board->init());
