@@ -71,7 +71,11 @@ static void on_message(const char *data, size_t len, void *ctx) {
   sk_parse_message(data, len, platform_millis());
 }
 
-static bool subscribe(void) {
+// The server does not dedupe subscriptions on one socket (each repeat doubles every update),
+// so a resubscribe first cancels everything. The connect-time subscribe needs no cancel:
+// the URL says subscribe=none.
+static bool subscribe(bool replace) {
+  if (replace && !sk_ws_send(sk_unsubscribe_all())) return false;
   platform_lock(c.lock);
   char *msg = sk_build_subscribe(c.bound, c.n_bound);
   c.resubscribe = false;
@@ -136,7 +140,7 @@ void sk_client_run_once(void) {
 
   set_state(SK_CONNECTING);
   snprintf(url, sizeof url, "ws://%s:%u/signalk/v1/stream?subscribe=none", host, port);
-  if (sk_ws_connect(url, token, on_message, NULL) && subscribe()) {
+  if (sk_ws_connect(url, token, on_message, NULL) && subscribe(false)) {
     c.attempt = 0;
     set_state(SK_LIVE);
     alerts_source_up(true);
@@ -147,11 +151,11 @@ void sk_client_run_once(void) {
       bool again = c.resubscribe;
       int32_t every = c.rediscover_ms;
       platform_unlock(c.lock);
-      if (again && !subscribe()) break;
+      if (again && !subscribe(true)) break;
       if (!sk_ws_poll(200)) break;
       // Deltas were lost while this task was blocked. Notifications are sent only on
       // change, so a lost one would never come back: resubscribe to get them resent.
-      if (sk_ws_take_overflow() && !subscribe()) break;
+      if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
       if (platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);

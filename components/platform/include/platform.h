@@ -11,7 +11,7 @@
 // back in internal RAM: the boot runs out and the Signal K task never starts. It is in
 // sdkconfig.defaults, but an sdkconfig generated before it was added keeps it off.
 #if !CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
-#error "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY is off: this build dir's sdkconfig predates it. Run `idf.py -B <build dir> fullclean` and build again."
+#error "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY is off: this build dir's sdkconfig predates it. Run `idf.py -B <build dir> fullclean`, then build again with `-D BOARD=<board>`."
 #endif
 #define PLATFORM_EXT_BSS EXT_RAM_BSS_ATTR
 #else

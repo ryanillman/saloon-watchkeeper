@@ -203,6 +203,10 @@ bool sk_parse_full(const char *json, size_t len) {
   return ok;
 }
 
+const char *sk_unsubscribe_all(void) {
+  return "{\"context\":\"*\",\"unsubscribe\":[{\"path\":\"*\"}]}";
+}
+
 char *sk_build_subscribe(const sk_sub_t *subs, size_t n) {
   cJSON *root = cJSON_CreateObject();
   cJSON_AddStringToObject(root, "context", "vessels.self");

@@ -24,6 +24,8 @@ static int post_status = 200;
 static int live_hook;   // 1: queue an ack on the first poll; 2: also check send_failed while live
 static int fail_seen = -1;
 static int sends;
+static int rebind_at_poll;   // sk_client_rebind during this poll (0: never)
+static char sent_log[8][512];
 static int overflow_at_poll;   // sk_ws_take_overflow reports a drop after this poll (0: never)
 static bool overflow_taken;
 
@@ -47,6 +49,7 @@ bool sk_ws_connect(const char *url, const char *token, sk_msg_cb c, void *ctx) {
 
 bool sk_ws_send(const char *text) {
   snprintf(last_sent, sizeof last_sent, "%s", text);
+  if (sends < 8) snprintf(sent_log[sends], sizeof sent_log[0], "%s", text);
   sends++;
   return true;
 }
@@ -54,6 +57,10 @@ bool sk_ws_send(const char *text) {
 bool sk_ws_poll(int timeout_ms) {
   (void)timeout_ms;
   polls++;
+  if (rebind_at_poll && polls == rebind_at_poll) {
+    sk_sub_t one = {bd_intern("propulsion.port.revolutions"), 0};
+    sk_client_rebind(&one, 1);
+  }
   if (polls > 1 && polls <= live_polls) return true;
   if (polls == 1) {
     if (live_hook == 1 || live_hook == 2) {
@@ -108,6 +115,7 @@ void setUp(void) {
   post_status = 200;
   live_hook = 0;
   sends = 0;
+  rebind_at_poll = 0;
   overflow_at_poll = 0;
   overflow_taken = false;
   sk_parse_reset();
@@ -211,14 +219,20 @@ static void test_overflow_resubscribes(void) {   // lost deltas: the server rese
   live_polls = 4;
   overflow_at_poll = 2;
   sk_client_run_once();
-  TEST_ASSERT_EQUAL_INT(2, sends);
-  TEST_ASSERT_NOT_NULL(strstr(last_sent, "propulsion.port.revolutions"));
+  TEST_ASSERT_EQUAL_INT(3, sends);   // connect subscribe, then unsubscribe-all + subscribe
+  TEST_ASSERT_NOT_NULL(strstr(sent_log[0], "propulsion.port.revolutions"));
+  TEST_ASSERT_EQUAL_STRING(sk_unsubscribe_all(), sent_log[1]);
+  TEST_ASSERT_NOT_NULL(strstr(sent_log[2], "propulsion.port.revolutions"));
 }
 
-static void test_no_overflow_subscribes_once(void) {
+static void test_rebind_unsubscribes_first(void) {   // the server does not dedupe repeated subscribes
   live_polls = 4;
+  rebind_at_poll = 2;
   sk_client_run_once();
-  TEST_ASSERT_EQUAL_INT(1, sends);
+  TEST_ASSERT_EQUAL_INT(3, sends);
+  TEST_ASSERT_NULL(strstr(sent_log[0], "unsubscribe"));   // fresh socket: nothing to cancel
+  TEST_ASSERT_EQUAL_STRING(sk_unsubscribe_all(), sent_log[1]);
+  TEST_ASSERT_NOT_NULL(strstr(sent_log[2], "propulsion.port.revolutions"));
 }
 
 int main(void) {
@@ -236,5 +250,6 @@ int main(void) {
   RUN_TEST(test_no_post_after_reconnect_for_dropped_request);
   RUN_TEST(test_overflow_resubscribes);
   RUN_TEST(test_no_overflow_subscribes_once);
+  RUN_TEST(test_rebind_unsubscribes_first);
   return UNITY_END();
 }
