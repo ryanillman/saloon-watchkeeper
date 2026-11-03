@@ -14,6 +14,7 @@ typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<
 typedef struct { char slot[24]; bool has_min, has_max; double min, max; } cfg_override_t;
 typedef struct {
   char role[12];
+  uint8_t src_entry;  // 1-based entry in the file's roles array this came from; 0 = new
   char primary[24];   // power: instance id of the primary battery bank; empty = automatic
   cfg_instance_t inst[8]; uint8_t inst_count;
   cfg_bind_t bind[8]; uint8_t bind_count;
@@ -45,3 +46,14 @@ cfg_origin_t cfg_load(const char *dir, cfg_t *out, cfg_report_t *report);
 bool cfg_save(const char *dir, const cfg_t *cfg);
 
 void cfg_defaults(cfg_t *out);
+
+// Edits dir/config.json at a key path ("sources.signalk.token"). An existing key keeps its
+// type (string; a number must parse; a bool takes true/false); a missing key is created as a
+// string. The result is checked by loading it into *out: on any issue for that path, returns
+// false with *err filled and leaves the file and the cached tree untouched. On success saves
+// (atomic) and returns true with the new config in *out. Runs on the config writer task.
+bool cfg_set(const char *dir, const char *path, const char *text, cfg_t *out, cfg_report_t *err);
+
+// The config last loaded or saved, as pretty JSON with the Wi-Fi password and Signal K token
+// shown as "set (N chars)". Caller frees. NULL if nothing is loaded.
+char *cfg_show(const char *dir);
