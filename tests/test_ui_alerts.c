@@ -298,6 +298,22 @@ static void test_square_offline_clear_of_page_dots(void) {
   lv_display_delete(d);
 }
 
+static void test_palette_switch_restyles_alerts(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  raise("tanks.fuel.0.currentLevel", AL_WARN, "Fuel low");
+  tick(0);
+  lv_obj_t *marker = ui_alerts_part(UI_ALERTS_MARKER);
+  lv_color_t day_banner = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  lv_color_t day_marker = lv_obj_get_style_border_color(marker, 0);
+  TEST_ASSERT_TRUE(lv_color_eq(day_banner, ui_theme_colors(PALETTE_DAY)->alarm));
+  ui_theme_set_current(PALETTE_NIGHT);   // what ui_shell_set_palette does
+  tick(0);
+  const ui_colors_t *n = ui_theme_colors(PALETTE_NIGHT);
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0), n->alarm));
+  TEST_ASSERT_FALSE(lv_color_eq(day_marker, n->warn));
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_border_color(marker, 0), n->warn));
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -322,5 +338,6 @@ int main(void) {
   RUN_TEST(test_field_alert_colour);
   RUN_TEST(test_list_has_a_row_per_alert);
   RUN_TEST(test_square_offline_clear_of_page_dots);
+  RUN_TEST(test_palette_switch_restyles_alerts);
   return UNITY_END();
 }

@@ -1,4 +1,5 @@
 #include "ui_theme.h"
+#include <string.h>
 
 #define C(hex) LV_COLOR_MAKE(((hex) >> 16) & 0xFF, ((hex) >> 8) & 0xFF, (hex) & 0xFF)
 
@@ -22,6 +23,13 @@ static const ui_colors_t palettes[] = {
 const ui_colors_t *ui_theme_colors(palette_t p) {
   if (p > PALETTE_NIGHT) p = PALETTE_DAY;
   return &palettes[p];
+}
+
+palette_t palette_from_env_mode(const char *mode) {
+  if (!mode) return PALETTE_DAY;
+  if (!strcmp(mode, "night")) return PALETTE_NIGHT;
+  if (!strcmp(mode, "dawn") || !strcmp(mode, "dusk")) return PALETTE_DUSK;
+  return PALETTE_DAY;
 }
 
 static palette_t current = PALETTE_DAY;

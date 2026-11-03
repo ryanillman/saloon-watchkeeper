@@ -101,7 +101,7 @@ static esp_err_t backlight(uint8_t percent) {
 }
 
 static const board_t lcd7b = {
-  .id = "lcd7b", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false,
+  .id = "lcd7b", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false, .backlight_dims = true,
   .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL,
 };
 

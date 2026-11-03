@@ -3,6 +3,7 @@
 #include "ui_alerts.h"
 #include <stdio.h>
 #include <string.h>
+#include "ui_quick.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -185,6 +186,7 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
     k.role = u.role_of ? u.role_of(a->id) : -1;
   }
   if (!memcmp(&k, &u.bkey, sizeof k)) return;
+  if (k.shown && !u.bkey.shown) ui_quick_close();   // the quick panel sits above the banner, so a new alarm closes it
   u.bkey = k;
 
   show(u.banner, k.shown);
@@ -221,6 +223,7 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
 
 static void on_marker(lv_event_t *e) {
   (void)e;
+  ui_quick_close();
   u.list_open = true;
   u.list_dirty = true;
   show(u.list, true);

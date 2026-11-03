@@ -12,7 +12,8 @@ foreach(f sim480/day/engine-p0-live.png sim1024/night/anchor-p0.png sim800/dusk/
         sim1024/day/tanks-p0-fault.png
         sim480/day/power-p0-live.png sim800/day/power-p0-fault.png sim1024/dusk/power-p1-live.png
         sim800/night/power-p2-live.png
-        sim480/day/engine-p0-alarm.png sim800/night/engine-p0-alarm-long.png sim1024/day/alerts-list.png)
+        sim480/day/engine-p0-alarm.png sim800/night/engine-p0-alarm-long.png sim1024/day/alerts-list.png
+        sim800/day/quick-panel.png sim480/night/quick-panel.png)
   if(NOT EXISTS ${OUT}/${f})
     message(FATAL_ERROR "missing ${f}")
   endif()

@@ -10,6 +10,7 @@ typedef struct {
   uint16_t width, height;
   size_class_t size_class;
   bool has_buzzer;
+  bool backlight_dims;                         // false: backlight() is on/off only (any percent above 0 is on)
   esp_err_t (*init)(void);                     // panel, touch, expander, SD at /sdcard
   lv_display_t *(*lvgl_display)(void);         // after init and lv_init
   esp_err_t (*backlight)(uint8_t percent);     // 0 = off

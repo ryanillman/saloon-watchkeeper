@@ -43,5 +43,10 @@ lv_obj_t *ui_shell_strip(void);
 lv_obj_t *ui_shell_status(void);
 lv_obj_t *ui_shell_dots(void);
 
+// A tap on the left part of the top strip (the role name) calls `fn`; NULL clears it.
+// The alert marker on the right keeps its own tap. The object is invisible, for tests.
+void ui_shell_set_strip_tap(void (*fn)(void));
+lv_obj_t *ui_shell_strip_tap(void);
+
 // Shows `text` in the status label in place of the app's status until called with NULL.
 void ui_shell_set_status_override(const char *text, lv_color_t color);
