@@ -35,6 +35,8 @@ static void tick(int64_t now) {
   lv_refr_now(NULL);
 }
 
+static void click(ui_alerts_part_t p) { lv_obj_send_event(ui_alerts_part(p), LV_EVENT_CLICKED, NULL); }
+
 void setUp(void) {
   ui_theme_set_current(PALETTE_DAY);
   alerts_init();
@@ -113,13 +115,36 @@ static void test_banner_flashes_until_acked(void) {
   tick(500);
   lv_color_t off = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
   TEST_ASSERT_FALSE(lv_color_eq(on, off));
-  alerts_request("propulsion.port.temperature", AL_REQ_ACK);
-  tick(500);
-  lv_color_t a1 = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_acked_text());
+}
+
+static void test_acked_alarm_leaves_banner_for_bell(void) {
+  raise("a.one", AL_ALARM, "One");
   tick(0);
-  lv_color_t a2 = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
-  TEST_ASSERT_TRUE(lv_color_eq(a1, a2));
-  TEST_ASSERT_TRUE(lv_color_eq(a1, ui_theme()->alarm));
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());
+  alerts_request("a.one", AL_REQ_ACK);
+  tick(500);
+  TEST_ASSERT_FALSE(ui_alerts_banner_visible());
+  TEST_ASSERT_NOT_EQUAL(0, strlen(ui_alerts_acked_text()));
+  TEST_ASSERT_NOT_NULL(strstr(ui_alerts_acked_text(), "1"));
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_marker_text());   // not counted as an alert/warn
+  click(UI_ALERTS_ACKED_MARKER);   // opens the same list, which still lists the alarm
+  tick(600);
+  TEST_ASSERT_TRUE(ui_alerts_list_visible());
+  TEST_ASSERT_EQUAL(1, ui_alerts_list_rows());
+  click(UI_ALERTS_CLOSE);
+  alerts_clear("a.one");
+  tick(700);
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_acked_text());
+}
+
+static void test_banner_moves_to_next_unacked_alarm(void) {
+  raise("a.one", AL_ALARM, "One");
+  raise("a.two", AL_ALARM, "Two");
+  alerts_request("a.one", AL_REQ_ACK);
+  tick(0);
+  TEST_ASSERT_EQUAL_STRING("Two", ui_alerts_banner_text());
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_corner_text());   // only one still needs attention
 }
 
 static void test_ack_not_sent_replaces_count(void) {
@@ -330,7 +355,6 @@ static void test_palette_switch_restyles_alerts(void) {
   TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_border_color(marker, 0), n->warn));
 }
 
-static void click(ui_alerts_part_t p) { lv_obj_send_event(ui_alerts_part(p), LV_EVENT_CLICKED, NULL); }
 
 static void test_double_tap_acks_only_the_first_alarm(void) {
   raise("a.one", AL_ALARM, "One");
@@ -403,6 +427,8 @@ int main(void) {
   RUN_TEST(test_ack_button_requests_ack);
   RUN_TEST(test_silence_button_requests_silence);
   RUN_TEST(test_banner_flashes_until_acked);
+  RUN_TEST(test_acked_alarm_leaves_banner_for_bell);
+  RUN_TEST(test_banner_moves_to_next_unacked_alarm);
   RUN_TEST(test_ack_not_sent_replaces_count);
   RUN_TEST(test_long_message_keeps_buttons_visible);
   RUN_TEST(test_field_alert_tints_background);
