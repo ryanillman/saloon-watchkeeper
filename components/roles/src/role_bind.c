@@ -6,7 +6,8 @@
 
 extern const role_def_t role_engine;
 extern const role_def_t role_tanks;
-static const role_def_t *const ROLES[] = {&role_engine, &role_tanks};
+extern const role_def_t role_power;
+static const role_def_t *const ROLES[] = {&role_engine, &role_power, &role_tanks};
 
 const role_def_t *role_find(const char *name) {
   for (size_t i = 0; i < sizeof ROLES / sizeof ROLES[0]; i++)
@@ -81,8 +82,12 @@ static uint8_t discover(const role_def_t *d, const role_group_t *g, const cfg_ro
 static const char *explicit_bind(const role_def_t *d, const role_group_t *g, const cfg_role_t *c, const char *inst,
                                  const char *slot) {
   char ik[48], key[80];
-  config_key(d, g, inst, ik, sizeof ik);
-  snprintf(key, sizeof key, "%s.%s", ik, slot);
+  if (inst[0]) {
+    config_key(d, g, inst, ik, sizeof ik);
+    snprintf(key, sizeof key, "%s.%s", ik, slot);
+  } else {   // depth 0: "<group>.<slot>"
+    snprintf(key, sizeof key, "%s.%s", g->name, slot);
+  }
   for (uint8_t i = 0; c && i < c->bind_count; i++)
     if (strcmp(c->bind[i].slot, key) == 0) return c->bind[i].path;
   return NULL;
@@ -93,10 +98,11 @@ static bd_id_t bind_slot(const role_def_t *d, const role_group_t *g, const role_
   const char *exp = explicit_bind(d, g, c, inst, s->slot);
   if (exp) return bd_intern(exp);
   char primary[128], fallback[128];
-  snprintf(primary, sizeof primary, "%s.%s.%s", g->prefix, inst, s->suffix);
+  const char *dot = inst[0] ? "." : "";   // depth 0: no instance segment
+  snprintf(primary, sizeof primary, "%s.%s%s%s", g->prefix, inst, dot, s->suffix);
   if (bd_find(primary) != BD_NONE) return bd_find(primary);
   if (s->fallback) {
-    snprintf(fallback, sizeof fallback, "%s.%s.%s", g->prefix, inst, s->fallback);
+    snprintf(fallback, sizeof fallback, "%s.%s%s%s", g->prefix, inst, dot, s->fallback);
     if (bd_find(fallback) != BD_NONE) return bd_find(fallback);
   }
   return bd_intern(primary);   // so a later delta can fill it
@@ -123,6 +129,15 @@ static void bind_group(const role_def_t *d, const role_group_t *g, const cfg_rol
   bool placeholder = false;
   uint8_t cap = max_inst(g);
   size_t nl = multi(d) ? strlen(g->name) : 0;
+  if (g->id_depth == 0) {   // one fixed path set, no instance id and no discovery
+    b->inst_count = 1;
+    snprintf(b->inst_label[0], sizeof b->inst_label[0], "%s", g->name);
+    for (uint8_t k = 0; k < g->slot_count && k < ROLE_MAX_SLOTS; k++) {
+      b->ids[0][k] = bind_slot(d, g, &g->slots[k], c, "");
+      bind_range(&g->slots[k], c, u, b->ids[0][k], &b->min[0][k], &b->max[0][k]);
+    }
+    return;
+  }
   for (uint8_t i = 0; c && i < c->inst_count && b->inst_count < cap; i++) {
     const char *id = c->inst[i].id;
     if (multi(d)) {   // only this group's pinned instances

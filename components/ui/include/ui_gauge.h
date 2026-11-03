@@ -33,6 +33,8 @@ void ui_strip_set_off(lv_obj_t *strip);                 // dim "OFF", no pointer
 
 lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *unit, uint8_t decimals);
 void ui_readout_set(lv_obj_t *readout, double value, bool valid);
+// Shows a string instead of a number (a charging mode, "1:30"); empty or !valid flags the field.
+void ui_readout_set_text(lv_obj_t *readout, const char *text, bool valid);
 
 // Queries, for pages and tests.
 bool ui_field_faulted(lv_obj_t *field);          // the whole field is flagged

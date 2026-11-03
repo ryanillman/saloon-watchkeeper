@@ -78,6 +78,7 @@
             "description": "Explicit paths: { \"port.coolant\": \"propulsion.port.exhaustTemperature\" }",
             "additionalProperties": { "type": "string" }
           },
+          "primary": { "type": "string", "description": "power role only: instance id of the primary battery bank, e.g. \"279\". Default: the first bank that reports a state of charge" },
           "exclude": { "type": "array", "items": { "type": "string" }, "description": "Instance ids to hide" }
         }
       }

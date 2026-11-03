@@ -9,7 +9,7 @@ ctest --test-dir build/sim --output-on-failure
 tools/check-layering.sh
 ```
 
-`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed.
+`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid).
 
 ## Against a real Signal K server
 
@@ -43,6 +43,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `key-off` after 5 s | Starboard dim `OFF` (no crosses), hours still shown; port live |
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | `tanks` after 20 s | Five tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
+| `victron-power` | Power Summary: IN grows with the solar ramp, `SHORE` marker, BATTERY and SOC live, LOAD = IN - BATTERY. After 30 s the battery discharges and Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `IN FAIL` and `LOAD FAIL`, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. The paths are the signalk-venus defaults and may change after the Cerbo capture |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 

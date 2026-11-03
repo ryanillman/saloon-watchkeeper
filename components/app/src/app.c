@@ -126,8 +126,8 @@ void app_start_network(void) {
   }
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
-  static bd_id_t ids[128];
-  size_t n = bound_ids(ids, 128);
+  static bd_id_t ids[256];
+  size_t n = bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
   sk_client_start();
   a.network = true;
@@ -154,8 +154,8 @@ void app_tick(void) {
       a.discoveries = d;
       if (instances_changed()) {   // rebuild only when there is something new to show
         app_bind();
-        static bd_id_t ids[128];
-        sk_client_rebind(ids, bound_ids(ids, 128));
+        static bd_id_t ids[256];
+        sk_client_rebind(ids, bound_ids(ids, 256));
         ui_shell_rebuild();
       }
     }

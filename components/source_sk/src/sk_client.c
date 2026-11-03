@@ -6,7 +6,7 @@
 #include "sk_parse.h"
 #include "sk_transport.h"
 
-#define MAX_BOUND 128
+#define MAX_BOUND 256
 
 static struct {
   cfg_sk_t cfg;

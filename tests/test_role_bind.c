@@ -185,6 +185,38 @@ static void test_multi_group_pinned_and_bind_keys_are_prefixed(void) {
   TEST_ASSERT_EQUAL_UINT8(1, b2.g[0].inst_count);   // alpha has no pinned instance: placeholder
 }
 
+static void test_power_groups_bind(void) {
+  const role_def_t *pw = role_find("power");
+  TEST_ASSERT_NOT_NULL(pw);
+  TEST_ASSERT_EQUAL_UINT8(3, pw->page_count);
+  bd_intern("electrical.batteries.279.voltage");
+  bd_intern("electrical.solar.288.panelPower");
+  bd_intern("electrical.chargers.276.current");
+  role_binding_t pb;
+  strcpy(rc.role, "power");
+  role_bind(pw, &rc, &cfg.units, &pb);
+  TEST_ASSERT_EQUAL_STRING("battery", pw->groups[0].name);
+  TEST_ASSERT_EQUAL_STRING("279", pb.g[0].inst_id[0]);
+  TEST_ASSERT_EQUAL_STRING("288", pb.g[1].inst_id[0]);
+  TEST_ASSERT_EQUAL_STRING("276", pb.g[2].inst_id[0]);
+  for (int g = 3; g < 6; g++) {   // inverter, dcdc, alternator found nothing
+    TEST_ASSERT_EQUAL_UINT8(1, pb.g[g].inst_count);
+    TEST_ASSERT_EQUAL(BD_NONE, pb.g[g].ids[0][0]);
+  }
+  TEST_ASSERT_EQUAL_STRING("electrical.solar.288.panelPower", bd_path(pb.g[1].ids[0][2]));
+}
+
+static void test_depth_zero_group(void) {
+  const role_def_t *pw = role_find("power");
+  role_binding_t pb;
+  strcpy(rc.role, "power");
+  role_bind(pw, &rc, &cfg.units, &pb);
+  TEST_ASSERT_EQUAL_UINT8(1, pb.g[6].inst_count);
+  TEST_ASSERT_EQUAL_STRING("", pb.g[6].inst_id[0]);
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, pb.g[6].ids[0][0]);
+  TEST_ASSERT_EQUAL_STRING("electrical.venus.dcPower", bd_path(pb.g[6].ids[0][0]));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_discovers_two_engines_sorted);
@@ -200,5 +232,7 @@ int main(void) {
   RUN_TEST(test_binding_same_detects_new_instance_in_second_group);
   RUN_TEST(test_placeholder_per_group);
   RUN_TEST(test_multi_group_pinned_and_bind_keys_are_prefixed);
+  RUN_TEST(test_power_groups_bind);
+  RUN_TEST(test_depth_zero_group);
   return UNITY_END();
 }

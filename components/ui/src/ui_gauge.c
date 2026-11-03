@@ -21,6 +21,7 @@ typedef struct {
   bool valid[2];
   bool off[2];                   // engine off: shown dim, not as a fault
   bool vertical;
+  bool text_mode;                // readout showing a string (ui_readout_set_text)
   char text[2][24];
   lv_obj_t *fault;               // overlay: red cross and "<LABEL> FAIL"
   lv_obj_t *fault_label;
@@ -456,8 +457,15 @@ static void draw_readout(lv_event_t *e) {
   const lv_font_t *lf = font_for(h / 4), *vf = font_for(h * 6 / 10);
   text_at(layer, g->name, lf, c->dim, a.x1 + 4, a.y1 + lv_font_get_line_height(lf) / 2, LV_TEXT_ALIGN_LEFT);
   if (!g->valid[0]) return;
-  char v[40];
-  snprintf(v, sizeof v, "%s %s", g->text[0], g->unit);
+  char v[48];
+  if (g->text_mode) snprintf(v, sizeof v, "%s", g->text[0]);
+  else snprintf(v, sizeof v, "%s %s", g->text[0], g->unit);
+  // A value wider than the field steps down to a smaller font rather than running off it.
+  static const lv_font_t *const steps[] = {&lv_font_montserrat_48, &lv_font_montserrat_28, &lv_font_montserrat_20,
+                                           &lv_font_montserrat_14};
+  size_t s0 = 0;
+  while (s0 < 3 && steps[s0] != vf) s0++;
+  for (size_t k = s0; k < 3 && lv_text_get_width(v, strlen(v), vf, 0) + 8 > lv_area_get_width(&a); k++) vf = steps[k + 1];
   text_at(layer, v, vf, c->fg, a.x1 + 4, a.y2 - lv_font_get_line_height(vf) / 2, LV_TEXT_ALIGN_LEFT);
 }
 
@@ -478,6 +486,18 @@ void ui_readout_set(lv_obj_t *o, double v, bool valid) {
   g->value[0] = v;
   g->valid[0] = valid && isfinite(v);
   format(g, 0);
+  sync_fault(o);
+}
+
+void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
+  gauge_t *g = G(o);
+  valid = valid && text && text[0];
+  char next[sizeof g->text[0]] = "";
+  if (valid) snprintf(next, sizeof next, "%s", text);
+  if (g->text_mode && g->valid[0] == valid && strcmp(next, g->text[0]) == 0) return;
+  g->text_mode = true;
+  g->valid[0] = valid;
+  memcpy(g->text[0], next, sizeof next);
   sync_fault(o);
 }
 

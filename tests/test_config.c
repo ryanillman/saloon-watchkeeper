@@ -216,6 +216,20 @@ static void test_long_unit_value_not_truncated_into_a_valid_one(void) {
   TEST_ASSERT_EQUAL_STRING("units.pressure", r.issues[0].key_path);
 }
 
+static void test_power_primary_round_trip(void) {
+  write_file("config.json",
+    "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", \"x-note\": \"keep\" } ] }\n");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_STRING("279", c.roles[0].primary);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_t d;
+  cfg_load(dir, &d, &r);
+  TEST_ASSERT_EQUAL_STRING("279", d.roles[0].primary);
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_minimal_file_loads);
@@ -231,5 +245,6 @@ int main(void) {
   RUN_TEST(test_save_from_defaults_creates_file);
   RUN_TEST(test_unknown_unit_reported_and_defaulted);
   RUN_TEST(test_long_unit_value_not_truncated_into_a_valid_one);
+  RUN_TEST(test_power_primary_round_trip);
   return UNITY_END();
 }

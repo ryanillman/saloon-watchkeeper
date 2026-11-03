@@ -79,6 +79,16 @@ static void test_strip_invalid_then_valid(void) {
   TEST_ASSERT_EQUAL_STRING("3.0", ui_strip_text(s));
 }
 
+static void test_readout_text_shows_string_and_flags_when_invalid(void) {
+  lv_obj_t *r = ui_readout_create(scr, "MODE", "", 0);
+  ui_readout_set_text(r, "BULK", true);
+  TEST_ASSERT_FALSE(ui_field_faulted(r));
+  TEST_ASSERT_EQUAL_STRING("BULK", ui_readout_text(r));
+  ui_readout_set_text(r, "", false);
+  TEST_ASSERT_TRUE(ui_field_faulted(r));
+  TEST_ASSERT_EQUAL_STRING("MODE FAIL", ui_field_fault_text(r));
+}
+
 static void test_readout_invalid_has_no_digits(void) {
   lv_obj_t *r = ui_readout_create(scr, "HOURS", "h", 1);
   ui_readout_set(r, 0, false);
@@ -171,6 +181,7 @@ int main(void) {
   RUN_TEST(test_dial_off_is_not_a_fault);
   RUN_TEST(test_dial_one_off_one_running);
   RUN_TEST(test_strip_off_is_not_a_fault);
+  RUN_TEST(test_readout_text_shows_string_and_flags_when_invalid);
   RUN_TEST(test_unchanged_value_does_not_redraw);
   return UNITY_END();
 }
