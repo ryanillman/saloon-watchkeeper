@@ -108,6 +108,14 @@ bool sk_ws_connect(const char *url, const char *token, sk_msg_cb cb, void *ctx) 
     .buffer_size = 4096,
     .disable_auto_reconnect = true,   // the client owns reconnects and invalidation
     .network_timeout_ms = 10000,
+    // A connection that dies without a FIN (Wi-Fi drop, AP reboot, frozen host)
+    // must not leave the glass reading "SK LIVE" for minutes.
+    .ping_interval_sec = 5,
+    .pingpong_timeout_sec = 15,
+    .keep_alive_enable = true,
+    .keep_alive_idle = 5,
+    .keep_alive_interval = 5,
+    .keep_alive_count = 3,
   };
   ws.h = esp_websocket_client_init(&cfg);
   if (!ws.h) return false;
