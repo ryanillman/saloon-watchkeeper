@@ -19,6 +19,7 @@ bi_test(test_role_bind roles)
 bi_test(test_engine_state roles)
 bi_test(test_power_calc roles)
 bi_test(test_tanks roles ui)
+bi_test(test_alerts alerts platform)
 
 add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap
