@@ -65,7 +65,7 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 | `key-off` | PASS: starboard `OFF` without crosses, hours 1221.0 h shown, port live |
 | `controller-dropout` | PASS: every port field flagged, starboard live |
 | `tanks` | PASS: five tanks, `FRESH 2` `LEVEL FAIL`, only `FUEL` has a volume line (110 L) |
-| `victron-power` | PASS, but only with a scratch fix (see below). Summary IN 658 W, BATTERY 161 W, LOAD 497 W, SOC 82 %, `SHORE`; Batteries `CHARGING` then `4:00` after 30 s; after 45 s `IN FAIL`, `LOAD FAIL`, BATTERY and SOC live, Charging solar `WATTS FAIL` and `AMPS FAIL` |
+| `victron-power` | PASS (after the discovery fix). Summary IN 658 W, BATTERY 161 W, LOAD 497 W, SOC 82 %, `SHORE`; Batteries `CHARGING` then `4:00` after 30 s; after 45 s `IN FAIL`, `LOAD FAIL`, BATTERY and SOC live, Charging solar `WATTS FAIL` and `AMPS FAIL` |
 | `alarm-coolant` at 10 s | PASS: red banner flashing, `Port coolant high`, ACK, SILENCE, GO; port coolant value red; notification on the server |
 | `alarm-coolant`, ACK | PASS: banner steady red; server `acknowledged: true`, `method: []` |
 | `alarm-coolant`, SILENCE | PASS: server `silenced: true`, `sound` dropped from `method` |
@@ -75,7 +75,7 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 | Server stopped | PASS: `SK OFFLINE`, every field flagged within 2 s |
 | Server restarted | PASS: `SK LIVE`, fields live again |
 
-**Power discovery bug (open):** with the committed code every Power field is flagged against the real server. `wanted()` in `components/source_sk/src/sk_parse.c` compares the top-level segment (`electrical`) with two-segment prefixes (`electrical.batteries`) and skips the whole group, so instances (`279`, `288`, ...) are never discovered. The Power rows above passed with a scratch change that also accepts a top-level segment that is the start of a prefix.
+**Power discovery bug (fixed):** `wanted()` in `components/source_sk/src/sk_parse.c` used to compare only the top-level segment with multi-segment prefixes, so no Power instance was discovered. It now matches on segment boundaries and descends into ancestors of a prefix. Re-run against the server: IN 668 W, BATTERY 161 W, LOAD 507 W, SOC 82 %, `SHORE` marker, no FAIL, with the committed code.
 
 Notes for repeat runs: kill the injector only after its clear event, or write `null` to the notification paths first. The server keeps a notification's acknowledged state when the same alarm is rewritten, and answers a second acknowledge with HTTP 400 `Alarm already acknowledged!`. `GET /signalk/v2/api/notifications` also keeps stale entries for cleared paths.
 

@@ -11,12 +11,23 @@ static const char *const *discovery_prefixes;   // NULL = everything
 
 void sk_parse_set_discovery_prefixes(const char *const *p) { discovery_prefixes = p; }
 
+// A path is under a prefix when it equals it or continues past a '.' boundary.
 static bool wanted(const char *path) {
   if (!discovery_prefixes) return true;
   for (size_t i = 0; discovery_prefixes[i]; i++) {
     size_t n = strlen(discovery_prefixes[i]);
     if (!strncmp(path, discovery_prefixes[i], n) && (path[n] == '.' || path[n] == 0)) return true;
   }
+  return false;
+}
+
+// A node worth descending into: wanted itself, or a proper ancestor of a prefix
+// ("electrical" for "electrical.batteries").
+static bool worth_descending(const char *path) {
+  if (wanted(path)) return true;
+  size_t n = strlen(path);
+  for (size_t i = 0; discovery_prefixes[i]; i++)
+    if (!strncmp(discovery_prefixes[i], path, n) && discovery_prefixes[i][n] == '.') return true;
   return false;
 }
 
@@ -157,11 +168,12 @@ static void walk(const cJSON *node, char *path, size_t len, size_t cap) {
     if (!cJSON_IsObject(child) || !child->string) continue;
     size_t n = (size_t)snprintf(path + len, cap - len, "%s%s", len ? "." : "", child->string);
     if (len + n >= cap) continue;
-    if (len == 0 && !wanted(path)) {   // a whole top-level group no role reads
+    bool leaf = cJSON_GetObjectItem(child, "value") != NULL;
+    if (discovery_prefixes && !(leaf ? wanted(path) : worth_descending(path))) {   // subtree no role reads
       path[len] = 0;
       continue;
     }
-    if (cJSON_GetObjectItem(child, "value")) {
+    if (leaf) {
       bd_id_t id = bd_intern(path);
       if (id != BD_NONE) store_meta(id, cJSON_GetObjectItem(child, "meta"));
     } else {
