@@ -63,7 +63,7 @@ static esp_err_t init(void) {
     .data_width = 16,
     .bits_per_pixel = 16,
     .num_fbs = 2,
-    .bounce_buffer_size_px = W * 10,
+    .bounce_buffer_size_px = W * 20,   // headroom against PSRAM contention from Wi-Fi
     .hsync_gpio_num = 46, .vsync_gpio_num = 3, .de_gpio_num = 5, .pclk_gpio_num = 7,
     .disp_gpio_num = GPIO_NUM_NC,
     // B3-B7, G2-G7, R3-R7
