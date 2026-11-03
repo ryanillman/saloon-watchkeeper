@@ -7,6 +7,8 @@ endfunction()
 
 bi_test(test_platform platform)
 bi_test(test_ui_nav ui)
+bi_test(test_ui_scale ui)
+bi_test(test_ui_widgets ui)
 bi_test(test_sim_boards sim_boards)
 bi_test(test_boatdata boatdata)
 bi_test(test_config config)

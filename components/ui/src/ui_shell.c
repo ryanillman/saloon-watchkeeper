@@ -9,6 +9,7 @@ static struct {
 } s;
 
 static void apply_palette(void) {
+  ui_theme_set_current(s.pal);
   const ui_colors_t *c = ui_theme_colors(s.pal);
   lv_obj_set_style_bg_color(s.screen, c->bg, 0);
   lv_obj_set_style_text_color(s.screen, c->fg, 0);

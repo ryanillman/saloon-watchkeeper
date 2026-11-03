@@ -9,3 +9,7 @@ typedef struct {
 } ui_colors_t;
 
 const ui_colors_t *ui_theme_colors(palette_t p);
+
+// The palette in use; the shell sets it, widgets draw with it.
+void ui_theme_set_current(palette_t p);
+const ui_colors_t *ui_theme(void);

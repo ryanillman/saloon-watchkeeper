@@ -23,3 +23,8 @@ const ui_colors_t *ui_theme_colors(palette_t p) {
   if (p > PALETTE_NIGHT) p = PALETTE_DAY;
   return &palettes[p];
 }
+
+static palette_t current = PALETTE_DAY;
+
+void ui_theme_set_current(palette_t p) { current = p; }
+const ui_colors_t *ui_theme(void) { return ui_theme_colors(current); }
