@@ -1,0 +1,22 @@
+# Checks bi_component against IDF's early requirements pass, where
+# idf_component_register is a macro that sets variables and calls return().
+set(ESP_PLATFORM 1)
+macro(idf_component_register)
+  cmake_parse_arguments(_ "" "" "SRCS;INCLUDE_DIRS;REQUIRES;PRIV_REQUIRES" ${ARGN})
+  set(__component_requires "${__REQUIRES}")
+  set(__component_registered 1)
+  return()
+endmacro()
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/components.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/fake_component.cmake)
+
+if(NOT __component_registered)
+  message(FATAL_ERROR "registration not visible in the component's scope")
+endif()
+if(after_register_ran)
+  message(FATAL_ERROR "return() did not leave the component file")
+endif()
+if(NOT "esp_timer" IN_LIST __component_requires OR NOT "lvgl" IN_LIST __component_requires)
+  message(FATAL_ERROR "IDF requires should be lvgl;esp_timer, got '${__component_requires}'")
+endif()
+message(STATUS "bi_component IDF pass OK")

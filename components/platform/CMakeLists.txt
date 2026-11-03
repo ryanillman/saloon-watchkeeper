@@ -3,4 +3,5 @@ bi_component(NAME platform
   INCLUDE_DIRS include
   LINUX_SRCS src/platform_linux.c
   ESP_SRCS src/platform_esp.c
+  ESP_REQUIRES esp_timer
   LINUX_LIBS pthread)
