@@ -6,12 +6,13 @@
 #include <string.h>
 #include "role.h"
 #include "tanks.h"
+#include "platform.h"
 #include "ui_gauge.h"
 
 enum { S_LEVEL, S_VOLUME, S_CAPACITY };
 #define PER_SQUARE_PAGE 4
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   uint8_t first, count;   // tanks on this page: b->g[0] indices first .. first+count-1
   lv_obj_t *strip[ROLE_MAX_INST];
   lv_obj_t *vol[ROLE_MAX_INST];

@@ -18,7 +18,7 @@ typedef struct {
   char title[16];
 } app_role_t;
 
-static struct {
+PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   cfg_t cfg;
   app_role_t *roles;   // calloc'd once in app_init: lands in PSRAM on the boards
   ui_role_view_t views[CFG_MAX_ROLES];
@@ -203,7 +203,7 @@ static void apply_backlight(void) {
 
 static void rebind_subs(void) {
   if (!a.network) return;
-  static sk_sub_t ids[256];
+  PLATFORM_EXT_BSS static sk_sub_t ids[256];
   sk_client_rebind(ids, bound_ids(ids, 256));
 }
 
@@ -292,7 +292,7 @@ void app_start_network(void) {
   }
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
-  static sk_sub_t ids[256];
+  PLATFORM_EXT_BSS static sk_sub_t ids[256];
   size_t n = bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
   sk_client_start();
@@ -320,7 +320,7 @@ void app_tick(void) {
       a.discoveries = d;
       if (instances_changed()) {   // rebuild only when there is something new to show
         app_bind();
-        static sk_sub_t ids[256];
+        PLATFORM_EXT_BSS static sk_sub_t ids[256];
         sk_client_rebind(ids, bound_ids(ids, 256));
         ui_shell_rebuild();
       }
@@ -336,7 +336,7 @@ void app_tick(void) {
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   ui_shell_refresh();
 
-  static alerts_snapshot_t snap;   // 2 KB: off the UI task stack
+  PLATFORM_EXT_BSS static alerts_snapshot_t snap;   // 2 KB: off the UI task stack
   int64_t now = platform_millis();
   alerts_snapshot(&snap);
   ui_alerts_update(&snap, now);

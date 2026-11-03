@@ -96,3 +96,7 @@ Waveshare 7B wiki: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7B. Schemat
 - All three use the `esp_lcd` RGB panel driver with PSRAM framebuffers and bounce buffers. On the 7" boards this is what prevents drift and tearing while Wi-Fi is busy.
 - On the 7" boards, enabling CAN for NMEA 2000 disables native USB. Flashing and logs then go through the UART port. Ship NMEA 2000 as a config choice, never as a default.
 - `ARDUINO_USB_CDC_ON_BOOT`-style console routing is a per-board setting, not a shared default. Each 7" board has a separate UART Type-C port.
+
+## Internal RAM
+
+Internal RAM is the scarce resource on these boards, not PSRAM. The RGB panel's two 20-line bounce buffers must be DMA-capable internal RAM: about 80 KB on the 7B (1024 × 20 px × 2 bytes × 2), less on the others. Wi-Fi and every task stack also come from internal RAM. On 2026-11-03 the 7B ran out at boot, and the Signal K task was never created, so the display never connected. Large static buffers now go to PSRAM: tag a zero-initialised static with `PLATFORM_EXT_BSS` (from `platform.h`) unless an ISR or a DMA engine touches it. Check the boot log line `RAM after start: internal free …, largest block …; PSRAM free …` after a change that adds memory. A task that cannot be created logs its name, stack size, and the internal free and largest block.

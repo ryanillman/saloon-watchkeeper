@@ -4,12 +4,13 @@
 #include <string.h>
 #include "engine_state.h"
 #include "role.h"
+#include "platform.h"
 #include "ui_gauge.h"
 
 enum { S_RPM, S_COOLANT, S_OIL, S_VOLTS, S_HOURS, S_FUEL, S_STATE };   // order of slots in role_engine.c
 static const uint8_t DECIMALS[] = {0, 0, 1, 1, 1, 1, 0};
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   uint8_t page;
   lv_obj_t *dial;
   lv_obj_t *w[ROLE_MAX_INST][ROLE_MAX_SLOTS];

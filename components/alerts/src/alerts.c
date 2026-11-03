@@ -12,7 +12,7 @@ typedef struct {
 typedef struct { char id[64]; alert_req_t req; } req_t;
 
 static void *lock;
-static entry_t list[ALERTS_MAX];
+PLATFORM_EXT_BSS static entry_t list[ALERTS_MAX];
 static uint8_t count;
 static bool source_up;
 static req_t queue[QUEUE_MAX];

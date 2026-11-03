@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include "platform.h"
 #include "power_page.h"
 
 #define CHARGE_GROUPS 4
@@ -14,7 +15,7 @@ static const char *const GROUP_LABEL[] = {"BATTERY", "SOLAR", "CHARGER", "INVERT
 static int built_page = -1;
 #define RENT 12   // charging rows that can exist: 4 + 4 + 2 + 2
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   uint8_t n;
   uint8_t idx[ROLE_MAX_INST];
   lv_obj_t *v[ROLE_MAX_INST], *a[ROLE_MAX_INST], *w[ROLE_MAX_INST], *soc[ROLE_MAX_INST], *ttg[ROLE_MAX_INST];
