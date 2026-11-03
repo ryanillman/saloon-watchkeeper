@@ -507,6 +507,8 @@ void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
   sync_fault(o);
 }
 
+void ui_field_set_fault_text(lv_obj_t *o, const char *text) { lv_label_set_text(G(o)->fault_label, text); }
+
 void ui_field_set_alert(lv_obj_t *o, uint8_t state) {
   gauge_t *g = G(o);
   if (state > 4) state = 4;

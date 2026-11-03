@@ -112,6 +112,15 @@ static void test_fault_label_text(void) {
   TEST_ASSERT_EQUAL_STRING("COOLANT FAIL", ui_field_fault_text(r));
 }
 
+static void test_fault_text_override(void) {   // the Power Summary's DC LOAD flags as LOAD FAIL
+  lv_obj_t *r = ui_readout_create(scr, "DC LOAD", "W", 0);
+  ui_field_set_fault_text(r, "LOAD FAIL");
+  ui_readout_set(r, 0, false);
+  render();
+  TEST_ASSERT_TRUE(ui_field_faulted(r));
+  TEST_ASSERT_EQUAL_STRING("LOAD FAIL", ui_field_fault_text(r));
+}
+
 static void test_dial_off_is_not_a_fault(void) {
   lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
   ui_dial_set_off(d, 0);
@@ -182,6 +191,7 @@ int main(void) {
   RUN_TEST(test_dial_one_off_one_running);
   RUN_TEST(test_strip_off_is_not_a_fault);
   RUN_TEST(test_readout_text_shows_string_and_flags_when_invalid);
+  RUN_TEST(test_fault_text_override);
   RUN_TEST(test_unchanged_value_does_not_redraw);
   return UNITY_END();
 }
