@@ -1,5 +1,6 @@
 #pragma once
 // Signal K JSON → boatdata. Pure: no I/O.
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "boatdata.h"
@@ -18,7 +19,7 @@ void sk_parse_message(const char *json, size_t len, int64_t now_ms);
 
 // The REST body of /signalk/v1/api/vessels/self: interns every leaf path and
 // stores its meta. Values are left to the stream.
-void sk_parse_full(const char *json, size_t len);
+bool sk_parse_full(const char *json, size_t len);   // false if not a JSON object
 
 // {"context":"vessels.self","subscribe":[{"path":...,"policy":"instant"},...]}; caller frees.
 char *sk_build_subscribe(const bd_id_t *ids, size_t n);

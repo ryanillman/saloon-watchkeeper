@@ -16,6 +16,7 @@ static struct {
   sk_state_t state;
   int attempt;
   uint32_t discoveries;
+  int32_t rediscover_ms;
   void *lock;
 } c;
 
@@ -53,6 +54,7 @@ void sk_client_init(const cfg_sk_t *cfg, const bd_id_t *bound, size_t n) {
   c.resubscribe = false;
   c.state = SK_IDLE;
   c.attempt = 0;
+  if (!c.rediscover_ms) c.rediscover_ms = 20000;
   platform_unlock(c.lock);
 }
 
@@ -78,6 +80,25 @@ static bool subscribe(void) {
   return ok;
 }
 
+// Reads the REST snapshot; counts a discovery only when it parsed.
+static void discover(const char *url, const char *token) {
+  char *body = NULL;
+  size_t len = 0;
+  if (sk_http_get(url, token, &body, &len) && sk_parse_full(body, len)) {
+    platform_lock(c.lock);
+    c.discoveries++;
+    platform_unlock(c.lock);
+  }
+  free(body);
+}
+
+void sk_client_set_rediscover_ms(int32_t ms) {
+  if (!c.lock) c.lock = platform_lock_create();
+  platform_lock(c.lock);
+  c.rediscover_ms = ms;
+  platform_unlock(c.lock);
+}
+
 void sk_client_run_once(void) {
   char host[64];
   unsigned port = c.cfg.port;
@@ -87,19 +108,12 @@ void sk_client_run_once(void) {
     return;
   }
   const char *token = c.cfg.token[0] ? c.cfg.token : NULL;
-  char url[160];
+  char url[160], rest[160];
 
   set_state(SK_DISCOVERING);
-  snprintf(url, sizeof url, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
-  char *body = NULL;
-  size_t len = 0;
-  if (sk_http_get(url, token, &body, &len)) {
-    sk_parse_full(body, len);
-    platform_lock(c.lock);
-    c.discoveries++;
-    platform_unlock(c.lock);
-  }
-  free(body);
+  snprintf(rest, sizeof rest, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
+  snprintf(url, sizeof url, "%s", rest);
+  discover(url, token);
 
   set_state(SK_CONNECTING);
   snprintf(url, sizeof url, "ws://%s:%u/signalk/v1/stream?subscribe=none", host, port);
@@ -107,12 +121,18 @@ void sk_client_run_once(void) {
     c.attempt = 0;
     set_state(SK_LIVE);
     printf("signalk: live at %s:%u\n", host, port);
+    int64_t last_discovery = platform_millis();
     for (;;) {
       platform_lock(c.lock);
       bool again = c.resubscribe;
+      int32_t every = c.rediscover_ms;
       platform_unlock(c.lock);
       if (again && !subscribe()) break;
       if (!sk_ws_poll(200)) break;
+      if (platform_millis() - last_discovery >= every) {   // engines that power up later
+        discover(rest, token);
+        last_discovery = platform_millis();
+      }
     }
   }
   if (sk_client_state() == SK_LIVE) printf("signalk: connection closed\n");
