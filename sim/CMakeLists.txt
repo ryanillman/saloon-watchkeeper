@@ -28,6 +28,7 @@ target_link_libraries(lvgl PUBLIC PkgConfig::SDL2)
 
 add_subdirectory(${BI_ROOT}/components/platform components/platform)
 add_subdirectory(${BI_ROOT}/components/ui components/ui)
+add_subdirectory(${BI_ROOT}/components/boatdata components/boatdata)
 
 add_library(sim_boards STATIC sim_boards.c)
 target_include_directories(sim_boards PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -39,6 +40,7 @@ if(BUILD_TESTING)
     GIT_TAG v2.6.0
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(unity)
+  target_compile_definitions(unity PUBLIC UNITY_INCLUDE_DOUBLE)
   add_subdirectory(${BI_ROOT}/tests tests)
 endif()
 
