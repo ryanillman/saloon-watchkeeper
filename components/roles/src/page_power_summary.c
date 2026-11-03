@@ -26,7 +26,8 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   const char *w = units_label(Q_POWER, b->units);
   v.in = ui_readout_create(area, "IN", w, 0);
   v.batt = ui_readout_create(area, "BATTERY", w, 0);
-  v.load = ui_readout_create(area, "LOAD", w, 0);
+  v.load = ui_readout_create(area, "DC LOAD", w, 0);   // AC loads fed from shore never reach the DC side
+  ui_field_set_fault_text(v.load, "LOAD FAIL");
   v.soc = ui_strip_create(area, &v.spec, sc != SIZE_WIDE);
   if (sc == SIZE_WIDE) {
     int32_t sh = H / 4, arrow = 36, rw = (W - 2 * pad - 2 * arrow) / 3, rh = H - sh - 3 * pad;
