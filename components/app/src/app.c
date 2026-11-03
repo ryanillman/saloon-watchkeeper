@@ -65,7 +65,7 @@ static void refresh(void *ctx) {
   if (r->def) r->def->refresh(&r->binding, platform_millis());
 }
 
-static size_t bound_ids(bd_id_t *out, size_t max) {
+static size_t bound_ids(sk_sub_t *out, size_t max) {
   size_t n = 0;
   for (uint8_t i = 0; i < a.count; i++) {
     role_binding_t *b = &a.roles[i].binding;
@@ -73,7 +73,8 @@ static size_t bound_ids(bd_id_t *out, size_t max) {
     for (uint8_t g = 0; g < b->def->group_count; g++)
       for (uint8_t j = 0; j < b->g[g].inst_count; j++)
         for (uint8_t k = 0; k < b->def->groups[g].slot_count; k++)
-          if (b->g[g].ids[j][k] != BD_NONE && n < max) out[n++] = b->g[g].ids[j][k];
+          if (b->g[g].ids[j][k] != BD_NONE && n < max)
+            out[n++] = (sk_sub_t){b->g[g].ids[j][k], b->def->groups[g].slots[k].resend_ms};
   }
   return n;
 }
@@ -126,7 +127,7 @@ void app_start_network(void) {
   }
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
-  static bd_id_t ids[256];
+  static sk_sub_t ids[256];
   size_t n = bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
   sk_client_start();
@@ -154,7 +155,7 @@ void app_tick(void) {
       a.discoveries = d;
       if (instances_changed()) {   // rebuild only when there is something new to show
         app_bind();
-        static bd_id_t ids[256];
+        static sk_sub_t ids[256];
         sk_client_rebind(ids, bound_ids(ids, 256));
         ui_shell_rebuild();
       }

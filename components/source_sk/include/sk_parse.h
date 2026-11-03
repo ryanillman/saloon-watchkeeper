@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "alerts.h"
 #include "boatdata.h"
 
 #define SK_SOURCE_ID 1
@@ -26,5 +27,17 @@ bool sk_parse_full(const char *json, size_t len);   // false if not a JSON objec
 // ones the configured roles read are kept. The array must outlive its use.
 void sk_parse_set_discovery_prefixes(const char *const *prefixes);
 
+// A bound path with its resend hint: 0 = on change ("instant"), else a fixed period in ms.
+typedef struct { bd_id_t id; uint32_t resend_ms; } sk_sub_t;
+
+// Values under "notifications." never reach boatdata: an object with a string state
+// (other than "normal") goes to alerts_upsert; null, a non-object, or a missing or
+// "normal" state goes to alerts_clear.
+
 // {"context":"vessels.self","subscribe":[{"path":...,"policy":"instant"},...]}; caller frees.
-char *sk_build_subscribe(const bd_id_t *ids, size_t n);
+// Always adds {"path":"notifications.*","policy":"instant"}; resend_ms > 0 uses "fixed" with "period".
+char *sk_build_subscribe(const sk_sub_t *subs, size_t n);
+
+// REST path (/signalk/v2/api/notifications/<ref>/acknowledge or /silence) for a queued request.
+// False when the alert has no ref or req is AL_REQ_NONE.
+bool sk_build_alert_request(const alert_t *a, alert_req_t req, char *path_out, size_t path_n);

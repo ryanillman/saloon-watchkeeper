@@ -53,6 +53,21 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   return ok;
 }
 
+bool sk_http_post(const char *url, const char *token, const char *json_body, int *status) {
+  esp_http_client_config_t cfg = {.url = url, .method = HTTP_METHOD_POST, .timeout_ms = 5000};
+  esp_http_client_handle_t h = esp_http_client_init(&cfg);
+  if (!h) return false;
+  char *auth = auth_value(token);
+  if (auth) esp_http_client_set_header(h, "Authorization", auth);
+  esp_http_client_set_header(h, "Content-Type", "application/json");
+  esp_http_client_set_post_field(h, json_body ? json_body : "", json_body ? (int)strlen(json_body) : 0);
+  bool ok = esp_http_client_perform(h) == ESP_OK;
+  if (ok) *status = esp_http_client_get_status_code(h);
+  esp_http_client_cleanup(h);
+  free(auth);
+  return ok;
+}
+
 // Messages are copied off the websocket task and delivered from sk_ws_poll,
 // so parsing happens on the Signal K task.
 typedef struct { char *data; size_t len; } msg_t;
