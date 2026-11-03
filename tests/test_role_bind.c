@@ -204,6 +204,21 @@ static void test_power_groups_bind(void) {
     TEST_ASSERT_EQUAL(BD_NONE, pb.g[g].ids[0][0]);
   }
   TEST_ASSERT_EQUAL_STRING("electrical.solar.288.panelPower", bd_path(pb.g[1].ids[0][2]));
+  // SoC and time remaining live under capacity. (Signal K schema, signalk-venus).
+  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
+  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.timeRemaining", bd_path(pb.g[0].ids[0][4]));
+}
+
+static void test_power_soc_capacity_path_and_fallback(void) {
+  const role_def_t *pw = role_find("power");
+  bd_intern("electrical.batteries.279.capacity.stateOfCharge");
+  bd_intern("electrical.batteries.279.timeRemaining");   // only the bare name published
+  role_binding_t pb;
+  strcpy(rc.role, "power");
+  role_bind(pw, &rc, &cfg.units, &pb);
+  TEST_ASSERT_EQUAL_STRING("279", pb.g[0].inst_id[0]);
+  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
+  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.timeRemaining", bd_path(pb.g[0].ids[0][4]));
 }
 
 static void test_depth_zero_group(void) {
@@ -233,6 +248,7 @@ int main(void) {
   RUN_TEST(test_placeholder_per_group);
   RUN_TEST(test_multi_group_pinned_and_bind_keys_are_prefixed);
   RUN_TEST(test_power_groups_bind);
+  RUN_TEST(test_power_soc_capacity_path_and_fallback);
   RUN_TEST(test_depth_zero_group);
   return UNITY_END();
 }

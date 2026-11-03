@@ -82,7 +82,7 @@ static void fixture_tanks(void) {
 static void fixture_power(void) {
   const struct { const char *path; double v; } d[] = {
     {"electrical.batteries.279.voltage", 13.4}, {"electrical.batteries.279.current", 12.0},
-    {"electrical.batteries.279.stateOfCharge", 0.82},
+    {"electrical.batteries.279.capacity.stateOfCharge", 0.82},
     {"electrical.solar.288.voltage", 13.5},     {"electrical.solar.288.current", 18.0},
     {"electrical.solar.288.panelPower", 260},
     {"electrical.chargers.276.voltage", 13.6},  {"electrical.chargers.276.current", 10.0},
@@ -98,7 +98,7 @@ static void fixture_power(void) {
   int64_t now = platform_millis();
   for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
   for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) bd_set_text(bd_intern(t[i].path), t[i].v, SK_SOURCE_ID, now);
-  bd_set_invalid(bd_intern("electrical.batteries.279.timeRemaining"));   // charging: Venus sends null
+  bd_set_invalid(bd_intern("electrical.batteries.279.capacity.timeRemaining"));   // charging: Venus sends null
 }
 
 static void alert_raise(const char *id, alert_state_t st, const char *msg) {
