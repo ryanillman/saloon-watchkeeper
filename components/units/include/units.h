@@ -4,7 +4,7 @@
 
 typedef enum {
   Q_TEMPERATURE, Q_PRESSURE, Q_VOLUME, Q_SPEED, Q_DISTANCE, Q_ROTATION,
-  Q_VOLTAGE, Q_CURRENT, Q_RATIO, Q_DURATION, Q_FLOW, Q_NONE
+  Q_VOLTAGE, Q_CURRENT, Q_RATIO, Q_DURATION, Q_FLOW, Q_POWER, Q_NONE
 } quantity_t;
 
 double units_from_si(quantity_t q, double si, const cfg_units_t *u);
