@@ -34,6 +34,15 @@ static void draw_dots(void) {
   }
 }
 
+// LVGL makes every container scrollable, and a scrollable child that overflows
+// captures the drag as a scroll, so the swipe never becomes a gesture.
+// Pages do not scroll; clear the flag on everything a page builds.
+static lv_obj_tree_walk_res_t no_scroll(lv_obj_t *obj, void *user) {
+  (void)user;
+  lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+  return LV_OBJ_TREE_WALK_NEXT;
+}
+
 static void rebuild(void) {
   lv_obj_clean(s.content);
   draw_dots();
@@ -44,6 +53,7 @@ static void rebuild(void) {
   const ui_role_view_t *r = &s.roles[s.nav.role];
   lv_label_set_text(s.name, r->name);
   if (r->build_page) r->build_page(s.content, s.nav.page, s.sc, r->ctx);
+  lv_obj_tree_walk(s.content, no_scroll, NULL);
 }
 
 void ui_shell_move(nav_dir_t dir) {

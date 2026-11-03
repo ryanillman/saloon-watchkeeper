@@ -13,3 +13,6 @@ add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap
           -P ${CMAKE_CURRENT_SOURCE_DIR}/check_snapshots.cmake)
 bi_test(test_ui_shell_gesture ui)
+
+add_test(NAME bi_component_idf
+  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_bi_component_idf.cmake)

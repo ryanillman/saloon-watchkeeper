@@ -3,6 +3,9 @@
 #include "ui_nav.h"
 #include "ui_theme.h"
 
+// A role's pages. build_page fills `area` and must not rely on scrolling:
+// the shell turns scrolling off on everything it builds, so swipes always
+// change role or page.
 typedef struct {
   const char *name;          // shown in the top strip, e.g. "ENGINE"
   uint8_t page_count;
