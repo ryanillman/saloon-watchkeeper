@@ -3,11 +3,14 @@
 #include "alerts.h"
 #include "ui_alerts.h"
 #include "ui_gauge.h"
+#include "ui_shell.h"
 #include "unity.h"
 
+static int flushes;
 static uint8_t buf[800 * 48 * 2];
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   (void)a; (void)px;
+  flushes++;
   lv_display_flush_ready(d);
 }
 
@@ -33,6 +36,7 @@ static void tick(int64_t now) {
 }
 
 void setUp(void) {
+  ui_theme_set_current(PALETTE_DAY);
   alerts_init();
   alerts_source_up(true);
   role_value = 0;
@@ -177,6 +181,123 @@ static void test_list_has_a_row_per_alert(void) {
   TEST_ASSERT_FALSE(ui_alerts_list_visible());
 }
 
+static void test_ack_not_sent_fits_its_label(void) {
+  raise("a.one", AL_ALARM, "One");
+  alerts_source_up(false);
+  raise("a.one", AL_ALARM, "One");
+  alerts_request("a.one", AL_REQ_ACK);
+  tick(0);
+  lv_obj_t *c = ui_alerts_part(UI_ALERTS_CORNER);
+  lv_obj_update_layout(scr);
+  const char *txt = ui_alerts_corner_text();
+  TEST_ASSERT_EQUAL_STRING("ACK NOT SENT", txt);
+  int32_t need = lv_text_get_width(txt, strlen(txt), lv_obj_get_style_text_font(c, 0), 0);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT32(need, lv_obj_get_content_width(c));
+  TEST_ASSERT_TRUE(inside(c, ui_alerts_part(UI_ALERTS_BANNER)));
+  lv_obj_t *msg = ui_alerts_part(UI_ALERTS_BANNER);
+  (void)msg;
+}
+
+static void test_banner_is_compact_on_wide(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  lv_obj_update_layout(scr);
+  TEST_ASSERT_LESS_OR_EQUAL_INT32(70, lv_obj_get_height(ui_alerts_part(UI_ALERTS_BANNER)));
+  // buttons share the message's row
+  lv_area_t m, b;
+  lv_obj_get_coords(ui_alerts_part(UI_ALERTS_ACK), &b);
+  TEST_ASSERT_TRUE(b.y2 - b.y1 < 60);
+  (void)m;
+}
+
+static bool is_white(lv_color_t c) { return lv_color_eq(c, lv_color_white()); }
+
+static void test_night_banner_never_white(void) {
+  ui_theme_set_current(PALETTE_NIGHT);
+  alerts_init();
+  alerts_source_up(true);
+  lv_obj_clean(scr);
+  strip = lv_obj_create(scr);
+  lv_obj_set_size(strip, 800, 40);
+  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of);
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  raise("a.two", AL_ALARM, "Two");
+  static const ui_alerts_part_t btn[] = {UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO};
+  for (int64_t now = 0; now <= 500; now += 500) {
+    tick(now);
+    TEST_ASSERT_FALSE(is_white(lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0)));
+    TEST_ASSERT_FALSE(is_white(lv_obj_get_style_text_color(ui_alerts_part(UI_ALERTS_BANNER), 0)));
+    lv_obj_t *lbl[] = {ui_alerts_part(UI_ALERTS_BANNER)};
+    (void)lbl;
+    TEST_ASSERT_FALSE(is_white(lv_obj_get_style_text_color(ui_alerts_part(UI_ALERTS_CORNER), 0)));
+    for (int i = 0; i < 3; i++) {
+      lv_obj_t *b = ui_alerts_part(btn[i]);
+      TEST_ASSERT_FALSE(is_white(lv_obj_get_style_bg_color(b, 0)));
+      TEST_ASSERT_FALSE(is_white(lv_obj_get_style_border_color(b, 0)));
+      TEST_ASSERT_FALSE(is_white(lv_obj_get_style_text_color(b, 0)));
+    }
+    lv_obj_t *msg = lv_obj_get_child(ui_alerts_part(UI_ALERTS_BANNER), 0);
+    TEST_ASSERT_FALSE(is_white(lv_obj_get_style_text_color(msg, 0)));
+  }
+}
+
+static void test_unchanged_tick_redraws_nothing(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  raise("tanks.fuel.0.currentLevel", AL_WARN, "Fuel low");
+  tick(100);
+  tick(100);
+  int before = flushes;
+  tick(200);   // same snapshot, same flash phase
+  tick(300);
+  TEST_ASSERT_EQUAL(before, flushes);
+  // list open: same again
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_MARKER), LV_EVENT_CLICKED, NULL);
+  tick(1000);
+  tick(1000);
+  before = flushes;
+  tick(1100);
+  tick(1200);
+  TEST_ASSERT_EQUAL(before, flushes);
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_CLOSE), LV_EVENT_CLICKED, NULL);
+}
+
+static uint8_t buf480[480 * 48 * 2];
+static const ui_role_view_t two_pages[] = {{.name = "ENGINE", .page_count = 2}};
+
+static bool areas_meet(lv_obj_t *a, lv_obj_t *b) {
+  lv_area_t x, y;
+  lv_obj_get_coords(a, &x);
+  lv_obj_get_coords(b, &y);
+  return x.x1 <= y.x2 && y.x1 <= x.x2 && x.y1 <= y.y2 && y.y1 <= x.y2;
+}
+
+static void test_square_offline_clear_of_page_dots(void) {
+  lv_display_t *old = lv_display_get_default();
+  lv_display_t *d = lv_display_create(480, 480);
+  lv_display_set_flush_cb(d, flush);
+  lv_display_set_buffers(d, buf480, NULL, sizeof buf480, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_default(d);
+  ui_shell_create(d, SIZE_SQUARE, PALETTE_DAY, two_pages, 1, 0);
+  ui_alerts_attach(lv_display_get_screen_active(d), ui_shell_strip(), SIZE_SQUARE, role_of);
+  ui_shell_set_status("SK OFFLINE", ui_theme()->alarm);
+  alerts_source_up(false);
+  raise("a.one", AL_WARN, "One");   // the marker is showing too
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  s.source_up = false;
+  ui_alerts_update(&s, 0);
+  lv_refr_now(NULL);
+  TEST_ASSERT_EQUAL_STRING("SK ALERTS OFFLINE", ui_alerts_offline_text());
+  TEST_ASSERT_FALSE(areas_meet(ui_alerts_part(UI_ALERTS_OFFLINE), ui_shell_dots()));
+  TEST_ASSERT_FALSE(areas_meet(ui_alerts_part(UI_ALERTS_MARKER), ui_shell_dots()));
+  // the app's status comes back when the source does
+  s.source_up = true;
+  ui_alerts_update(&s, 0);
+  TEST_ASSERT_EQUAL_STRING("SK OFFLINE", lv_label_get_text(ui_shell_status()));
+  lv_display_set_default(old);
+  lv_display_delete(d);
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -184,6 +305,10 @@ int main(void) {
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   scr = lv_screen_active();
   UNITY_BEGIN();
+  RUN_TEST(test_ack_not_sent_fits_its_label);
+  RUN_TEST(test_banner_is_compact_on_wide);
+  RUN_TEST(test_night_banner_never_white);
+  RUN_TEST(test_unchanged_tick_redraws_nothing);
   RUN_TEST(test_alarm_shows_banner_with_go);
   RUN_TEST(test_go_hidden_without_role);
   RUN_TEST(test_warn_shows_marker_not_banner);
@@ -196,5 +321,6 @@ int main(void) {
   RUN_TEST(test_long_message_keeps_buttons_visible);
   RUN_TEST(test_field_alert_colour);
   RUN_TEST(test_list_has_a_row_per_alert);
+  RUN_TEST(test_square_offline_clear_of_page_dots);
   return UNITY_END();
 }

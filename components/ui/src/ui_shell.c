@@ -1,4 +1,5 @@
 #include "ui_shell.h"
+#include <stdio.h>
 #include <string.h>
 
 static struct {
@@ -7,6 +8,9 @@ static struct {
   size_class_t sc;
   palette_t pal;
   lv_obj_t *screen, *strip, *name, *dots, *status, *content;
+  char status_text[24], over_text[24];   // the app's status, and a temporary replacement
+  lv_color_t status_color, over_color;
+  bool over;
 } s;
 
 static void apply_palette(void) {
@@ -133,7 +137,10 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   s.status = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.status, &lv_font_montserrat_14, 0);
   lv_label_set_text(s.status, "NO SOURCE");
-  lv_obj_set_style_text_color(s.status, ui_theme_colors(pal)->dim, 0);
+  snprintf(s.status_text, sizeof s.status_text, "NO SOURCE");
+  s.status_color = ui_theme_colors(pal)->dim;
+  s.over = false;
+  lv_obj_set_style_text_color(s.status, s.status_color, 0);
   lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, 0, 0);
 
   s.content = lv_obj_create(s.screen);
@@ -168,10 +175,29 @@ void ui_shell_refresh(void) {
   if (r->refresh) r->refresh(r->ctx);
 }
 
+static void show_status(void) {
+  const char *text = s.over ? s.over_text : s.status_text;
+  if (strcmp(lv_label_get_text(s.status), text) != 0) lv_label_set_text(s.status, text);
+  lv_obj_set_style_text_color(s.status, s.over ? s.over_color : s.status_color, 0);
+}
+
 void ui_shell_set_status(const char *text, lv_color_t color) {
   if (!s.status) return;
-  if (strcmp(lv_label_get_text(s.status), text) != 0) lv_label_set_text(s.status, text);
-  lv_obj_set_style_text_color(s.status, color, 0);
+  snprintf(s.status_text, sizeof s.status_text, "%s", text);
+  s.status_color = color;
+  show_status();
+}
+
+void ui_shell_set_status_override(const char *text, lv_color_t color) {
+  if (!s.status) return;
+  bool over = text != NULL;
+  if (over == s.over && (!over || (strcmp(text, s.over_text) == 0 && lv_color_eq(color, s.over_color)))) return;
+  s.over = over;
+  if (over) {
+    snprintf(s.over_text, sizeof s.over_text, "%s", text);
+    s.over_color = color;
+  }
+  show_status();
 }
 
 void ui_shell_rebuild(void) {
@@ -191,3 +217,4 @@ void ui_shell_goto_role(uint8_t role) {
 
 lv_obj_t *ui_shell_strip(void) { return s.strip; }
 lv_obj_t *ui_shell_status(void) { return s.status; }
+lv_obj_t *ui_shell_dots(void) { return s.dots; }

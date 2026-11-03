@@ -41,3 +41,7 @@ void ui_shell_goto_role(uint8_t role);
 // The top strip and its status text, for the alert marker.
 lv_obj_t *ui_shell_strip(void);
 lv_obj_t *ui_shell_status(void);
+lv_obj_t *ui_shell_dots(void);
+
+// Shows `text` in the status label in place of the app's status until called with NULL.
+void ui_shell_set_status_override(const char *text, lv_color_t color);
