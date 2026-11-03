@@ -7,8 +7,9 @@ static const role_slot_t battery[] = {
   {"voltage",   "voltage",        NULL, Q_VOLTAGE,  10,  16,  0, "VOLTS", 0},
   {"current",   "current",        NULL, Q_CURRENT,  -200, 200, 0, "AMPS", 0},
   {"power",     "power",          NULL, Q_POWER,    0,   0,   0, "WATTS", 0},
-  {"soc",       "stateOfCharge",  NULL, Q_RATIO,    0,   1,   0, "SOC", 0},
-  {"remaining", "timeRemaining",  NULL, Q_DURATION, 0,   0,   0, "TIME", 0},
+  // The Signal K schema and signalk-venus put these under capacity.; the bare names are a fallback.
+  {"soc",       "capacity.stateOfCharge", "stateOfCharge", Q_RATIO,    0, 1, 0, "SOC", 0},
+  {"remaining", "capacity.timeRemaining", "timeRemaining", Q_DURATION, 0, 0, 0, "TIME", 0},
 };
 
 static const role_slot_t solar[] = {

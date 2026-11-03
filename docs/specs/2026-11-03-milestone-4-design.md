@@ -68,7 +68,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 
 | Group | Prefix | Slots |
 |---|---|---|
-| battery | `electrical.batteries` | voltage, current, power (fallback voltage × current), stateOfCharge, timeRemaining |
+| battery | `electrical.batteries` | voltage, current, power (fallback voltage × current), capacity.stateOfCharge (fallback stateOfCharge), capacity.timeRemaining (fallback timeRemaining) |
 | solar | `electrical.solar` | voltage, current, panelPower, chargingMode |
 | charger | `electrical.chargers` | voltage, current, chargingMode. The MultiPlus charger and the smart charger appear here |
 | inverter | `electrical.inverters` | AC input state (shore connected), inverterMode |
@@ -89,7 +89,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 
 ### Rules (`power_calc.c`, unit-tested)
 
-- **Primary bank:** the first battery instance with a stateOfCharge path, unless config sets `"primary": "<id>"` on the power role.
+- **Primary bank:** the first battery instance with a state-of-charge path, unless config sets `"primary": "<id>"` on the power role.
 - **Strict totals:** if any bound contributor to IN is invalid, IN shows `IN FAIL` and DC LOAD shows `LOAD FAIL`. If the primary bank is invalid, BATTERY, DC LOAD, and SoC flag. A valid 0 (an MPPT at night) is a reading, not a fault.
 - **Time remaining:** signalk-venus sends `null` while a bank is not discharging. On a valid bank with current ≥ 0, the field reads `CHARGING`. It flags only when the bank itself is invalid.
 - **Max age:** none. Power paths subscribe with the default instant policy (`resend_ms` 0), and only source loss and `null` flag a field, as for tanks. Signal K 2.35.1 does not resend unchanged values to a fixed-period subscription, so a max age would flag every steady value.
