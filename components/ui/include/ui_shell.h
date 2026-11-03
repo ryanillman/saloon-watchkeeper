@@ -26,6 +26,10 @@ void ui_shell_set_palette(palette_t pal);
 // Rebuilds the visible page (after a role rebinds).
 void ui_shell_rebuild(void);
 
+// The number of roles changed (setup added or removed one). `roles` passed to
+// ui_shell_create now holds role_count entries; the current role is kept if it still exists.
+void ui_shell_set_roles(uint8_t role_count);
+
 // Calls the visible role's refresh. The app calls this about 10 times a second.
 void ui_shell_refresh(void);
 
