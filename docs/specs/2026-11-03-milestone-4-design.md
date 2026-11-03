@@ -18,7 +18,16 @@ Power is built against the default signalk-venus paths listed below. A capture f
 
 Two facts decide details below. Each is checked against the local Signal K server before the code that depends on it, and the result is written back into this document.
 1. **Fixed-period subscriptions.** Whether Signal K 2.35 resends unchanged values to a subscription with `policy: "fixed"`. The Power max ages depend on it.
+   **Result (Signal K 2.35.1, checked 2026-11-03):** a `policy: "fixed"`, `period: 2000` subscription delivered the current value once on subscribe and nothing in the following 20 s with no writes. `ideal` is rejected (`Only 'instant' and 'fixed' policies supported`), and `instant` with `minPeriod` also resent nothing. Unchanged values are not resent. **Power slots use `resend_ms = 0` and max age 0**; a steady Power value is held until it changes, and only the connection watchdog reports a dead feed.
 2. **Notification acknowledge and silence.** Whether 2.35 offers a notifications API for acknowledge and silence, or accepts a v1 PUT to a notification path without a plugin to handle it.
+   **Result (Signal K 2.35.1, checked 2026-11-03):** the server has a built-in v2 notifications API, and both actions work with the write token, no plugin needed. Notifications carry an `id` (UUID) in the value and a `status` object (`silenced`, `acknowledged`, `canSilence`, `canAcknowledge`); `GET /signalk/v2/api/notifications` lists them keyed by id. The id is stable across a sender repeating the same alarm.
+   - Silence: `POST /signalk/v2/api/notifications/{id}/silence`, HTTP 200 `{"state":"COMPLETED","statusCode":200,"message":"OK"}`. The server removes `"sound"` from `method` (`["visual"]`) and sets `status.silenced: true`; every other client sees this delta about 10 ms later.
+   - Acknowledge: `POST /signalk/v2/api/notifications/{id}/acknowledge`, HTTP 200 with the same body. `method` becomes `[]` and `status.acknowledged: true` (plus `acknowledgedAt`); other clients see it too. The state stays `alarm`.
+   - A sender re-sending the same alarm afterwards does not undo it: `method` stays `[]` and `acknowledged` stays true.
+   - `PUT /signalk/v1/api/vessels/self/notifications/...` is not supported: HTTP 404, no change. The paths `/signalk/v2/api/notifications/silence` and `/acknowledge` do not exist (POST 404).
+   - `DELETE /signalk/v2/api/notifications/{id}` returned 400 on an active alarm (`canClear` false).
+
+   **Chosen:** acknowledge is `POST /signalk/v2/api/notifications/{id}/acknowledge` and silence is `POST /signalk/v2/api/notifications/{id}/silence`, `{id}` taken from the notification value's `id`. Closest listed branch differs: this is neither "local only" case. A notification without an `id` (a server older than 2.35, or a notification the server did not wrap) falls back to local acknowledge with `ACK NOT SENT` shown. Task 7 must show state from the delta (`status.silenced`, `status.acknowledged`, `method`), not from local flags alone.
 
 ## Role instance groups
 
