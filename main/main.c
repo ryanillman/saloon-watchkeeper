@@ -1,15 +1,17 @@
-#include "board.h"
-#include "board_probe.h"
 #include <stdio.h>
 #include <string.h>
+#include "app.h"
+#include "board.h"
+#include "board_probe.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net.h"
 #include "sdkconfig.h"
-#include "ui_placeholder.h"
 
 static const char *TAG = "main";
+static const board_t *board;
 
 static uint32_t tick_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -31,13 +33,10 @@ static void color_bars(lv_display_t *d) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
-#endif
 
-#if CONFIG_BI_DIAG_COLORBARS
 // Writes, reads back, and removes one file of our own. Touches nothing else on the card.
 static void sd_selftest(void) {
-  const char *path = "/sdcard/.bi_probe";
-  const char *msg = "boat-instruments sd check";
+  const char *path = "/sdcard/.bi_probe", *msg = "boat-instruments sd check";
   FILE *f = fopen(path, "w");
   if (!f) {
     ESP_LOGW(TAG, "SD check: cannot write (no card?)");
@@ -46,8 +45,7 @@ static void sd_selftest(void) {
   fputs(msg, f);
   fclose(f);
   char buf[64] = "";
-  f = fopen(path, "r");
-  if (f) {
+  if ((f = fopen(path, "r"))) {
     fgets(buf, sizeof buf, f);
     fclose(f);
   }
@@ -56,19 +54,26 @@ static void sd_selftest(void) {
 }
 #endif
 
+static void tick_cb(lv_timer_t *t) {
+  (void)t;
+  app_tick();
+}
+
 // The only task that calls LVGL.
 static void ui_task(void *arg) {
-  const board_t *b = arg;
+  (void)arg;
   lv_init();
   lv_tick_set_cb(tick_ms);
-  lv_display_t *d = b->lvgl_display();
-  b->backlight(100);
+  lv_display_t *d = board->lvgl_display();
+  const cfg_t *cfg = arg;
+  board->backlight(cfg->brightness ? cfg->brightness : 100);
 #if CONFIG_BI_DIAG_COLORBARS
   color_bars(d);
 #endif
-  uint8_t n;
-  const ui_role_view_t *roles = ui_placeholder_roles(&n);
-  ui_shell_create(d, b->size_class, PALETTE_DAY, roles, n, 0);
+  app_bind();
+  app_start_ui(d, board->size_class);
+  app_start_network();
+  lv_timer_create(tick_cb, 100, NULL);
   for (;;) {
     uint32_t wait = lv_timer_handler();
     vTaskDelay(pdMS_TO_TICKS(wait < 5 ? 5 : wait > 30 ? 30 : wait));
@@ -82,11 +87,16 @@ void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(5000));
   }
 #endif
-  const board_t *b = board_get();
-  ESP_LOGI(TAG, "board %s %ux%u", b->id, b->width, b->height);
-  ESP_ERROR_CHECK(b->init());
+  board = board_get();
+  ESP_LOGI(TAG, "board %s %ux%u", board->id, board->width, board->height);
+  ESP_ERROR_CHECK(board->init());
 #if CONFIG_BI_DIAG_COLORBARS
   sd_selftest();
 #endif
-  xTaskCreatePinnedToCore(ui_task, "ui", 16 * 1024, (void *)b, 5, NULL, 1);
+  cfg_report_t rep;
+  const cfg_t *cfg = app_init("/sdcard", &rep);
+  for (uint8_t i = 0; i < rep.count; i++)
+    ESP_LOGW(TAG, "config: %s (line %d): %s", rep.issues[i].key_path, rep.issues[i].line, rep.issues[i].message);
+  net_wifi_start(&cfg->wifi);
+  xTaskCreatePinnedToCore(ui_task, "ui", 16 * 1024, (void *)cfg, 5, NULL, 1);
 }
