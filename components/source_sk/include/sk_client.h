@@ -15,4 +15,8 @@ sk_state_t sk_client_state(void);
 int sk_client_backoff_ms(int attempt);
 
 // Increments each time a discovery (REST snapshot) completes; roles rebind when it changes.
-uint32_t sk_client_discovery_count(void);                // 1000, 2000, 4000 ... capped at 30000
+uint32_t sk_client_discovery_count(void);
+
+// While live, the REST snapshot is re-read this often (default 20 s), so engines
+// and batteries that power up after the display are found.
+void sk_client_set_rediscover_ms(int32_t ms);                // 1000, 2000, 4000 ... capped at 30000

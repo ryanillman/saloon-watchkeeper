@@ -124,9 +124,10 @@ static void walk(const cJSON *node, char *path, size_t len, size_t cap) {
   }
 }
 
-void sk_parse_full(const char *json, size_t len) {
+bool sk_parse_full(const char *json, size_t len) {
   cJSON *root = cJSON_ParseWithLength(json, len);
-  if (cJSON_IsObject(root)) {
+  bool ok = cJSON_IsObject(root);
+  if (ok) {
     const cJSON *uuid = cJSON_GetObjectItem(root, "uuid"), *mmsi = cJSON_GetObjectItem(root, "mmsi");
     char ctx[96];
     if (cJSON_IsString(uuid)) {
@@ -140,6 +141,7 @@ void sk_parse_full(const char *json, size_t len) {
     walk(root, path, 0, sizeof path);
   }
   cJSON_Delete(root);
+  return ok;
 }
 
 char *sk_build_subscribe(const bd_id_t *ids, size_t n) {

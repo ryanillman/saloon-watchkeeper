@@ -108,15 +108,33 @@ void app_start_network(void) {
   a.network = true;
 }
 
+// True if any role's instances differ from what a fresh bind finds now.
+static bool instances_changed(void) {
+  static role_binding_t fresh;   // ~1 KB; kept off the UI task stack
+  for (uint8_t i = 0; i < a.count; i++) {
+    app_role_t *r = &a.roles[i];
+    if (!r->def) continue;
+    role_bind(r->def, &a.cfg.roles[i], &a.cfg.units, &fresh);
+    if (fresh.inst_count != r->binding.inst_count) return true;
+    for (uint8_t j = 0; j < fresh.inst_count; j++)
+      if (strcmp(fresh.inst_id[j], r->binding.inst_id[j]) != 0 ||
+          memcmp(fresh.ids[j], r->binding.ids[j], sizeof fresh.ids[j]) != 0)
+        return true;
+  }
+  return false;
+}
+
 void app_tick(void) {
   if (a.network) {
     uint32_t d = sk_client_discovery_count();
-    if (d != a.discoveries) {   // the server told us what this boat has: bind to it
+    if (d != a.discoveries) {   // the server told us what this boat has
       a.discoveries = d;
-      app_bind();
-      static bd_id_t ids[128];
-      sk_client_rebind(ids, bound_ids(ids, 128));
-      ui_shell_rebuild();
+      if (instances_changed()) {   // rebuild only when there is something new to show
+        app_bind();
+        static bd_id_t ids[128];
+        sk_client_rebind(ids, bound_ids(ids, 128));
+        ui_shell_rebuild();
+      }
     }
     const ui_colors_t *c = ui_theme();
     switch (sk_client_state()) {
