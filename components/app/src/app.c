@@ -46,11 +46,11 @@ static struct {
 // replaces one the worker has not taken yet.
 static struct {
   void *lock;
-  cfg_t cfg;      // pending copy
+  cfg_t *cfg;     // pending copy, heap (18 KB: PSRAM on the boards, not internal RAM)
   char dir[128];
   bool pending, started;
 } w;
-static cfg_t w_work;   // the worker's own copy, off its small stack
+static cfg_t *w_work;   // the worker's own copy, heap for the same reason
 
 static void config_writer(void *arg) {
   (void)arg;
@@ -59,13 +59,13 @@ static void config_writer(void *arg) {
     bool take = false;
     platform_lock(w.lock);
     if (w.pending) {
-      w_work = w.cfg;
+      *w_work = *w.cfg;
       memcpy(dir, w.dir, sizeof dir);
       w.pending = false;
       take = true;
     }
     platform_unlock(w.lock);
-    if (take && !cfg_save(dir, &w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
+    if (take && !cfg_save(dir, w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
     platform_sleep_ms(100);
   }
 }
@@ -73,7 +73,17 @@ static void config_writer(void *arg) {
 static void start_writer(void) {
   if (w.started) return;
   w.lock = platform_lock_create();
-  w.started = w.lock && platform_task(config_writer, NULL, "config", 6144);
+  w.cfg = malloc(sizeof *w.cfg);   // two buffers over the 16 KB internal-alloc limit go to PSRAM
+  w_work = malloc(sizeof *w_work);
+  if (!w.lock || !w.cfg || !w_work) {
+    fprintf(stderr, "config: no memory for the writer; changes will not be saved\n");
+    free(w.cfg);
+    free(w_work);
+    w.cfg = w_work = NULL;
+    return;
+  }
+  w.started = platform_task(config_writer, NULL, "config", 6144);
+  if (!w.started) fprintf(stderr, "config: cannot start the writer task; changes will not be saved\n");
 }
 
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
@@ -339,7 +349,7 @@ void app_tick(void) {
     a.dirty = false;
     if (w.started) {   // a copy for the writer task; this call does no I/O
       platform_lock(w.lock);
-      w.cfg = a.cfg;
+      *w.cfg = a.cfg;
       memcpy(w.dir, a.dir, sizeof w.dir);
       w.pending = true;
       platform_unlock(w.lock);
