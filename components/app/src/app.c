@@ -1,4 +1,5 @@
 #include "app.h"
+#include <stdlib.h>
 #include <string.h>
 #include "boatdata.h"
 #include "platform.h"
@@ -15,7 +16,7 @@ typedef struct {
 
 static struct {
   cfg_t cfg;
-  app_role_t roles[CFG_MAX_ROLES];
+  app_role_t *roles;   // calloc'd once in app_init: lands in PSRAM on the boards
   ui_role_view_t views[CFG_MAX_ROLES];
   uint8_t count;
   bool network;
@@ -24,7 +25,11 @@ static struct {
 
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
+  app_role_t *roles = a.roles;
   memset(&a, 0, sizeof a);
+  if (!roles) roles = calloc(CFG_MAX_ROLES, sizeof *roles);
+  else memset(roles, 0, CFG_MAX_ROLES * sizeof *roles);
+  a.roles = roles;
   if (dir) cfg_load(dir, &a.cfg, report);
   else {
     cfg_defaults(&a.cfg);
@@ -64,9 +69,10 @@ static size_t bound_ids(bd_id_t *out, size_t max) {
   for (uint8_t i = 0; i < a.count; i++) {
     role_binding_t *b = &a.roles[i].binding;
     if (!a.roles[i].def) continue;
-    for (uint8_t j = 0; j < b->inst_count; j++)
-      for (uint8_t k = 0; k < a.roles[i].def->slot_count; k++)
-        if (b->ids[j][k] != BD_NONE && n < max) out[n++] = b->ids[j][k];
+    for (uint8_t g = 0; g < b->def->group_count; g++)
+      for (uint8_t j = 0; j < b->g[g].inst_count; j++)
+        for (uint8_t k = 0; k < b->def->groups[g].slot_count; k++)
+          if (b->g[g].ids[j][k] != BD_NONE && n < max) out[n++] = b->g[g].ids[j][k];
   }
   return n;
 }
@@ -103,14 +109,16 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
 
 void app_start_network(void) {
   // Discovery keeps only the groups the configured roles read.
-  static const char *prefixes[CFG_MAX_ROLES + 1];
+  static const char *prefixes[CFG_MAX_ROLES * ROLE_MAX_GROUPS + 1];
   uint8_t n_prefix = 0;
   for (uint8_t i = 0; i < a.count; i++) {
     const role_def_t *d = a.roles[i].def;
-    bool dup = false;
     if (!d) continue;
-    for (uint8_t j = 0; j < n_prefix; j++) dup |= !strcmp(prefixes[j], d->instance_prefix);
-    if (!dup) prefixes[n_prefix++] = d->instance_prefix;
+    for (uint8_t g = 0; g < d->group_count; g++) {
+      bool dup = false;
+      for (uint8_t j = 0; j < n_prefix; j++) dup |= !strcmp(prefixes[j], d->groups[g].prefix);
+      if (!dup) prefixes[n_prefix++] = d->groups[g].prefix;
+    }
   }
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
@@ -123,16 +131,14 @@ void app_start_network(void) {
 
 // True if any role's instances differ from what a fresh bind finds now.
 static bool instances_changed(void) {
-  static role_binding_t fresh;   // ~1 KB; kept off the UI task stack
+  static role_binding_t *fresh;   // ~13 KB; malloc'd once, off the UI task stack
+  if (!fresh) fresh = malloc(sizeof *fresh);
+  if (!fresh) return false;
   for (uint8_t i = 0; i < a.count; i++) {
     app_role_t *r = &a.roles[i];
     if (!r->def) continue;
-    role_bind(r->def, &a.cfg.roles[i], &a.cfg.units, &fresh);
-    if (fresh.inst_count != r->binding.inst_count) return true;
-    for (uint8_t j = 0; j < fresh.inst_count; j++)
-      if (strcmp(fresh.inst_id[j], r->binding.inst_id[j]) != 0 ||
-          memcmp(fresh.ids[j], r->binding.ids[j], sizeof fresh.ids[j]) != 0)
-        return true;
+    role_bind(r->def, &a.cfg.roles[i], &a.cfg.units, fresh);
+    if (!role_binding_same(fresh, &r->binding)) return true;
   }
   return false;
 }

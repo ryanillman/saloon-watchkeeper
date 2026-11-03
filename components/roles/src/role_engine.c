@@ -8,13 +8,17 @@
 #define RPM_AGE ENGINE_RPM_MAX_AGE_MS
 #define FIELD_AGE ENGINE_FIELD_MAX_AGE_MS
 static const role_slot_t slots[] = {
-  {"rpm",     "revolutions",       NULL,                 Q_ROTATION,    0,      4000.0 / 60.0, RPM_AGE,   "RPM"},
-  {"coolant", "temperature",       "coolantTemperature", Q_TEMPERATURE, 313.15, 393.15,        FIELD_AGE, "COOLANT"},
-  {"oil",     "oilPressure",       NULL,                 Q_PRESSURE,    0,      600000,        FIELD_AGE, "OIL"},
-  {"volts",   "alternatorVoltage", NULL,                 Q_VOLTAGE,     10,     16,            FIELD_AGE, "VOLTS"},
-  {"hours",   "runTime",           NULL,                 Q_DURATION,    0,      0,             0,         "HOURS"},
-  {"fuel",    "fuel.rate",         NULL,                 Q_FLOW,        0,      40.0 / 1000.0 / 3600.0, FIELD_AGE, "FUEL"},
-  {"state",   "state",             NULL,                 Q_NONE,        0,      0,             0,         "STATE"},
+  {"rpm",     "revolutions",       NULL,                 Q_ROTATION,    0,      4000.0 / 60.0, RPM_AGE,   "RPM", 0},
+  {"coolant", "temperature",       "coolantTemperature", Q_TEMPERATURE, 313.15, 393.15,        FIELD_AGE, "COOLANT", 0},
+  {"oil",     "oilPressure",       NULL,                 Q_PRESSURE,    0,      600000,        FIELD_AGE, "OIL", 0},
+  {"volts",   "alternatorVoltage", NULL,                 Q_VOLTAGE,     10,     16,            FIELD_AGE, "VOLTS", 0},
+  {"hours",   "runTime",           NULL,                 Q_DURATION,    0,      0,             0,         "HOURS", 0},
+  {"fuel",    "fuel.rate",         NULL,                 Q_FLOW,        0,      40.0 / 1000.0 / 3600.0, FIELD_AGE, "FUEL", 0},
+  {"state",   "state",             NULL,                 Q_NONE,        0,      0,             0,         "STATE", 0},
+};
+
+static const role_group_t groups[] = {
+  {"engine", "propulsion", 1, 2, slots, sizeof slots / sizeof slots[0]},
 };
 
 // Pages live in page_engine.c.
@@ -24,9 +28,8 @@ void engine_refresh(role_binding_t *b, int64_t now_ms);
 const role_def_t role_engine = {
   .name = "engine",
   .title = "ENGINE",
-  .instance_prefix = "propulsion",
-  .slots = slots,
-  .slot_count = sizeof slots / sizeof slots[0],
+  .groups = groups,
+  .group_count = 1,
   .page_count = 2,
   .build_page = engine_build_page,
   .refresh = engine_refresh,
