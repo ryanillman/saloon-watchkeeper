@@ -48,6 +48,8 @@ The wiki's expander pin list (EXIO0 TP_RST, EXIO1 BL_EN, EXIO2 LCD_RST, EXIO3 SD
 
 **Bench unit (2026-11-02), probed with `diag/probe.defaults`:** GPIO8/GPIO9 answers at 0x20–0x27 and 0x30–0x3F (CH422G, which uses those addresses as registers) and 0x5D (GT911). The CH343 UART enumerates as USB 1a86:55d3.
 
+**Bring-up (2026-11-02):** working with 16 MHz PCLK, HSYNC/VSYNC pulse 4, back and front porch 8, PCLK active on the falling edge, 10-line bounce buffer, and two PSRAM framebuffers. Source: Espressif's ESP32_Display_Panel board definition for this board (Apache-2.0). Expander pins: EXIO1 touch reset, EXIO2 backlight, EXIO3 LCD reset, EXIO4 SD CS (held low; the card is the only SPI device), EXIO5 low for native USB. RGB data D0–D15 are B3–B7, G2–G7, R3–R7 = GPIO 14, 38, 18, 17, 10, 39, 0, 45, 48, 47, 21, 1, 2, 42, 41, 40. The panel controller is an ST7262, which needs no init sequence. With bounce buffers, wait for the driver's `on_frame_buf_complete` before drawing into the old buffer. `on_vsync` comes too late and causes brief corruption during swipes.
+
 The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`, device `4018` (16 MB), 8 MB octal PSRAM. Waveshare's spec table says 8 MB flash, which contradicts the N16R8 module name. Trust the probe. An image built for 16 MB flash crashes on a chip that probes as 4 MB (`spi_flash: Detected size(4096k) ... header(16384k)`). Run `flash_id` on every new unit before the first image.
 
 ## lcd7b: Waveshare ESP32-S3-Touch-LCD-7B (1024×600)

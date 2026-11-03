@@ -10,25 +10,11 @@
 #include "platform.h"
 #include "sim_boards.h"
 #include "snapshot.h"
+#include "ui_placeholder.h"
 #include "ui_shell.h"
 
-static void placeholder_page(lv_obj_t *area, uint8_t page, size_class_t sc, void *ctx) {
-  const ui_role_view_t *r = ctx;
-  lv_obj_t *l = lv_label_create(area);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_28, 0);
-  lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-  lv_label_set_text_fmt(l, "%s\npage %u of %u\n%s", r->name, page + 1, r->page_count,
-                        sc == SIZE_WIDE ? "wide" : "square");
-  lv_obj_center(l);
-}
-
-static ui_role_view_t roles[] = {
-  {"ENGINE", 2, placeholder_page, NULL},
-  {"POWER", 2, placeholder_page, NULL},
-  {"TANKS", 1, placeholder_page, NULL},
-  {"ANCHOR", 1, placeholder_page, NULL},
-};
-#define ROLE_COUNT (sizeof roles / sizeof roles[0])
+static const ui_role_view_t *roles;
+static uint8_t role_count;
 
 static uint32_t tick(void) { return (uint32_t)platform_millis(); }
 
@@ -81,8 +67,8 @@ static int run_snapshots(const char *out) {
         fprintf(stderr, "cannot create %s\n", dir);
         return 1;
       }
-      for (uint8_t r = 0; r < ROLE_COUNT; r++) {
-        ui_shell_create(disp, b->size_class, (palette_t)pal, roles, ROLE_COUNT, r);
+      for (uint8_t r = 0; r < role_count; r++) {
+        ui_shell_create(disp, b->size_class, (palette_t)pal, roles, role_count, r);
         for (uint8_t p = 0; p < roles[r].page_count; p++) {
           lv_obj_invalidate(lv_display_get_screen_active(disp));
           lv_refr_now(disp);
@@ -129,7 +115,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "unknown board %s\n", board_id);
     return 2;
   }
-  for (size_t i = 0; i < ROLE_COUNT; i++) roles[i].ctx = &roles[i];
+  roles = ui_placeholder_roles(&role_count);
 
   lv_init();
   lv_tick_set_cb(tick);
@@ -140,7 +126,7 @@ int main(int argc, char **argv) {
   lv_group_set_default(lv_group_create());
   lv_indev_set_group(lv_sdl_keyboard_create(), lv_group_get_default());
 
-  ui_shell_create(disp, b->size_class, pal, roles, ROLE_COUNT, 0);
+  ui_shell_create(disp, b->size_class, pal, roles, role_count, 0);
 
   for (;;) {
     uint32_t wait = lv_timer_handler();
