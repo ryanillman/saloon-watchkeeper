@@ -3,6 +3,7 @@
 // rebuilt for each screen.
 #include "ui_setup.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "platform.h"
 #include "ui_alerts.h"
@@ -32,7 +33,15 @@ PLATFORM_EXT_BSS static struct {
   uint8_t n_segs;
   ui_disc_role_t disc[CFG_MAX_ROLES];
   uint8_t n_disc;
-  struct { uint8_t role; char id[24]; bool keep; lv_obj_t *btn; } rows[CFG_MAX_ROLES * 16];
+  struct { uint8_t role; char id[24]; char label[12]; bool keep; lv_obj_t *btn, *text; } rows[CFG_MAX_ROLES * 16];
+  lv_obj_t *kb_box;
+  void (*kb_done)(const char *text, uintptr_t arg);
+  uintptr_t kb_arg;
+  ui_ap_t aps[16];
+  int n_aps;
+  bool scanning;
+  lv_obj_t *live_state, *live_access;   // refreshed by ui_setup_tick
+  void (*live_fn)(char *, size_t);
   uint16_t n_rows;
 } u;
 
@@ -142,6 +151,7 @@ static void segmented(lv_obj_t *parent, const char *label, const char *kind, cha
 // ---- screens ----
 
 static void show_screen(ui_setup_screen_t s);
+static void kb_close(void);
 
 static void on_menu(lv_event_t *e) { show_screen((ui_setup_screen_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void on_close(lv_event_t *e) {
@@ -351,7 +361,6 @@ static void on_keep(lv_event_t *e) {
 static void on_confirm(lv_event_t *e) {
   uint8_t ri = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
   cfg_role_t *r = &u.work.roles[ri];
-  cfg_role_t old = *r;
   r->inst_count = 0;
   r->exclude_count = 0;
   for (uint16_t k = 0; k < u.n_rows; k++) {
@@ -360,8 +369,7 @@ static void on_confirm(lv_event_t *e) {
       cfg_instance_t *in = &r->inst[r->inst_count++];
       memset(in, 0, sizeof *in);
       snprintf(in->id, sizeof in->id, "%s", u.rows[k].id);
-      for (uint8_t j = 0; j < old.inst_count; j++)   // a label set earlier stays
-        if (!strcmp(old.inst[j].id, in->id)) snprintf(in->label, sizeof in->label, "%s", old.inst[j].label);
+      snprintf(in->label, sizeof in->label, "%s", u.rows[k].label);   // starts as the saved label
     } else if (!u.rows[k].keep && r->exclude_count < 8) {
       snprintf(r->exclude[r->exclude_count++], sizeof r->exclude[0], "%s", u.rows[k].id);
     }
@@ -380,6 +388,8 @@ static void on_run(lv_event_t *e) {
   (void)e;
   if (u.cb->run_discovery) u.cb->run_discovery();
 }
+
+static void on_label(lv_event_t *e);
 
 static void build_discovery(void) {
   const ui_colors_t *c = ui_theme();
@@ -418,6 +428,7 @@ static void build_discovery(void) {
       u.rows[k].role = (uint8_t)ri;
       snprintf(u.rows[k].id, sizeof u.rows[k].id, "%s", ids[i]);
       u.rows[k].keep = r->inst_count ? pinned : !excluded;
+      snprintf(u.rows[k].label, sizeof u.rows[k].label, "%s", label);
       lv_obj_t *rr = row(u.body);
       u.rows[k].btn = button(rr, u.rows[k].keep ? "KEEP" : "SKIP", on_keep, (void *)(uintptr_t)k);
       style_button(u.rows[k].btn, u.rows[k].keep);
@@ -425,7 +436,10 @@ static void build_discovery(void) {
       part(pn, u.rows[k].btn);
       char line[48];
       snprintf(line, sizeof line, "%s%s%s", ids[i], label[0] ? "  " : "", label);
-      text(rr, line, c->fg);
+      u.rows[k].text = text(rr, line, c->fg);
+      lv_obj_t *lb = button(rr, "LABEL", on_label, (void *)(uintptr_t)k);
+      snprintf(pn, sizeof pn, "label_%s_%s", r->role, ids[i]);
+      part(pn, lb);
       if (pinned && !found) {
         lv_obj_t *m = text(rr, "MISSING", c->warn);
         snprintf(pn, sizeof pn, "missing_%s_%s", r->role, ids[i]);
@@ -440,6 +454,256 @@ static void build_discovery(void) {
     snprintf(pn, sizeof pn, "auto_%s", r->role);
     part(pn, ab);
   }
+}
+
+// ---- keyboard ----
+
+static void kb_close(void) {
+  if (!u.kb_box) return;
+  lv_obj_delete_async(u.kb_box);   // inside one of the keyboard's own events
+  u.kb_box = NULL;
+}
+
+static void on_kb(lv_event_t *e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
+  char t[128] = "";
+  if (code == LV_EVENT_READY) snprintf(t, sizeof t, "%s", lv_textarea_get_text(ui_setup_part("kb_text")));
+  void (*done)(const char *, uintptr_t) = u.kb_done;
+  uintptr_t arg = u.kb_arg;
+  kb_close();
+  if (code == LV_EVENT_READY && done) done(t, arg);
+}
+
+// The field being edited sits at the top; the keyboard takes the bottom of setup's area,
+// so the text is never under the keys.
+static void kb_open(const char *prompt, const char *initial, bool password, bool numeric, uint32_t max_len,
+                    void (*done)(const char *, uintptr_t), uintptr_t arg) {
+  const ui_colors_t *c = ui_theme();
+  kb_close();
+  u.kb_done = done;
+  u.kb_arg = arg;
+  int32_t w = lv_obj_get_width(u.root), h = lv_obj_get_height(u.root);
+  u.kb_box = lv_obj_create(u.root);
+  lv_obj_remove_style_all(u.kb_box);
+  lv_obj_set_size(u.kb_box, w, h);
+  lv_obj_set_style_bg_color(u.kb_box, c->bg, 0);
+  lv_obj_set_style_bg_opa(u.kb_box, LV_OPA_COVER, 0);
+  lv_obj_add_flag(u.kb_box, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(u.kb_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_t *l = text(u.kb_box, prompt, c->dim);
+  lv_obj_set_pos(l, 12, 8);
+  lv_obj_t *ta = lv_textarea_create(u.kb_box);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_password_mode(ta, password);
+  lv_textarea_set_max_length(ta, max_len);
+  lv_textarea_set_text(ta, initial ? initial : "");
+  lv_obj_set_size(ta, w - 24, 52);
+  lv_obj_set_pos(ta, 12, 40);
+  lv_obj_set_style_text_font(ta, font(), 0);
+  lv_obj_set_style_bg_color(ta, c->strip_bg, 0);
+  lv_obj_set_style_text_color(ta, c->fg, 0);
+  lv_obj_set_style_border_color(ta, c->accent, 0);
+  part("kb_text", ta);
+  lv_obj_t *kb = lv_keyboard_create(u.kb_box);
+  lv_keyboard_set_textarea(kb, ta);
+  if (numeric) lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_NUMBER);
+  int32_t kh = h - 104;   // everything below the field
+  if (kh > 320) kh = 320;
+  lv_obj_set_size(kb, w, kh);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_bg_color(kb, c->bg, 0);
+  lv_obj_set_style_bg_color(kb, c->strip_bg, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(kb, c->fg, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(kb, c->dim, LV_PART_ITEMS | LV_STATE_CHECKED);   // the special keys: never white at night
+  lv_obj_set_style_text_color(kb, c->fg, LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_add_event_cb(kb, on_kb, LV_EVENT_ALL, NULL);
+  part("kb", kb);
+}
+
+// ---- live state lines (Wi-Fi, Signal K, access request) ----
+
+static lv_obj_t *live_line(const char *name, void (*fn)(char *, size_t)) {
+  char t[128] = "";
+  if (fn) fn(t, sizeof t);
+  lv_obj_t *l = text(u.body, t, ui_theme()->fg);
+  lv_obj_set_width(l, lv_pct(100));
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  part(name, l);
+  return l;
+}
+
+static void refresh_live(lv_obj_t *l, void (*fn)(char *, size_t)) {
+  if (!l || !fn || !lv_obj_is_valid(l)) return;
+  char t[128] = "";
+  fn(t, sizeof t);
+  if (strcmp(t, lv_label_get_text(l))) lv_label_set_text(l, t);   // redraw only on a change
+}
+
+// ---- Wi-Fi ----
+
+static void wifi_password_done(const char *t, uintptr_t arg) {
+  (void)arg;
+  snprintf(u.work.wifi.password, sizeof u.work.wifi.password, "%s", t);
+  rebuild_later();
+}
+
+static void choose_network(const char *ssid, bool secure) {
+  snprintf(u.work.wifi.ssid, sizeof u.work.wifi.ssid, "%s", ssid);
+  if (!secure) {
+    u.work.wifi.password[0] = 0;
+    rebuild_later();
+    return;
+  }
+  char prompt[64];
+  snprintf(prompt, sizeof prompt, "Password for %s", ssid);
+  kb_open(prompt, "", true, false, sizeof u.work.wifi.password - 1, wifi_password_done, 0);
+}
+
+static void on_ap(lv_event_t *e) {
+  int i = (int)(uintptr_t)lv_event_get_user_data(e);
+  choose_network(u.aps[i].ssid, u.aps[i].secure);
+}
+
+static void other_ssid_done(const char *t, uintptr_t arg) {
+  (void)arg;
+  if (t[0]) choose_network(t, true);
+}
+
+static void on_other(lv_event_t *e) {
+  (void)e;
+  kb_open("Network name", "", false, false, sizeof u.work.wifi.ssid - 1, other_ssid_done, 0);
+}
+
+static void on_scan(lv_event_t *e) {
+  (void)e;
+  u.scanning = true;
+  if (u.cb->wifi_scan) u.cb->wifi_scan();
+  rebuild_later();
+}
+
+void ui_setup_wifi_results(const ui_ap_t *aps, int n) {
+  if (n > 16) n = 16;
+  for (int i = 0; i < n; i++) {   // strongest first
+    int j = i;
+    while (j > 0 && u.aps[j - 1].rssi < aps[i].rssi) {
+      u.aps[j] = u.aps[j - 1];
+      j--;
+    }
+    u.aps[j] = aps[i];
+  }
+  u.n_aps = n;
+  u.scanning = false;
+  if (open_now() && u.screen == SETUP_WIFI) rebuild_later();
+}
+
+static void build_wifi(void) {
+  const ui_colors_t *c = ui_theme();
+  u.live_state = live_line("wifi_state", u.cb->wifi_state);
+  u.live_fn = u.cb->wifi_state;
+  char t[64];
+  snprintf(t, sizeof t, "Network: %s", u.work.wifi.ssid[0] ? u.work.wifi.ssid : "none");
+  text(u.body, t, c->fg);
+  part("scan", button(u.body, u.scanning ? "SCANNING..." : "SCAN", on_scan, NULL));
+  for (int i = 0; i < u.n_aps; i++) {
+    char label[64], pn[48];
+    snprintf(label, sizeof label, "%s   %d dBm%s", u.aps[i].ssid, u.aps[i].rssi, u.aps[i].secure ? "" : "   open");
+    lv_obj_t *b = button(u.body, label, on_ap, (void *)(uintptr_t)i);
+    lv_obj_set_width(b, lv_pct(100));
+    style_button(b, !strcmp(u.aps[i].ssid, u.work.wifi.ssid));
+    snprintf(pn, sizeof pn, "ap_%s", u.aps[i].ssid);
+    part(pn, b);
+  }
+  lv_obj_t *o = button(u.body, "Other...", on_other, NULL);
+  lv_obj_set_width(o, lv_pct(100));
+  part("ap_other", o);
+}
+
+// ---- Signal K ----
+
+static void host_done(const char *t, uintptr_t arg) {
+  (void)arg;
+  if (t[0]) snprintf(u.work.sk.host, sizeof u.work.sk.host, "%s", t);
+  rebuild_later();
+}
+
+static void port_done(const char *t, uintptr_t arg) {
+  (void)arg;
+  long p = strtol(t, NULL, 10);
+  if (p > 0 && p < 65536) u.work.sk.port = (uint16_t)p;
+  rebuild_later();
+}
+
+static void on_sk_auto(lv_event_t *e) {
+  (void)e;
+  snprintf(u.work.sk.host, sizeof u.work.sk.host, "auto");
+  rebuild_later();
+}
+
+static void on_edit_host(lv_event_t *e) {
+  (void)e;
+  bool aut = !strcmp(u.work.sk.host, "auto");
+  kb_open("Server address", aut ? "" : u.work.sk.host, false, false, sizeof u.work.sk.host - 1, host_done, 0);
+}
+
+static void on_edit_port(lv_event_t *e) {
+  (void)e;
+  char p[8];
+  snprintf(p, sizeof p, "%u", (unsigned)u.work.sk.port);
+  kb_open("Port", p, false, true, 5, port_done, 0);
+}
+
+static void on_request_access(lv_event_t *e) {
+  (void)e;
+  if (u.cb->request_access) u.cb->request_access();
+}
+
+static void build_signalk(void) {
+  const ui_colors_t *c = ui_theme();
+  u.live_state = live_line("sk_state", u.cb->sk_state);
+  u.live_fn = u.cb->sk_state;
+  bool aut = !strcmp(u.work.sk.host, "auto");
+  lv_obj_t *r = row(u.body);
+  lv_obj_t *l = text(r, "Server", c->dim);
+  lv_obj_set_width(l, u.sc == SIZE_WIDE ? 200 : lv_pct(100));
+  lv_obj_t *ba = button(r, "AUTO", on_sk_auto, NULL), *bm = button(r, "MANUAL", on_edit_host, NULL);
+  style_button(ba, aut);
+  style_button(bm, !aut);
+  part("sk_auto", ba);
+  part("sk_manual", bm);
+  if (!aut) {
+    char t[96];
+    lv_obj_t *hr = row(u.body);
+    snprintf(t, sizeof t, "Host: %s", u.work.sk.host);
+    text(hr, t, c->fg);
+    part("edit_host", button(hr, "EDIT", on_edit_host, NULL));
+  }
+  char t[32];
+  lv_obj_t *pr = row(u.body);
+  snprintf(t, sizeof t, "Port: %u", (unsigned)u.work.sk.port);
+  text(pr, t, c->fg);
+  part("edit_port", button(pr, "EDIT", on_edit_port, NULL));
+  text(u.body, u.work.sk.token[0] ? "Token: set" : "Token: not set (ACK and SILENCE need one)", c->fg);
+  part("request_access", button(u.body, "REQUEST ACCESS", on_request_access, NULL));
+  u.live_access = live_line("access_state", u.cb->access_state);
+}
+
+// ---- discovery labels ----
+
+static void label_done(const char *t, uintptr_t k) {
+  snprintf(u.rows[k].label, sizeof u.rows[k].label, "%s", t);
+  if (u.rows[k].text && lv_obj_is_valid(u.rows[k].text)) {
+    char line[48];
+    snprintf(line, sizeof line, "%s%s%s", u.rows[k].id, t[0] ? "  " : "", t);
+    lv_label_set_text(u.rows[k].text, line);   // in place: a rebuild would drop unconfirmed keep/skip choices
+  }
+}
+
+static void on_label(lv_event_t *e) {
+  uintptr_t k = (uintptr_t)lv_event_get_user_data(e);
+  char prompt[48];
+  snprintf(prompt, sizeof prompt, "Label for %s", u.rows[k].id);
+  kb_open(prompt, u.rows[k].label, false, false, sizeof u.rows[k].label - 1, label_done, k);
 }
 
 void ui_setup_discovery_changed(void) {
@@ -468,7 +732,10 @@ static void show_screen(ui_setup_screen_t s) {
     lv_obj_delete(u.dialog);
     u.dialog = NULL;
   }
+  kb_close();   // a screen change drops a half-typed field
   u.screen = s;
+  u.live_state = u.live_access = NULL;
+  u.live_fn = NULL;
   u.n_parts = u.n_parts_frame;   // the header's parts stay
   u.n_segs = 0;
   lv_obj_clean(u.body);
@@ -486,6 +753,8 @@ static void show_screen(ui_setup_screen_t s) {
     case SETUP_ABOUT: build_about(); break;
     case SETUP_ROLES: build_roles(); break;
     case SETUP_DISCOVERY: build_discovery(); break;
+    case SETUP_WIFI: build_wifi(); break;
+    case SETUP_SIGNALK: build_signalk(); break;
     default: build_later(); break;
   }
   lv_obj_scroll_to_y(u.body, 0, LV_ANIM_OFF);
@@ -598,5 +867,10 @@ void ui_setup_close(void) {
 
 void ui_setup_tick(void) {
   if (!open_now()) return;
-  if (lv_display_get_inactive_time(lv_obj_get_display(u.root)) >= SETUP_IDLE_MS) ui_setup_close();
+  if (lv_display_get_inactive_time(lv_obj_get_display(u.root)) >= SETUP_IDLE_MS) {
+    ui_setup_close();
+    return;
+  }
+  refresh_live(u.live_state, u.live_fn);
+  refresh_live(u.live_access, u.cb->access_state);
 }
