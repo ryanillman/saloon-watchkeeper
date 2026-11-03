@@ -7,7 +7,8 @@ static struct {
   ui_nav_t nav;
   size_class_t sc;
   palette_t pal;
-  lv_obj_t *screen, *strip, *name, *dots, *status, *content;
+  void (*strip_tap)(void);
+  lv_obj_t *screen, *strip, *tap, *name, *dots, *status, *content;
   char status_text[24], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
   bool over;
@@ -97,6 +98,14 @@ static void on_key(lv_event_t *e) {
   lv_async_call(deferred_move, (void *)(uintptr_t)dir);
 }
 
+static void on_strip_tap(lv_event_t *e) {
+  (void)e;
+  if (s.strip_tap) s.strip_tap();
+}
+
+void ui_shell_set_strip_tap(void (*fn)(void)) { s.strip_tap = fn; }
+lv_obj_t *ui_shell_strip_tap(void) { return s.tap; }
+
 void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
                      const ui_role_view_t *roles, uint8_t role_count, uint8_t start_role) {
   uint8_t pages[UI_MAX_ROLES];
@@ -142,6 +151,15 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   s.over = false;
   lv_obj_set_style_text_color(s.status, s.status_color, 0);
   lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, 0, 0);
+
+  // An invisible tap target over the strip's left part (role name side), created after the labels, which are not clickable.
+  s.tap = lv_obj_create(s.strip);
+  lv_obj_remove_style_all(s.tap);
+  lv_obj_set_size(s.tap, (w - 24) * 2 / 5, strip_h);
+  lv_obj_set_pos(s.tap, 0, 0);
+  lv_obj_add_flag(s.tap, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s.tap, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s.tap, on_strip_tap, LV_EVENT_CLICKED, NULL);
 
   s.content = lv_obj_create(s.screen);
   lv_obj_remove_style_all(s.content);

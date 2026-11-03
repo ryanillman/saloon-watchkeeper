@@ -1,4 +1,5 @@
 #include "app.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "alerts.h"
@@ -8,6 +9,7 @@
 #include "sk_client.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
+#include "ui_quick.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -26,7 +28,17 @@ static struct {
   uint32_t discoveries;
   void (*buzzer)(bool on);
   bool buzzer_ok, buzzer_state;
+  char dir[128];   // config directory; empty = no SD card, nothing is saved
+  void (*backlight)(uint8_t percent);
+  bool dims;
+  lv_obj_t *screen;
+  palette_t pal;
+  bool ui;
+  bool dirty;
+  int64_t dirty_ms;
 } a;
+
+#define SAVE_DELAY_MS 2000
 
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
@@ -34,7 +46,12 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;
   bool buzzer_ok = a.buzzer_ok;
+  void (*backlight)(uint8_t) = a.backlight;
+  bool dims = a.dims;
   memset(&a, 0, sizeof a);
+  a.backlight = backlight;
+  a.dims = dims;
+  if (dir) snprintf(a.dir, sizeof a.dir, "%s", dir);
   a.buzzer = buzzer;
   a.buzzer_ok = buzzer_ok;
   if (!roles) roles = calloc(CFG_MAX_ROLES, sizeof *roles);
@@ -85,6 +102,10 @@ static size_t bound_ids(sk_sub_t *out, size_t max) {
           if (b->g[g].ids[j][k] != BD_NONE && n < max)
             out[n++] = (sk_sub_t){b->g[g].ids[j][k], b->def->groups[g].slots[k].resend_ms};
   }
+  if (!strcmp(a.cfg.palette, "auto") && n < max) {   // the auto palette follows environment.mode
+    bd_id_t mode = bd_intern("environment.mode");
+    if (mode != BD_NONE) out[n++] = (sk_sub_t){mode, 0};
+  }
   return n;
 }
 
@@ -105,10 +126,65 @@ void app_bind(void) {
   }
 }
 
+// The palette environment.mode asks for; day while there is no valid value.
+static palette_t auto_palette(void) {
+  bd_id_t id = bd_find("environment.mode");
+  bd_sample_t s;
+  if (id == BD_NONE || !bd_get(id, &s) || !s.valid || s.kind != BD_TEXT) return PALETTE_DAY;
+  return palette_from_env_mode(s.text);
+}
+
 static palette_t palette_of(const char *p) {
+  if (!strcmp(p, "auto")) return auto_palette();
   if (!strcmp(p, "dusk")) return PALETTE_DUSK;
   if (!strcmp(p, "night")) return PALETTE_NIGHT;
   return PALETTE_DAY;
+}
+
+static void mark_dirty(void) {
+  if (!a.dir[0]) return;   // no SD card
+  a.dirty = true;
+  a.dirty_ms = platform_millis();
+}
+
+static void apply_backlight(void) {
+  if (!a.backlight) return;
+  a.backlight(a.dims && a.cfg.brightness ? a.cfg.brightness : 100);
+}
+
+static void rebind_subs(void) {
+  if (!a.network) return;
+  static sk_sub_t ids[256];
+  sk_client_rebind(ids, bound_ids(ids, 256));
+}
+
+static void apply_palette(void) {
+  palette_t p = palette_of(a.cfg.palette);
+  if (!a.ui || p == a.pal) return;
+  a.pal = p;
+  ui_shell_set_palette(p);
+}
+
+// Quick panel callbacks run inside LVGL events: they only change state; app_tick saves.
+static void on_palette(const char *choice) {
+  bool was_auto = !strcmp(a.cfg.palette, "auto");
+  snprintf(a.cfg.palette, sizeof a.cfg.palette, "%s", choice);
+  if (was_auto != !strcmp(a.cfg.palette, "auto")) rebind_subs();   // environment.mode is subscribed only in auto
+  apply_palette();
+  mark_dirty();
+}
+
+static void on_brightness(uint8_t percent) {
+  a.cfg.brightness = percent;
+  apply_backlight();
+  mark_dirty();
+}
+
+static const ui_quick_cb_t quick_cb = {on_palette, on_brightness};
+
+static void toggle_quick(void) {
+  if (ui_quick_is_open()) ui_quick_close();
+  else ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
 }
 
 // Alert id (a notification path) to the configured role that shows that data, or -1.
@@ -131,6 +207,11 @@ void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board) {
   a.buzzer_state = false;
 }
 
+void app_set_backlight(void (*fn)(uint8_t percent), bool dims) {
+  a.backlight = fn;
+  a.dims = dims;
+}
+
 void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.sc = sc;
   for (uint8_t i = 0; i < a.count; i++)   // page counts can depend on the size class
@@ -138,8 +219,13 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   uint8_t start = 0;
   for (uint8_t i = 0; i < a.count; i++)
     if (!strcmp(a.cfg.roles[i].role, a.cfg.start_role)) start = i;
-  ui_shell_create(disp, sc, palette_of(a.cfg.palette), a.views, a.count, start);
-  ui_alerts_attach(lv_display_get_screen_active(disp), ui_shell_strip(), sc, alert_role);
+  a.pal = palette_of(a.cfg.palette);
+  ui_shell_create(disp, sc, a.pal, a.views, a.count, start);
+  a.screen = lv_display_get_screen_active(disp);
+  a.ui = true;
+  ui_shell_set_strip_tap(toggle_quick);
+  ui_alerts_attach(a.screen, ui_shell_strip(), sc, alert_role);
+  apply_backlight();
 }
 
 void app_start_network(void) {
@@ -198,6 +284,7 @@ void app_tick(void) {
       default: ui_shell_set_status("SK OFFLINE", c->alarm); break;
     }
   }
+  apply_palette();   // auto: follows environment.mode; changes only when the result does
   ui_shell_refresh();
 
   static alerts_snapshot_t snap;   // 2 KB: off the UI task stack
@@ -208,5 +295,9 @@ void app_tick(void) {
   if (a.buzzer && buzz != a.buzzer_state) {   // call the driver only on a change
     a.buzzer_state = buzz;
     a.buzzer(buzz);
+  }
+  if (a.dirty && now - a.dirty_ms >= SAVE_DELAY_MS) {   // settled: write once, outside any LVGL event
+    a.dirty = false;
+    if (!cfg_save(a.dir, &a.cfg)) fprintf(stderr, "config: cannot save %s\n", a.dir);
   }
 }

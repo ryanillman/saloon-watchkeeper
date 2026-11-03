@@ -17,5 +17,10 @@ void app_start_network(void);   // Signal K client for every bound path
 // The config's buzzer.enabled also has to be on. Call before app_tick starts.
 void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board);
 
+// The backlight: fn(percent) sets it; dims is false when the board only switches it on and off
+// (the quick panel then shows ON instead of a slider). Call before app_start_ui, which applies
+// the stored brightness. Pass fn NULL to leave the backlight alone (the simulator).
+void app_set_backlight(void (*fn)(uint8_t percent), bool dims);
+
 // UI task, about every 100 ms: rebinds after a discovery, refreshes the page and status.
 void app_tick(void);

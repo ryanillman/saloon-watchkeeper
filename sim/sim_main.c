@@ -141,6 +141,7 @@ static int write_page(lv_display_t *disp, const char *dir, const char *suffix, c
 static int run_snapshots(const char *out) {
   uint8_t nboards;
   const sim_board_t *boards = sim_boards(&nboards);
+  app_set_backlight(NULL, true);   // the panel shows its slider
   for (uint8_t bi = 0; bi < nboards; bi++) {
     const sim_board_t *b = &boards[bi];
     size_t px = (size_t)b->width * b->height;
@@ -227,6 +228,14 @@ static int run_snapshots(const char *out) {
           alerts_clear("tanks.freshWater.0.currentLevel");
           alerts_clear("tanks.fuel.0.currentLevel");
           alerts_show();
+          if ((!strcmp(b->id, "sim800") && pal == PALETTE_DAY) || (!strcmp(b->id, "sim480") && pal == PALETTE_NIGHT)) {
+            lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);   // the quick panel
+            lv_refr_now(disp);
+            snprintf(path, sizeof path, "%s/quick-panel.png", dir);
+            if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+            lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+            lv_timer_handler();
+          }
         }
       }
     }
@@ -278,6 +287,7 @@ int main(int argc, char **argv) {
 
   lv_init();
   lv_tick_set_cb(tick);
+  app_set_backlight(NULL, true);
   if (snapshot_dir) return run_snapshots(snapshot_dir);
 
   cfg_report_t rep;

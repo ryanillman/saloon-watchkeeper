@@ -90,7 +90,7 @@ static lv_display_t *display(void) {
 static esp_err_t backlight(uint8_t percent) { return ch422g_set(EXIO_BL, percent > 0); }
 
 static const board_t lcd7 = {
-  .id = "lcd7", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false,
+  .id = "lcd7", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false, .backlight_dims = false,
   .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL,
 };
 

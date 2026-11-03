@@ -166,7 +166,7 @@ static esp_err_t backlight(uint8_t percent) {
 static void buzzer(bool on) { ch32v003_set(EXIO_BEE_EN, on); }
 
 static const board_t square4 = {
-  .id = "square4", .width = W, .height = H, .size_class = SIZE_SQUARE, .has_buzzer = true,
+  .id = "square4", .width = W, .height = H, .size_class = SIZE_SQUARE, .has_buzzer = true, .backlight_dims = true,
   .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = buzzer,
 };
 

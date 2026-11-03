@@ -10,6 +10,10 @@ typedef struct {
 
 const ui_colors_t *ui_theme_colors(palette_t p);
 
+// Signal K environment.mode to a palette: "night" is NIGHT, "dawn" and "dusk" are DUSK,
+// anything else (day, sunrise, sunset, unknown, NULL) is DAY.
+palette_t palette_from_env_mode(const char *mode);
+
 // The palette in use; the shell sets it, widgets draw with it.
 void ui_theme_set_current(palette_t p);
 const ui_colors_t *ui_theme(void);

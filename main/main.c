@@ -59,6 +59,8 @@ static void sd_selftest(void) {
 }
 #endif
 
+static void set_backlight(uint8_t percent) { board->backlight(percent); }
+
 static void tick_cb(lv_timer_t *t) {
   (void)t;
   app_tick();
@@ -71,11 +73,12 @@ static void ui_task(void *arg) {
   lv_tick_set_cb(tick_ms);
   lv_display_t *d = board->lvgl_display();
   const cfg_t *cfg = arg;
-  board->backlight(cfg->brightness ? cfg->brightness : 100);
+  board->backlight(cfg->brightness ? cfg->brightness : 100);   // lit for the diagnostics; app_start_ui applies it again
 #if CONFIG_BI_DIAG_COLORBARS
   color_bars(d);
 #endif
   app_set_buzzer(board->buzzer, board->has_buzzer && board->buzzer);
+  app_set_backlight(set_backlight, board->backlight_dims);
   app_bind();
   app_start_ui(d, board->size_class);
   app_start_network();
