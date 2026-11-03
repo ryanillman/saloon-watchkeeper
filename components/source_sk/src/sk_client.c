@@ -149,6 +149,9 @@ void sk_client_run_once(void) {
       platform_unlock(c.lock);
       if (again && !subscribe()) break;
       if (!sk_ws_poll(200)) break;
+      // Deltas were lost while this task was blocked. Notifications are sent only on
+      // change, so a lost one would never come back: resubscribe to get them resent.
+      if (sk_ws_take_overflow() && !subscribe()) break;
       drain_requests(base, token);
       if (platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);

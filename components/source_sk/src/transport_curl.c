@@ -141,6 +141,9 @@ void sk_ws_close(void) {
   memset(&ws, 0, sizeof ws);
 }
 
+// curl reads the socket directly from sk_ws_poll; nothing is queued, so nothing is dropped.
+bool sk_ws_take_overflow(void) { return false; }
+
 bool sk_resolve_auto(char *host, size_t host_len, unsigned *port) {
   snprintf(host, host_len, "localhost");
   *port = 3000;

@@ -14,6 +14,10 @@ bool sk_ws_connect(const char *url, const char *token, sk_msg_cb cb, void *ctx);
 bool sk_ws_send(const char *text);
 bool sk_ws_poll(int timeout_ms);   // delivers complete text messages; false once the socket is closed
 void sk_ws_close(void);
+// True once (then cleared) when messages were dropped since the last call because
+// the receive side fell behind. Notifications are sent only on change, so the
+// caller must resubscribe: the server then resends current values and notifications.
+bool sk_ws_take_overflow(void);
 
 // Finds a Signal K server for host "auto" (mDNS _signalk-ws._tcp on the ESP32,
 // localhost:3000 on Linux).
