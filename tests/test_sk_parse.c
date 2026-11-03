@@ -144,6 +144,35 @@ static void test_full_model_prefix_is_a_whole_segment(void) {
   sk_parse_set_discovery_prefixes(NULL);
 }
 
+static void test_discovery_multi_segment_prefix(void) {
+  const char *prefixes[] = {"electrical.batteries", NULL};
+  sk_parse_set_discovery_prefixes(prefixes);
+  const char *body = "{\"electrical\":{\"batteries\":{\"279\":{\"voltage\":{\"value\":12.8}}},"
+                     "\"solar\":{\"288\":{\"panelPower\":{\"value\":50}}}}}";
+  sk_parse_full(body, strlen(body));
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, bd_find("electrical.batteries.279.voltage"));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.solar.288.panelPower"));
+  sk_parse_set_discovery_prefixes(NULL);
+}
+
+static void test_discovery_prefix_segment_boundary(void) {
+  const char *prefixes[] = {"electrical.solar", NULL};
+  sk_parse_set_discovery_prefixes(prefixes);
+  const char *body = "{\"electrical\":{\"solarX\":{\"1\":{\"voltage\":{\"value\":1}}}}}";
+  sk_parse_full(body, strlen(body));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.solarX.1.voltage"));
+  sk_parse_set_discovery_prefixes(NULL);
+}
+
+static void test_discovery_single_segment_still_works(void) {
+  const char *prefixes[] = {"tanks", NULL};
+  sk_parse_set_discovery_prefixes(prefixes);
+  const char *body = "{\"tanks\":{\"freshWater\":{\"0\":{\"currentLevel\":{\"value\":0.5}}}}}";
+  sk_parse_full(body, strlen(body));
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, bd_find("tanks.freshWater.0.currentLevel"));
+  sk_parse_set_discovery_prefixes(NULL);
+}
+
 static void test_subscribe_json_shape(void) {
   sk_sub_t ids[2] = {{bd_intern("propulsion.port.revolutions"), 0}, {bd_intern("tanks.fuel.0.currentLevel"), 0}};
   char *s = sk_build_subscribe(ids, 2);
@@ -236,6 +265,9 @@ int main(void) {
   RUN_TEST(test_full_model_sets_self);
   RUN_TEST(test_full_model_interns_only_discovery_prefixes);
   RUN_TEST(test_full_model_prefix_is_a_whole_segment);
+  RUN_TEST(test_discovery_multi_segment_prefix);
+  RUN_TEST(test_discovery_prefix_segment_boundary);
+  RUN_TEST(test_discovery_single_segment_still_works);
   RUN_TEST(test_subscribe_json_shape);
   RUN_TEST(test_notification_raises_alert);
   RUN_TEST(test_notification_null_clears);
