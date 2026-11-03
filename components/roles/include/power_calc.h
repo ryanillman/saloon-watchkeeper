@@ -3,7 +3,10 @@
 // A source contributes max(0, w) to IN; negative contributions are already inside
 // the battery's net (the monitor sees the inverter's draw), so they are neither
 // summed into IN nor added to the load again.
-// DC LOAD = dc_system when valid and fresh, else IN - battery net.
+// DC LOAD = dc_system when valid and fresh, else IN - battery net. A usable dc_system stands on
+// its own: load_ok is true even if a source or the bank is invalid (in_ok/batt_ok stay false).
+// With no sources (n == 0) in_ok is false, so load fails unless dc_system is usable.
+// soc_ok also requires batt_ok: the soc belongs to the primary bank.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

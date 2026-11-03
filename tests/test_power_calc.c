@@ -72,7 +72,7 @@ static void test_dc_system_preferred(void) {
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 350, r.load_w);
 }
 
-static void test_batt_invalid_fails_batt_load_soc_only(void) {
+static void test_batt_invalid_fails_batt_load_and_soc(void) {
   bd_sample_t p = num(300, 0), b = bad(), s = num(0.8, 0);
   power_src_t src[1] = {{.p = &p}};
   power_src_t batt = {.p = &b};
@@ -80,10 +80,33 @@ static void test_batt_invalid_fails_batt_load_soc_only(void) {
   TEST_ASSERT_FALSE(r.batt_ok);
   TEST_ASSERT_FALSE(r.load_ok);
   TEST_ASSERT_TRUE(r.in_ok);
+  TEST_ASSERT_FALSE(r.soc_ok);   // soc is the primary bank's: no bank, no soc
+  bd_sample_t b2 = num(-50, 0), sbad = bad();
+  batt.p = &b2;
+  TEST_ASSERT_FALSE(power_summarize(src, 1, &batt, &sbad, NULL, 0, NOW).soc_ok);
+  TEST_ASSERT_FALSE(power_summarize(src, 1, &batt, NULL, NULL, 0, NOW).soc_ok);
+  r = power_summarize(src, 1, &batt, &s, NULL, 0, NOW);
   TEST_ASSERT_TRUE(r.soc_ok);
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.8, r.soc);
-  r = power_summarize(src, 1, &batt, NULL, NULL, 0, NOW);
-  TEST_ASSERT_FALSE(r.soc_ok);
+}
+
+static void test_dc_system_stands_alone(void) {
+  bd_sample_t p = num(300, 0), q = bad(), b = bad(), d = num(180, 0);
+  power_src_t src[2] = {{.p = &p}, {.p = &q}};
+  power_src_t batt = {.p = &b};
+  power_summary_t r = power_summarize(src, 2, &batt, NULL, &d, 0, NOW);
+  TEST_ASSERT_TRUE(r.load_ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 180, r.load_w);
+  TEST_ASSERT_FALSE(r.in_ok);
+  TEST_ASSERT_FALSE(r.batt_ok);
+}
+
+static void test_no_sources_fails_in(void) {
+  bd_sample_t b = num(-50, 0);
+  power_src_t batt = {.p = &b};
+  power_summary_t r = power_summarize(NULL, 0, &batt, NULL, NULL, 0, NOW);
+  TEST_ASSERT_FALSE(r.in_ok);
+  TEST_ASSERT_FALSE(r.load_ok);
 }
 
 static void test_primary_choice(void) {
@@ -103,6 +126,8 @@ static void test_ttg_null_while_charging(void) {
   TEST_ASSERT_EQUAL(TTG_FAIL, power_time_remaining(&t, &ci, 0, NOW));
   TEST_ASSERT_EQUAL(TTG_VALUE, power_time_remaining(&tv, &c, 0, NOW));
   TEST_ASSERT_EQUAL(TTG_FAIL, power_time_remaining(NULL, NULL, 0, NOW));
+  bd_sample_t c0 = num(0, 0);
+  TEST_ASSERT_EQUAL(TTG_CHARGING, power_time_remaining(&t, &c0, 0, NOW));
 }
 
 int main(void) {
@@ -113,7 +138,7 @@ int main(void) {
   RUN_TEST(test_zero_source_is_valid);
   RUN_TEST(test_stale_source_fails_with_max_age);
   RUN_TEST(test_dc_system_preferred);
-  RUN_TEST(test_batt_invalid_fails_batt_load_soc_only);
+  RUN_TEST(test_batt_invalid_fails_batt_load_and_soc);
   RUN_TEST(test_primary_choice);
   RUN_TEST(test_ttg_null_while_charging);
   return UNITY_END();
