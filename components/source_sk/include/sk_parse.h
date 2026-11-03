@@ -37,6 +37,8 @@ typedef struct { bd_id_t id; uint32_t resend_ms; } sk_sub_t;
 // {"context":"vessels.self","subscribe":[{"path":...,"policy":"instant"},...]}; caller frees.
 // Always adds {"path":"notifications.*","policy":"instant"}; resend_ms > 0 uses "fixed" with "period".
 char *sk_build_subscribe(const sk_sub_t *subs, size_t n);
+// Cancels every subscription on the socket; send before resubscribing (the server does not dedupe).
+const char *sk_unsubscribe_all(void);
 
 // REST path (/signalk/v2/api/notifications/<ref>/acknowledge or /silence) for a queued request.
 // False when the alert has no ref or req is AL_REQ_NONE.
