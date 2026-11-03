@@ -2,11 +2,12 @@
 // and strips for coolant, oil, and volts. Detail: every slot for every engine.
 #include <stdio.h>
 #include <string.h>
+#include "engine_state.h"
 #include "role.h"
 #include "ui_gauge.h"
 
-enum { S_RPM, S_COOLANT, S_OIL, S_VOLTS, S_HOURS, S_FUEL };   // order of slots in role_engine.c
-static const uint8_t DECIMALS[] = {0, 0, 1, 1, 1, 1};
+enum { S_RPM, S_COOLANT, S_OIL, S_VOLTS, S_HOURS, S_FUEL, S_STATE };   // order of slots in role_engine.c
+static const uint8_t DECIMALS[] = {0, 0, 1, 1, 1, 1, 0};
 
 static struct {
   uint8_t page;
@@ -126,28 +127,44 @@ void engine_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
   else detail(area, b);
 }
 
+static bool sample(role_binding_t *b, uint8_t i, uint8_t k, bd_sample_t *out) {
+  return b->ids[i][k] != BD_NONE && bd_get(b->ids[i][k], out);
+}
+
 static bool read(role_binding_t *b, uint8_t i, uint8_t k, int64_t now, double *out) {
-  bd_id_t id = b->ids[i][k];
   bd_sample_t s;
-  if (id == BD_NONE || !bd_get(id, &s) || s.kind != BD_NUMBER) return false;
+  if (!sample(b, i, k, &s) || s.kind != BD_NUMBER) return false;
   if (!bd_is_fresh(&s, b->def->slots[k].max_age_ms, now)) return false;
   *out = units_from_si(b->def->slots[k].q, s.num, b->units);
   return true;
 }
 
+static engine_status_t assess(role_binding_t *b, uint8_t i, int64_t now) {
+  bd_sample_t r, o, st;
+  bool hr = sample(b, i, S_RPM, &r), ho = sample(b, i, S_OIL, &o), hs = sample(b, i, S_STATE, &st);
+  return engine_assess(hr ? &r : NULL, ho ? &o : NULL, hs ? &st : NULL, now);
+}
+
 void engine_refresh(role_binding_t *b, int64_t now) {
-  double x = 0;
-  bool ok;
-  if (v.dial)
-    for (uint8_t i = 0; i < b->inst_count && i < 2; i++) {
-      ok = read(b, i, S_RPM, now, &x);
-      ui_dial_set(v.dial, i, x, ok);
-    }
-  for (uint8_t i = 0; i < b->inst_count; i++)
+  for (uint8_t i = 0; i < b->inst_count; i++) {
+    engine_status_t es = assess(b, i, now);
     for (uint8_t k = 0; k < b->def->slot_count; k++) {
-      if (!v.w[i][k]) continue;
-      ok = read(b, i, k, now, &x);
-      if (k == S_HOURS) ui_readout_set(v.w[i][k], x, ok);
-      else ui_strip_set(v.w[i][k], x, ok);
+      bool is_dial = k == S_RPM && v.dial && i < 2;
+      lv_obj_t *w = v.w[i][k];
+      if (!w && !is_dial) continue;
+      // Off: the running values are dim "OFF", not a fault. Hours stay as they are.
+      if (es.mode == ENGINE_OFF && k != S_HOURS) {
+        if (is_dial) ui_dial_set_off(v.dial, i);
+        if (w) ui_strip_set_off(w);
+        continue;
+      }
+      double x = 0;
+      bool ok = read(b, i, k, now, &x);
+      if (k == S_RPM && es.rpm_suspect) ok = false;   // oil pressure says it is running: RPM is wrong
+      if (is_dial) ui_dial_set(v.dial, i, x, ok);
+      if (!w) continue;
+      if (k == S_HOURS) ui_readout_set(w, x, ok);
+      else ui_strip_set(w, x, ok);
     }
+  }
 }

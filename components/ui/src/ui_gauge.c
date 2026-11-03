@@ -19,6 +19,7 @@ typedef struct {
   const char *needle_label[2];
   double value[2];
   bool valid[2];
+  bool off[2];                   // engine off: shown dim, not as a fault
   bool vertical;
   char text[2][24];
   lv_obj_t *fault;               // overlay: red cross and "<LABEL> FAIL"
@@ -69,6 +70,10 @@ static void rect(lv_layer_t *layer, const lv_area_t *a, lv_color_t c, int32_t ra
 }
 
 static void format(gauge_t *g, uint8_t i) {
+  if (g->off[i]) {
+    snprintf(g->text[i], sizeof g->text[i], "OFF");
+    return;
+  }
   if (!g->valid[i]) {
     g->text[i][0] = 0;
     return;
@@ -107,8 +112,8 @@ static void make_fault(lv_obj_t *field, gauge_t *g, const char *label) {
 
 static void sync_fault(lv_obj_t *o) {
   gauge_t *g = G(o);
-  bool any = false;
-  for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i];
+  bool any = false;   // the whole field is flagged only when nothing is live or off
+  for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i] || g->off[i];
   if (any) lv_obj_add_flag(g->fault, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_remove_flag(g->fault, LV_OBJ_FLAG_HIDDEN);
   int32_t h = lv_obj_get_height(o), w = lv_obj_get_width(o);
@@ -230,23 +235,29 @@ static void draw_dial(lv_event_t *e) {
   int32_t row_h = lv_font_get_line_height(dig);
   int32_t y0 = cy + r * 2 / 5 + (g->n > 1 ? -row_h / 2 : 0);
   bool any = false;
-  for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i];
+  for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i] || g->off[i];
   for (uint8_t i = 0; i < g->n && any; i++) {
     int32_t y = y0 + i * row_h;
     char row[48];
     lv_color_t col = i == 0 ? c->fg : c->accent;
-    if (g->valid[i]) {
+    if (g->off[i]) {
+      snprintf(row, sizeof row, "%s%sOFF", g->needle_label[i] ? g->needle_label[i] : "", g->needle_label[i] ? " " : "");
+      text_at(layer, row, font_for(r / 7), c->dim, cx, y, LV_TEXT_ALIGN_CENTER);
+    } else if (g->valid[i]) {
       snprintf(row, sizeof row, "%s%s%s", g->needle_label[i] ? g->needle_label[i] : "",
                g->needle_label[i] ? " " : "", g->text[i]);
       text_at(layer, row, dig, col, cx, y, LV_TEXT_ALIGN_CENTER);
     } else {   // this needle failed; its neighbour stays live
       snprintf(row, sizeof row, "%s%s%s FAIL", g->needle_label[i] ? g->needle_label[i] : "",
                g->needle_label[i] ? " " : "", s->label);
-      const lv_font_t *ff = font_for(r / 6);
-      int32_t tw = lv_text_get_width(row, strlen(row), ff, 0) / 2 + 6, th = row_h / 2;
-      line(layer, cx - tw, y - th, cx + tw, y + th, 3, c->fault_cross);
-      line(layer, cx + tw, y - th, cx - tw, y + th, 3, c->fault_cross);
-      lv_area_t box = {cx - tw + 8, y - lv_font_get_line_height(ff) / 2, cx + tw - 8, y + lv_font_get_line_height(ff) / 2};
+      // A cross wider and taller than the label box, so it reads as crossed out.
+      const lv_font_t *ff = font_for(r / 7);
+      int32_t half = lv_text_get_width(row, strlen(row), ff, 0) / 2 + 4;
+      int32_t fh = lv_font_get_line_height(ff) / 2;
+      int32_t cw = half + r / 5, ch = row_h * 3 / 4;
+      line(layer, cx - cw, y - ch, cx + cw, y + ch, 4, c->fault_cross);
+      line(layer, cx + cw, y - ch, cx - cw, y + ch, 4, c->fault_cross);
+      lv_area_t box = {cx - half, y - fh, cx + half, y + fh};
       rect(layer, &box, lv_color_black(), 0);
       text_at(layer, row, ff, c->fault_label, cx, y, LV_TEXT_ALIGN_CENTER);
     }
@@ -263,9 +274,19 @@ lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t 
   return base(parent, g, spec->label, 300, 300, draw_dial);
 }
 
+void ui_dial_set_off(lv_obj_t *o, uint8_t i) {
+  gauge_t *g = G(o);
+  if (i >= g->n) return;
+  g->valid[i] = false;
+  g->off[i] = true;
+  format(g, i);
+  sync_fault(o);
+}
+
 void ui_dial_set(lv_obj_t *o, uint8_t i, double v, bool valid) {
   gauge_t *g = G(o);
   if (i >= g->n) return;
+  g->off[i] = false;
   g->value[i] = v;
   g->valid[i] = valid && isfinite(v);
   format(g, i);
@@ -291,7 +312,8 @@ static void draw_strip(lv_event_t *e) {
   int32_t lh = lv_font_get_line_height(lf);
   int32_t lw = lv_text_get_width(s->label, strlen(s->label), lf, 0);
   char v[40];
-  snprintf(v, sizeof v, "%s %s", g->valid[0] ? g->text[0] : "", s->unit);
+  if (g->off[0]) snprintf(v, sizeof v, "OFF");
+  else snprintf(v, sizeof v, "%s %s", g->valid[0] ? g->text[0] : "", s->unit);
   const lv_font_t *vf = &lv_font_montserrat_14;
   for (size_t i = 0; i < sizeof FONTS / sizeof FONTS[0]; i++) {
     int32_t fh = lv_font_get_line_height(FONTS[i]);
@@ -344,6 +366,11 @@ static void draw_strip(lv_event_t *e) {
   } else {
     text_at(layer, s->label, lf, c->dim, a.x1 + 4, a.y1 + vh - lh / 2 - 2, LV_TEXT_ALIGN_LEFT);
   }
+  if (g->off[0]) {   // quiet: label-sized and dim, so it never reads as a value or an alarm
+    if (g->vertical) text_at(layer, "OFF", lf, c->dim, a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
+    else text_at(layer, "OFF", lf, c->dim, a.x2 - 4, a.y1 + vh - lh / 2 - 2, LV_TEXT_ALIGN_RIGHT);
+    return;
+  }
   if (!g->valid[0]) return;   // the fault overlay covers the rest
 
   // Fill and pointer (clamped to the tape); digits show the true value.
@@ -370,8 +397,17 @@ lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool ve
   return base(parent, g, spec->label, vertical ? 90 : 220, vertical ? 240 : 64, draw_strip);
 }
 
+void ui_strip_set_off(lv_obj_t *o) {
+  gauge_t *g = G(o);
+  g->valid[0] = false;
+  g->off[0] = true;
+  format(g, 0);
+  sync_fault(o);
+}
+
 void ui_strip_set(lv_obj_t *o, double v, bool valid) {
   gauge_t *g = G(o);
+  g->off[0] = false;
   g->value[0] = v;
   g->valid[0] = valid && isfinite(v);
   format(g, 0);
@@ -419,7 +455,7 @@ void ui_readout_set(lv_obj_t *o, double v, bool valid) {
 bool ui_field_faulted(lv_obj_t *o) { return !lv_obj_has_flag(G(o)->fault, LV_OBJ_FLAG_HIDDEN); }
 const char *ui_field_fault_text(lv_obj_t *o) { return lv_label_get_text(G(o)->fault_label); }
 bool ui_dial_needle_visible(lv_obj_t *o, uint8_t i) { return i < G(o)->n && G(o)->valid[i]; }
-bool ui_dial_needle_faulted(lv_obj_t *o, uint8_t i) { return i < G(o)->n && !G(o)->valid[i]; }
+bool ui_dial_needle_faulted(lv_obj_t *o, uint8_t i) { return i < G(o)->n && !G(o)->valid[i] && !G(o)->off[i]; }
 double ui_dial_needle_fraction(lv_obj_t *o, uint8_t i) {
   gauge_t *g = G(o);
   return ui_scale_fraction(g->value[i], g->spec->lo, g->spec->hi);

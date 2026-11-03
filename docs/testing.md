@@ -39,6 +39,9 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | No engine data on the server | `SK LIVE`, every Engine field flagged (`RPM FAIL`, `COOLANT FAIL`, ...) |
 | `two-engines` | Both engines discovered, PORT and STBD columns, values moving |
 | `coolant-null` after 10 s | Port `COOLANT FAIL` only. Starboard coolant, oil, volts, and both RPMs stay live |
+| `rpm-pickup-fails` after 5 s | `PORT RPM FAIL` only; oil pressure says the engine is running, so everything else stays live |
+| `key-off` after 5 s | Starboard dim `OFF` (no crosses), hours still shown; port live |
+| `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 
