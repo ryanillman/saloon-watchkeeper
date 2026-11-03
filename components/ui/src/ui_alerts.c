@@ -30,7 +30,7 @@ typedef struct {
 typedef struct {
   char id[64], message[96];
   uint8_t state, n;
-  bool shown, acked, failed, lit;
+  bool shown, acked, silenced, failed, lit;
   int8_t role;
   const ui_colors_t *theme;
 } bkey_t;
@@ -207,6 +207,7 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
     k.n = n;
     k.shown = true;
     k.acked = a->acked;
+    k.silenced = a->silenced;
     k.failed = a->send_failed;
     k.lit = a->acked || ((now_ms < 0 ? 0 : now_ms) / 500) % 2 == 0;   // 1 Hz until acked, then steady
     k.role = u.role_of ? u.role_of(a->id) : -1;
@@ -244,6 +245,9 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
   int32_t cw = corner[0] ? lv_text_get_width(corner, strlen(corner), &lv_font_montserrat_20, 0) + 4 : 0;
   if (cw != u.corner_w) layout_banner(cw);
   show(u.go, k.role >= 0);
+  // Acknowledged here or elsewhere: nothing left to send, so nothing to tap. Silenced: same for SILENCE.
+  show(u.ack, !k.acked);
+  show(u.silence, !k.acked && !k.silenced);
 }
 
 // ---- marker and offline text ----

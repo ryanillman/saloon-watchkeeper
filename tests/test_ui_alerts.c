@@ -384,6 +384,20 @@ static void test_list_row_ack_guarded(void) {
   TEST_ASSERT_TRUE(a.acked);
 }
 
+// Once acknowledged (here or on another display) the banner offers no ACK or SILENCE to tap.
+static void test_ack_and_silence_hidden_once_acked(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  tick(2000);
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_ACK), LV_OBJ_FLAG_HIDDEN));
+  alerts_request("propulsion.port.temperature", AL_REQ_ACK);
+  tick(2100);
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_ACK), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_SILENCE), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_GO), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());   // still active: the banner stays, steady
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -412,5 +426,6 @@ int main(void) {
   RUN_TEST(test_double_tap_acks_only_the_first_alarm);
   RUN_TEST(test_state_change_rearms_tap_guard);
   RUN_TEST(test_list_row_ack_guarded);
+  RUN_TEST(test_ack_and_silence_hidden_once_acked);
   return UNITY_END();
 }
