@@ -19,34 +19,11 @@ static struct {
   const char *needle_label[2];
 } v;
 
-static lv_color_t state_color(uint8_t state) {
-  const ui_colors_t *c = ui_theme();
-  return state >= 3 ? c->alarm : c->warn;   // alarm/emergency red; alert/warn amber
-}
-
 // Builds the gauge spec for one slot of one engine, in display units.
 static const ui_gauge_spec_t *spec_for(role_binding_t *b, uint8_t i, uint8_t k) {
-  const role_slot_t *sl = &b->def->groups[0].slots[k];
   ui_gauge_spec_t *s = &v.spec[i][k];
-  memset(s, 0, sizeof *s);
-  snprintf(v.label[i][k], sizeof v.label[i][k], "%s", sl->fail_label);   // the column header names the engine
-  s->label = v.label[i][k];
-  s->unit = units_label(sl->q, b->units);
-  s->lo = units_from_si(sl->q, b->g[0].min[i][k], b->units);
-  s->hi = units_from_si(sl->q, b->g[0].max[i][k], b->units);
-  s->sweep = SWEEP_THREE_QUARTER;
+  role_gauge_spec(b, 0, i, k, s, v.bands[i][k], v.label[i][k]);
   s->decimals = DECIMALS[k];
-  bd_meta_t m;
-  if (b->g[0].ids[i][k] != BD_NONE && bd_get_meta(b->g[0].ids[i][k], &m)) {
-    for (uint8_t z = 0; z < m.zone_count && s->band_count < 6; z++) {
-      if (m.zones[z].state == 0) continue;   // normal zones are not drawn
-      ui_band_t *band = &v.bands[i][k][s->band_count++];
-      band->lo = units_from_si(sl->q, m.zones[z].lower, b->units);
-      band->hi = units_from_si(sl->q, m.zones[z].upper, b->units);
-      band->color = state_color(m.zones[z].state);
-    }
-    s->bands = v.bands[i][k];
-  }
   return s;
 }
 

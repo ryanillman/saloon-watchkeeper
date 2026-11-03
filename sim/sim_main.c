@@ -62,6 +62,20 @@ static void fixture_engines(void) {
   bd_set_meta(bd_find("propulsion.starboard.temperature"), &m);
 }
 
+// Five tanks, as Signal K would report them (ratios; capacity in m3).
+static void fixture_tanks(void) {
+  const struct { const char *path; double v; } d[] = {
+    {"tanks.freshWater.0.currentLevel", 0.72}, {"tanks.freshWater.1.currentLevel", 0.40},
+    {"tanks.fuel.0.currentLevel", 0.55},       {"tanks.fuel.0.capacity", 0.2},
+    {"tanks.blackWater.0.currentLevel", 0.15}, {"tanks.wasteWater.0.currentLevel", 0.30},
+  };
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, platform_millis());
+  bd_meta_t m = {.zone_count = 2};
+  m.zones[0] = (bd_zone_t){.lower = 0.0, .upper = 0.1, .state = 3};   // alarm below 10 %
+  m.zones[1] = (bd_zone_t){.lower = 0.1, .upper = 0.2, .state = 2};   // warn below 20 %
+  bd_set_meta(bd_find("tanks.fuel.0.currentLevel"), &m);
+}
+
 static const char *palette_names[] = {"day", "dusk", "night"};
 
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
@@ -105,13 +119,14 @@ static int run_snapshots(const char *out) {
       cfg_t *cfg = (cfg_t *)app_init(NULL, &rep);
       snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[pal]);
       fixture_engines();
+      fixture_tanks();
       app_bind();
       for (uint8_t r = 0; r < cfg->role_count; r++) {
         snprintf(cfg->start_role, sizeof cfg->start_role, "%s", cfg->roles[r].role);
         app_start_ui(disp, b->size_class);
         const ui_nav_t *n = ui_shell_nav();
         uint8_t pages = n->page_count[n->role];
-        bool engine = !strcmp(cfg->roles[r].role, "engine");
+        bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -122,6 +137,11 @@ static int run_snapshots(const char *out) {
             bd_set_number(bd_find("propulsion.starboard.revolutions"), 0, SK_SOURCE_ID, platform_millis());
             bd_set_number(bd_find("propulsion.starboard.oilPressure"), 0, SK_SOURCE_ID, platform_millis());
             if (write_page(disp, dir, "-off", b)) return 1;
+          } else if (tanks) {
+            fixture_tanks();
+            if (write_page(disp, dir, "-live", b)) return 1;
+            bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));   // the second fresh water sender fails
+            if (write_page(disp, dir, "-fault", b)) return 1;
           } else if (write_page(disp, dir, "", b)) {
             return 1;
           }

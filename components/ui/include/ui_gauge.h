@@ -17,6 +17,8 @@ typedef struct {
   const ui_band_t *bands;
   uint8_t band_count;
   uint8_t decimals;
+  bool has_color;      // strips: fill colour; otherwise the palette's foreground
+  lv_color_t color;
 } ui_gauge_spec_t;
 
 // The spec (and its bands) must outlive the widget.

@@ -404,7 +404,7 @@ static void draw_strip(lv_event_t *e) {
   int32_t ps = g->vertical ? w / 8 : h / 6;
   if (g->vertical) {
     lv_area_t fill = {tape.x1 + 2, tape.y2 - p, tape.x2 - 2, tape.y2};
-    rect(layer, &fill, c->fg, 0);
+    rect(layer, &fill, s->has_color ? s->color : c->fg, 0);
     line(layer, tape.x2 + 2, tape.y2 - p, tape.x2 + ps + 2, tape.y2 - p, 4, c->fg);
   } else {
     lv_area_t mark = {tape.x1 + p - 2, tape.y1 - ps, tape.x1 + p + 2, tape.y2};
