@@ -132,7 +132,10 @@ void engine_refresh(role_binding_t *b, int64_t now) {
       // Off: the running values are dim "OFF", not a fault. Hours stay as they are.
       if (es.mode == ENGINE_OFF && k != S_HOURS) {
         if (is_dial) ui_dial_set_off(v.dial, i);
-        if (w) ui_strip_set_off(w);
+        if (w) {
+          ui_strip_set_off(w);
+          ui_field_set_alert(w, 0);   // no stale alert colour on an OFF field
+        }
         continue;
       }
       double x = 0;

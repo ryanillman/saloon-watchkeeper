@@ -6,9 +6,33 @@
 #include "ui_shell.h"
 
 typedef struct {
+  char id[64], message[96];
+  uint8_t state;
+  bool acked;
+} rkey_t;
+
+typedef struct {
   lv_obj_t *row, *state, *msg, *age, *ack;
   char id[64];
+  rkey_t key;   // what the row shows now; restyle only when it changes
 } row_t;
+
+// What the banner shows now. update_banner restyles only when this changes, so an
+// unchanged tick invalidates nothing.
+typedef struct {
+  char id[64], message[96];
+  uint8_t state, n;
+  bool shown, acked, failed, lit;
+  int8_t role;
+  const ui_colors_t *theme;
+} bkey_t;
+
+typedef struct {
+  uint8_t n;
+  bool source_up;
+  int32_t status_w;
+  const ui_colors_t *theme;
+} mkey_t;
 
 static struct {
   lv_obj_t *screen, *strip;
@@ -20,30 +44,38 @@ static struct {
   row_t rows[ALERTS_MAX];
   char ban_id[64];
   int8_t ban_role;
-  bool list_open;
+  bool list_open, list_dirty;
+  int32_t corner_w, w;   // w: screen width (a hidden banner has no laid-out size)
+  bkey_t bkey;
+  mkey_t mkey;
+  const ui_colors_t *list_theme;
 } u;
 
 static const char *const STATE_NAME[] = {"NORMAL", "ALERT", "WARN", "ALARM", "EMERGENCY"};
+#define BTN_ACK_W 100
+#define BTN_SIL_W 140
+#define BTN_GO_W 80
+#define GAP 10
+#define PAD 8
 
 static void set_text(lv_obj_t *label, const char *txt) {
   if (strcmp(lv_label_get_text(label), txt) != 0) lv_label_set_text(label, txt);
 }
 
 static void show(lv_obj_t *o, bool on) {
+  if (on != lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;   // no change: no invalidation
   if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
 }
 
-static lv_color_t on_alarm(void) {   // text on the red banner; night's alarm is its foreground colour
-  return lv_color_eq(ui_theme()->alarm, ui_theme()->fg) ? ui_theme()->bg : lv_color_white();
+static lv_color_t on_alarm(const ui_colors_t *c) {   // text on the lit banner; night's alarm is its foreground colour
+  return lv_color_eq(c->alarm, c->fg) ? c->bg : lv_color_white();
 }
 
-static lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t x, int32_t y, int32_t w, int32_t h,
-                        lv_event_cb_t cb, void *arg) {
+static lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t w, int32_t h, lv_event_cb_t cb, void *arg) {
   lv_obj_t *b = lv_button_create(parent);
   lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(b, w, h);
-  lv_obj_set_pos(b, x, y);
   lv_obj_set_style_radius(b, 6, 0);
   lv_obj_set_style_border_width(b, 2, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
@@ -70,38 +102,55 @@ static void on_go(lv_event_t *e) {
   if (u.ban_role >= 0) ui_shell_goto_role((uint8_t)u.ban_role);
 }
 
-static void build_banner(int32_t w, int32_t top) {
+static int32_t banner_bh(void) { return 44; }
+
+// Wide: [message ... corner][ACK][SILENCE][GO] on one row. Square: message and corner
+// on the first row, the buttons on the second. The corner is as wide as its text.
+static void layout_banner(int32_t corner_w) {
+  const lv_font_t *f = &lv_font_montserrat_20;
+  int32_t w = u.w, lh = lv_font_get_line_height(f), bh = banner_bh();
   bool wide = u.sc == SIZE_WIDE;
-  const lv_font_t *f = wide ? &lv_font_montserrat_28 : &lv_font_montserrat_20;
-  int32_t lh = lv_font_get_line_height(f), bh = wide ? 48 : 44, pad = 8;
+  int32_t btns = BTN_ACK_W + BTN_SIL_W + BTN_GO_W + 2 * GAP;
+  int32_t gap = corner_w ? GAP : 0;
+  lv_obj_set_size(u.banner, w, wide ? PAD + bh + PAD : PAD + lh + 6 + bh + PAD);
+  lv_obj_set_width(u.corner, corner_w);
+  int32_t row_y = PAD, by = wide ? PAD : PAD + lh + 6;
+  int32_t bx = wide ? w - PAD - btns : PAD;
+  int32_t right = wide ? bx - GAP : w - PAD;   // the message row ends here
+  if (wide) row_y = PAD + (bh - lh) / 2;
+  lv_obj_set_pos(u.corner, right - corner_w, row_y);
+  lv_obj_set_size(u.msg, right - corner_w - gap - PAD, lh);
+  lv_obj_set_pos(u.msg, PAD, row_y);
+  lv_obj_set_pos(u.ack, bx, by);
+  lv_obj_set_pos(u.silence, bx + BTN_ACK_W + GAP, by);
+  lv_obj_set_pos(u.go, bx + BTN_ACK_W + GAP + BTN_SIL_W + GAP, by);
+  u.corner_w = corner_w;
+}
+
+static void build_banner(int32_t w, int32_t top) {
+  u.w = w;
   u.banner = lv_obj_create(u.screen);
   lv_obj_remove_style_all(u.banner);
-  lv_obj_set_size(u.banner, w, pad + 2 * lh + pad + bh + pad);
+  lv_obj_set_size(u.banner, w, 10);
   lv_obj_set_pos(u.banner, 0, top);
   lv_obj_set_style_bg_opa(u.banner, LV_OPA_COVER, 0);
   lv_obj_remove_flag(u.banner, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(u.banner, LV_OBJ_FLAG_HIDDEN);
 
-  int32_t corner_w = 120;
   u.msg = lv_label_create(u.banner);
-  lv_obj_set_style_text_font(u.msg, f, 0);
+  lv_obj_set_style_text_font(u.msg, &lv_font_montserrat_20, 0);
   lv_label_set_long_mode(u.msg, LV_LABEL_LONG_DOT);
-  lv_obj_set_size(u.msg, w - 2 * pad - corner_w - pad, 2 * lh);
-  lv_obj_set_pos(u.msg, pad, pad);
 
   u.corner = lv_label_create(u.banner);
   lv_obj_set_style_text_font(u.corner, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_align(u.corner, LV_TEXT_ALIGN_RIGHT, 0);
   lv_label_set_long_mode(u.corner, LV_LABEL_LONG_CLIP);
-  lv_obj_set_size(u.corner, corner_w, lv_font_get_line_height(&lv_font_montserrat_20));
-  lv_obj_set_pos(u.corner, w - pad - corner_w, pad);
 
-  int32_t y = pad + 2 * lh + pad, x = pad;
-  u.ack = button(u.banner, "ACK", x, y, 100, bh, on_ack, NULL);
-  x += 100 + 10;
-  u.silence = button(u.banner, "SILENCE", x, y, 140, bh, on_silence, NULL);
-  x += 140 + 10;
-  u.go = button(u.banner, "GO", x, y, 80, bh, on_go, NULL);
+  int32_t bh = banner_bh();
+  u.ack = button(u.banner, "ACK", BTN_ACK_W, bh, on_ack, NULL);
+  u.silence = button(u.banner, "SILENCE", BTN_SIL_W, bh, on_silence, NULL);
+  u.go = button(u.banner, "GO", BTN_GO_W, bh, on_go, NULL);
+  layout_banner(0);
 }
 
 static const alert_t *pick_alarm(const alerts_snapshot_t *s, uint8_t *n_alarms) {
@@ -120,32 +169,52 @@ static const alert_t *pick_alarm(const alerts_snapshot_t *s, uint8_t *n_alarms) 
 static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
   uint8_t n;
   const alert_t *a = pick_alarm(s, &n);
-  show(u.banner, a != NULL);
+  bkey_t k;
+  memset(&k, 0, sizeof k);
+  k.role = -1;
+  k.theme = ui_theme();
+  if (a) {
+    snprintf(k.id, sizeof k.id, "%s", a->id);
+    snprintf(k.message, sizeof k.message, "%s", a->message);
+    k.state = (uint8_t)a->state;
+    k.n = n;
+    k.shown = true;
+    k.acked = a->acked;
+    k.failed = a->send_failed;
+    k.lit = a->acked || ((now_ms < 0 ? 0 : now_ms) / 500) % 2 == 0;   // 1 Hz until acked, then steady
+    k.role = u.role_of ? u.role_of(a->id) : -1;
+  }
+  if (!memcmp(&k, &u.bkey, sizeof k)) return;
+  u.bkey = k;
+
+  show(u.banner, k.shown);
   if (!a) {
     u.ban_id[0] = 0;
     u.ban_role = -1;
     return;
   }
-  snprintf(u.ban_id, sizeof u.ban_id, "%s", a->id);
-  u.ban_role = u.role_of ? u.role_of(a->id) : -1;
+  snprintf(u.ban_id, sizeof u.ban_id, "%s", k.id);
+  u.ban_role = k.role;
 
-  const ui_colors_t *c = ui_theme();
-  bool lit = a->acked || ((now_ms < 0 ? 0 : now_ms) / 500) % 2 == 0;   // 1 Hz until acked, then steady
-  lv_color_t txt = on_alarm();
-  lv_obj_set_style_bg_color(u.banner, lit ? c->alarm : lv_color_black(), 0);
-  lv_obj_set_style_text_color(u.msg, lit ? txt : lv_color_white(), 0);
-  lv_obj_set_style_text_color(u.corner, lit ? txt : lv_color_white(), 0);
-  for (int i = 0; i < 3; i++) {
-    lv_obj_t *b = i == 0 ? u.ack : i == 1 ? u.silence : u.go;
-    style_button(b, lit ? c->alarm : lv_color_black(), lit ? txt : lv_color_white());
-  }
+  // Palette colours only: lit is alarm with a readable text colour; off is the palette's
+  // background and foreground, so night stays red on black.
+  const ui_colors_t *c = k.theme;
+  lv_color_t bg = k.lit ? c->alarm : c->bg, fg = k.lit ? on_alarm(c) : c->fg;
+  lv_obj_set_style_bg_color(u.banner, bg, 0);
+  lv_obj_set_style_text_color(u.msg, fg, 0);
+  lv_obj_set_style_text_color(u.corner, fg, 0);
+  style_button(u.ack, bg, fg);
+  style_button(u.silence, bg, fg);
+  style_button(u.go, bg, fg);
 
-  set_text(u.msg, a->message[0] ? a->message : STATE_NAME[a->state]);
+  set_text(u.msg, k.message[0] ? k.message : STATE_NAME[k.state]);
   char corner[16] = "";   // "ACK NOT SENT" is 12
-  if (a->send_failed) snprintf(corner, sizeof corner, "ACK NOT SENT");
+  if (k.failed) snprintf(corner, sizeof corner, "ACK NOT SENT");
   else if (n > 1) snprintf(corner, sizeof corner, "+%u", (unsigned)(n - 1));
   set_text(u.corner, corner);
-  show(u.go, u.ban_role >= 0);
+  int32_t cw = corner[0] ? lv_text_get_width(corner, strlen(corner), &lv_font_montserrat_20, 0) + 4 : 0;
+  if (cw != u.corner_w) layout_banner(cw);
+  show(u.go, k.role >= 0);
 }
 
 // ---- marker and offline text ----
@@ -153,6 +222,7 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
 static void on_marker(lv_event_t *e) {
   (void)e;
   u.list_open = true;
+  u.list_dirty = true;
   show(u.list, true);
 }
 
@@ -180,29 +250,45 @@ static void build_marker(void) {
   lv_obj_add_flag(u.offline, LV_OBJ_FLAG_HIDDEN);
 }
 
+// On square boards the strip has no room for a second label beside the page dots, so
+// "SK ALERTS OFFLINE" takes over the status text. Wide boards show it beside the status.
+static bool offline_in_status(void) { return u.sc == SIZE_SQUARE && ui_shell_status(); }
+
 static void update_marker(const alerts_snapshot_t *s) {
+  lv_obj_t *status = ui_shell_status();
   unsigned n = 0;
   for (uint8_t i = 0; i < s->count; i++) n += s->a[i].state == AL_ALERT || s->a[i].state == AL_WARN;
+  mkey_t k = {(uint8_t)n, s->source_up, status ? lv_obj_get_width(status) : 0, ui_theme()};
+  if (!memcmp(&k, &u.mkey, sizeof k)) return;
+  u.mkey = k;
+
+  const ui_colors_t *c = k.theme;
   char t[12] = "";
   if (n) snprintf(t, sizeof t, "%u", n);
   set_text(u.marker_label, t);
-  lv_obj_set_style_border_color(u.marker, ui_theme()->warn, 0);
-  lv_obj_set_style_text_color(u.marker, ui_theme()->warn, 0);
+  lv_obj_set_style_border_color(u.marker, c->warn, 0);
+  lv_obj_set_style_text_color(u.marker, c->warn, 0);
   show(u.marker, n > 0);
 
-  set_text(u.offline, s->source_up ? "" : "SK ALERTS OFFLINE");
-  lv_obj_set_style_text_color(u.offline, ui_theme()->warn, 0);
-  show(u.offline, !s->source_up);
+  bool in_status = offline_in_status();
+  if (in_status) {
+    ui_shell_set_status_override(s->source_up ? NULL : "SK ALERTS OFFLINE", c->alarm);
+    set_text(u.offline, "");
+    show(u.offline, false);
+  } else {
+    set_text(u.offline, s->source_up ? "" : "SK ALERTS OFFLINE");
+    lv_obj_set_style_text_color(u.offline, c->warn, 0);
+    show(u.offline, !s->source_up);
+  }
 
   // Sit left of the status text, which changes width; the offline text goes left of the marker.
-  lv_obj_t *status = ui_shell_status();
-  lv_obj_t *anchor = status ? status : u.strip;
   lv_obj_update_layout(u.strip);
-  if (status) lv_obj_align_to(u.marker, anchor, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  if (status) lv_obj_align_to(u.marker, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
   else lv_obj_align(u.marker, LV_ALIGN_RIGHT_MID, -12, 0);
   if (n) lv_obj_align_to(u.offline, u.marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-  else if (status) lv_obj_align_to(u.offline, anchor, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else if (status) lv_obj_align_to(u.offline, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
   else lv_obj_align(u.offline, LV_ALIGN_RIGHT_MID, -12, 0);
+  u.mkey.status_w = status ? lv_obj_get_width(status) : 0;   // the override changed it
 }
 
 // ---- list ----
@@ -231,7 +317,8 @@ static void build_list(int32_t w, int32_t h) {
   lv_label_set_text(title, "ALERTS");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
   lv_obj_set_pos(title, 12, 10);
-  u.close = button(u.list, "CLOSE", w - 12 - 110, 6, 110, 44, on_close, NULL);
+  u.close = button(u.list, "CLOSE", 110, 44, on_close, NULL);
+  lv_obj_set_pos(u.close, w - 12 - 110, 6);
 
   u.list_rows = lv_obj_create(u.list);
   lv_obj_remove_style_all(u.list_rows);
@@ -267,7 +354,7 @@ static void build_list(int32_t w, int32_t h) {
     r->age = lv_label_create(r->row);
     lv_obj_set_width(r->age, 64);
     lv_obj_set_style_text_font(r->age, &lv_font_montserrat_20, 0);
-    r->ack = button(r->row, "ACK", 0, 0, 80, 40, on_row_ack, r);
+    r->ack = button(r->row, "ACK", 80, 40, on_row_ack, r);
   }
 }
 
@@ -278,27 +365,41 @@ static void update_list(const alerts_snapshot_t *s, int64_t now_ms) {
   }
   if (!u.list_open) return;
   const ui_colors_t *c = ui_theme();
-  lv_obj_set_style_bg_color(u.list, c->bg, 0);
-  lv_obj_set_style_text_color(u.list, c->fg, 0);
-  style_button(u.close, c->strip_bg, c->fg);
+  bool all = u.list_dirty || u.list_theme != c;   // just opened, or the palette changed
+  if (all) {
+    lv_obj_set_style_bg_color(u.list, c->bg, 0);
+    lv_obj_set_style_text_color(u.list, c->fg, 0);
+    style_button(u.close, c->strip_bg, c->fg);
+  }
   for (uint8_t i = 0; i < ALERTS_MAX; i++) {
     row_t *r = &u.rows[i];
     show(r->row, i < s->count);
     if (i >= s->count) continue;
     const alert_t *a = &s->a[i];
-    snprintf(r->id, sizeof r->id, "%s", a->id);
-    set_text(r->state, STATE_NAME[a->state]);
-    lv_obj_set_style_text_color(r->state, a->state >= AL_ALARM ? c->alarm : c->warn, 0);
-    set_text(r->msg, a->message[0] ? a->message : a->id);
-    int64_t sec = (now_ms - a->since_ms) / 1000;
+    rkey_t k;
+    memset(&k, 0, sizeof k);
+    snprintf(k.id, sizeof k.id, "%s", a->id);
+    snprintf(k.message, sizeof k.message, "%s", a->message);
+    k.state = (uint8_t)a->state;
+    k.acked = a->acked;
+    if (all || memcmp(&k, &r->key, sizeof k)) {
+      r->key = k;
+      snprintf(r->id, sizeof r->id, "%s", a->id);
+      set_text(r->state, STATE_NAME[a->state]);
+      lv_obj_set_style_text_color(r->state, a->state >= AL_ALARM ? c->alarm : c->warn, 0);
+      set_text(r->msg, a->message[0] ? a->message : a->id);
+      lv_obj_set_style_border_color(r->row, c->dim, 0);
+      style_button(r->ack, c->strip_bg, c->fg);
+      show(r->ack, !a->acked);
+    }
+    int64_t sec = (now_ms - a->since_ms) / 1000;   // the age is the only thing that moves each second
     if (sec < 0) sec = 0;
     char age[16];
     snprintf(age, sizeof age, "%02d:%02d", (int)(sec / 60 % 100), (int)(sec % 60));
     set_text(r->age, age);
-    lv_obj_set_style_border_color(r->row, c->dim, 0);
-    style_button(r->ack, c->strip_bg, c->fg);
-    show(r->ack, !a->acked);
   }
+  u.list_dirty = false;
+  u.list_theme = c;
 }
 
 // ---- public ----
@@ -310,6 +411,7 @@ void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_ale
   u.sc = sc;
   u.role_of = role_of;
   u.ban_role = -1;
+  u.bkey.role = -1;
   lv_obj_update_layout(screen);
   int32_t w = lv_obj_get_width(screen), h = lv_obj_get_height(screen);
   build_marker();
@@ -328,7 +430,10 @@ bool ui_alerts_banner_visible(void) { return u.banner && !lv_obj_has_flag(u.bann
 const char *ui_alerts_banner_text(void) { return u.msg ? lv_label_get_text(u.msg) : ""; }
 bool ui_alerts_go_visible(void) { return ui_alerts_banner_visible() && !lv_obj_has_flag(u.go, LV_OBJ_FLAG_HIDDEN); }
 const char *ui_alerts_marker_text(void) { return u.marker_label ? lv_label_get_text(u.marker_label) : ""; }
-const char *ui_alerts_offline_text(void) { return u.offline ? lv_label_get_text(u.offline) : ""; }
+const char *ui_alerts_offline_text(void) {
+  if (offline_in_status()) return strcmp(lv_label_get_text(ui_shell_status()), "SK ALERTS OFFLINE") ? "" : "SK ALERTS OFFLINE";
+  return u.offline ? lv_label_get_text(u.offline) : "";
+}
 const char *ui_alerts_corner_text(void) { return u.corner ? lv_label_get_text(u.corner) : ""; }
 bool ui_alerts_list_visible(void) { return u.list && !lv_obj_has_flag(u.list, LV_OBJ_FLAG_HIDDEN); }
 uint8_t ui_alerts_list_rows(void) {
@@ -345,6 +450,8 @@ lv_obj_t *ui_alerts_part(ui_alerts_part_t p) {
     case UI_ALERTS_GO: return u.go;
     case UI_ALERTS_MARKER: return u.marker;
     case UI_ALERTS_CLOSE: return u.close;
+    case UI_ALERTS_CORNER: return u.corner;
+    case UI_ALERTS_OFFLINE: return offline_in_status() ? ui_shell_status() : u.offline;
   }
   return NULL;
 }
