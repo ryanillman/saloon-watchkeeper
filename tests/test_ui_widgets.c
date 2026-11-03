@@ -3,8 +3,10 @@
 #include "ui_gauge.h"
 
 static uint8_t buf[480 * 48 * 2];
+static int flushes;
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   (void)a; (void)px;
+  flushes++;
   lv_display_flush_ready(d);
 }
 
@@ -130,6 +132,26 @@ static void test_strip_off_is_not_a_fault(void) {
   TEST_ASSERT_EQUAL_STRING("OFF", ui_strip_text(s));
 }
 
+static void test_unchanged_value_does_not_redraw(void) {
+  ui_gauge_spec_t oil = {.label = "OIL", .unit = "bar", .lo = 0, .hi = 6, .decimals = 1};
+  lv_obj_t *s = ui_strip_create(scr, &oil, false);
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  lv_obj_t *r = ui_readout_create(scr, "HOURS", "h", 1);
+  ui_strip_set(s, 3.0, true);
+  ui_dial_set(d, 0, 1800, true);
+  ui_readout_set(r, 12.5, true);
+  render();
+  flushes = 0;
+  ui_strip_set(s, 3.0, true);      // the 10 Hz refresh, nothing changed
+  ui_dial_set(d, 0, 1800, true);
+  ui_readout_set(r, 12.5, true);
+  render();
+  TEST_ASSERT_EQUAL_INT(0, flushes);
+  ui_strip_set(s, 3.4, true);      // a real change still draws
+  render();
+  TEST_ASSERT_GREATER_THAN_INT(0, flushes);
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(480, 480);
@@ -149,5 +171,6 @@ int main(void) {
   RUN_TEST(test_dial_off_is_not_a_fault);
   RUN_TEST(test_dial_one_off_one_running);
   RUN_TEST(test_strip_off_is_not_a_fault);
+  RUN_TEST(test_unchanged_value_does_not_redraw);
   return UNITY_END();
 }

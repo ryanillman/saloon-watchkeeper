@@ -110,20 +110,44 @@ static void make_fault(lv_obj_t *field, gauge_t *g, const char *label) {
   lv_obj_center(g->fault_label);
 }
 
+// Font and colour of the FAIL label; only on create, resize, or palette change.
+static void style_fault(lv_obj_t *o) {
+  gauge_t *g = G(o);
+  int32_t h = lv_obj_get_height(o), w = lv_obj_get_width(o);
+  lv_obj_set_style_text_font(g->fault_label, font_for((w < h ? w : h) / 5), 0);
+  lv_obj_set_style_text_color(g->fault_label, ui_theme()->fault_label, 0);
+}
+
 static void sync_fault(lv_obj_t *o) {
   gauge_t *g = G(o);
   bool any = false;   // the whole field is flagged only when nothing is live or off
   for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i] || g->off[i];
   if (any) lv_obj_add_flag(g->fault, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_remove_flag(g->fault, LV_OBJ_FLAG_HIDDEN);
-  int32_t h = lv_obj_get_height(o), w = lv_obj_get_width(o);
-  lv_obj_set_style_text_font(g->fault_label, font_for((w < h ? w : h) / 5), 0);
-  lv_obj_set_style_text_color(g->fault_label, ui_theme()->fault_label, 0);
   lv_obj_invalidate(o);
 }
 
+// The refresh calls every setter 10 times a second. Redraw only on a change
+// the glass can show: a different state, or different digits.
+static bool unchanged(gauge_t *g, uint8_t i, double v, bool valid, bool off) {
+  if (g->off[i] != off || g->valid[i] != valid) return false;
+  if (off || !valid) return true;
+  if (g->value[i] == v) return true;
+  char next[24];
+  uint8_t dec = g->spec ? g->spec->decimals : g->decimals;
+  snprintf(next, sizeof next, "%.*f", dec, v);
+  if (strcmp(next, g->text[i]) != 0) return false;
+  if (g->kind == W_READOUT) return true;   // nothing else to move
+  // Dial and strip: the pointer moves with the value even when the digits do not.
+  double lo = g->spec->lo, hi = g->spec->hi;
+  return fabs(ui_scale_fraction(v, lo, hi) - ui_scale_fraction(g->value[i], lo, hi)) < 0.002;
+}
+
 static void on_delete(lv_event_t *e) { free(lv_event_get_user_data(e)); }
-static void on_resize(lv_event_t *e) { sync_fault(lv_event_get_target(e)); }
+static void on_resize(lv_event_t *e) {
+  style_fault(lv_event_get_target(e));
+  sync_fault(lv_event_get_target(e));
+}
 
 static lv_obj_t *base(lv_obj_t *parent, gauge_t *g, const char *fault_label, int32_t w, int32_t h,
                       lv_event_cb_t draw) {
@@ -136,6 +160,7 @@ static lv_obj_t *base(lv_obj_t *parent, gauge_t *g, const char *fault_label, int
   lv_obj_add_event_cb(o, on_delete, LV_EVENT_DELETE, g);
   lv_obj_add_event_cb(o, on_resize, LV_EVENT_SIZE_CHANGED, NULL);
   make_fault(o, g, fault_label);
+  style_fault(o);
   sync_fault(o);
   return o;
 }
@@ -276,7 +301,7 @@ lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t 
 
 void ui_dial_set_off(lv_obj_t *o, uint8_t i) {
   gauge_t *g = G(o);
-  if (i >= g->n) return;
+  if (i >= g->n || unchanged(g, i, 0, false, true)) return;
   g->valid[i] = false;
   g->off[i] = true;
   format(g, i);
@@ -285,7 +310,8 @@ void ui_dial_set_off(lv_obj_t *o, uint8_t i) {
 
 void ui_dial_set(lv_obj_t *o, uint8_t i, double v, bool valid) {
   gauge_t *g = G(o);
-  if (i >= g->n) return;
+  valid = valid && isfinite(v);
+  if (i >= g->n || unchanged(g, i, v, valid, false)) return;
   g->off[i] = false;
   g->value[i] = v;
   g->valid[i] = valid && isfinite(v);
@@ -399,6 +425,7 @@ lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool ve
 
 void ui_strip_set_off(lv_obj_t *o) {
   gauge_t *g = G(o);
+  if (unchanged(g, 0, 0, false, true)) return;
   g->valid[0] = false;
   g->off[0] = true;
   format(g, 0);
@@ -407,6 +434,8 @@ void ui_strip_set_off(lv_obj_t *o) {
 
 void ui_strip_set(lv_obj_t *o, double v, bool valid) {
   gauge_t *g = G(o);
+  valid = valid && isfinite(v);
+  if (unchanged(g, 0, v, valid, false)) return;
   g->off[0] = false;
   g->value[0] = v;
   g->valid[0] = valid && isfinite(v);
@@ -444,6 +473,8 @@ lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *uni
 
 void ui_readout_set(lv_obj_t *o, double v, bool valid) {
   gauge_t *g = G(o);
+  valid = valid && isfinite(v);
+  if (unchanged(g, 0, v, valid, false)) return;
   g->value[0] = v;
   g->valid[0] = valid && isfinite(v);
   format(g, 0);
