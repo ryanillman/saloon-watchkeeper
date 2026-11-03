@@ -158,16 +158,30 @@ static void test_long_message_keeps_buttons_visible(void) {
   }
 }
 
-static void test_field_alert_colour(void) {
+// An alerting field is tinted (background and border in the alert colour);
+// its digits stay in the normal colour so they read on the tint.
+static void test_field_alert_tints_background(void) {
   lv_obj_t *r = ui_readout_create(scr, "OIL", "bar", 1);
   ui_readout_set(r, 3.0, true);
-  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->fg, ui_field_value_color(r)));
+  TEST_ASSERT_EQUAL(LV_OPA_TRANSP, lv_obj_get_style_bg_opa(r, 0));
+  TEST_ASSERT_EQUAL(0, lv_obj_get_style_border_width(r, 0));
+
   ui_field_set_alert(r, AL_ALARM);
-  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->alarm, ui_field_value_color(r)));
-  ui_field_set_alert(r, AL_WARN);
-  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->warn, ui_field_value_color(r)));
-  ui_field_set_alert(r, AL_NORMAL);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->alarm, lv_obj_get_style_bg_color(r, 0)));
+  lv_opa_t alarm_opa = lv_obj_get_style_bg_opa(r, 0);
+  TEST_ASSERT_TRUE(alarm_opa > LV_OPA_TRANSP && alarm_opa < LV_OPA_COVER);
+  TEST_ASSERT_EQUAL(3, lv_obj_get_style_border_width(r, 0));
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->alarm, lv_obj_get_style_border_color(r, 0)));
   TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->fg, ui_field_value_color(r)));
+
+  ui_field_set_alert(r, AL_WARN);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->warn, lv_obj_get_style_bg_color(r, 0)));
+  TEST_ASSERT_TRUE(lv_obj_get_style_bg_opa(r, 0) < alarm_opa);   // lighter, so alarm stays distinct at night
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->fg, ui_field_value_color(r)));
+
+  ui_field_set_alert(r, AL_NORMAL);
+  TEST_ASSERT_EQUAL(LV_OPA_TRANSP, lv_obj_get_style_bg_opa(r, 0));
+  TEST_ASSERT_EQUAL(0, lv_obj_get_style_border_width(r, 0));
 }
 
 static void test_list_has_a_row_per_alert(void) {
@@ -391,7 +405,7 @@ int main(void) {
   RUN_TEST(test_banner_flashes_until_acked);
   RUN_TEST(test_ack_not_sent_replaces_count);
   RUN_TEST(test_long_message_keeps_buttons_visible);
-  RUN_TEST(test_field_alert_colour);
+  RUN_TEST(test_field_alert_tints_background);
   RUN_TEST(test_list_has_a_row_per_alert);
   RUN_TEST(test_square_offline_clear_of_page_dots);
   RUN_TEST(test_palette_switch_restyles_alerts);

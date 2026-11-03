@@ -37,9 +37,11 @@ static const lv_font_t *font_for(int32_t px) {
   return &lv_font_montserrat_14;
 }
 
+// Digits stay in the normal colour; an alert tints the field's background instead
+// (ui_field_set_alert), and coloured digits would not read on that tint.
 static lv_color_t value_color(const gauge_t *g) {
-  const ui_colors_t *c = ui_theme();
-  return g->alert >= 3 ? c->alarm : g->alert >= 1 ? c->warn : c->fg;
+  (void)g;
+  return ui_theme()->fg;
 }
 
 static void text_at(lv_layer_t *layer, const char *txt, const lv_font_t *f, lv_color_t c,
@@ -509,11 +511,29 @@ void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
 
 void ui_field_set_fault_text(lv_obj_t *o, const char *text) { lv_label_set_text(G(o)->fault_label, text); }
 
+// Alarm and emergency tint the field red, alert and warn amber, with a border in
+// the same colour. Alarm is the stronger tint so the two differ on the night
+// palette, where red and amber are the same colour. Steady: the banner flashes.
+#define ALERT_TINT_ALARM LV_OPA_40
+#define ALERT_TINT_WARN  LV_OPA_20
+#define ALERT_BORDER_W   3
+
 void ui_field_set_alert(lv_obj_t *o, uint8_t state) {
   gauge_t *g = G(o);
   if (state > 4) state = 4;
   if (g->alert == state) return;
   g->alert = state;
+  if (state == 0) {
+    lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(o, 0, 0);
+  } else {
+    const ui_colors_t *c = ui_theme();
+    lv_color_t col = state >= 3 ? c->alarm : c->warn;
+    lv_obj_set_style_bg_color(o, col, 0);
+    lv_obj_set_style_bg_opa(o, state >= 3 ? ALERT_TINT_ALARM : ALERT_TINT_WARN, 0);
+    lv_obj_set_style_border_color(o, col, 0);
+    lv_obj_set_style_border_width(o, ALERT_BORDER_W, 0);
+  }
   lv_obj_invalidate(o);
 }
 
