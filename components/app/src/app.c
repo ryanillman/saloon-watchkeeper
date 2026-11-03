@@ -7,6 +7,7 @@
 #include "net.h"
 #include "platform.h"
 #include "role.h"
+#include "sk_access.h"
 #include "sk_client.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
@@ -301,6 +302,50 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   apply_backlight();
 }
 
+// ---- Signal K access request ----
+
+static char access_as[64];
+
+// Signal K task. Saving goes through the config writer; without an SD card the token
+// still takes effect for this session.
+static void session_token(void *arg) {
+  cfg_t next = a.cfg;
+  snprintf(next.sk.token, sizeof next.sk.token, "%s", (const char *)arg);
+  app_apply_config(&next);
+}
+
+static void on_access_token(const char *token) {
+  cfg_report_t err;
+  unsigned bits;
+  if (app_config_set("sources.signalk.token", token, &err, &bits)) printf("signalk: access approved; token saved\n");
+  else if (app_post(session_token, (void *)token, 2000)) printf("signalk: access approved; token in use until restart (not saved: %s)\n", err.issues[0].message);
+}
+
+static void on_access_href(const char *href) {
+  cfg_report_t err;
+  unsigned bits;
+  app_config_set("sources.signalk.request", href, &err, &bits);   // no SD card: not resumable after a restart
+}
+
+static void start_access(void) {
+  uint8_t mac[6];
+  char id[37];
+  platform_mac(mac);
+  sk_access_client_id_from_mac(mac, id);
+  snprintf(access_as, sizeof access_as, "boat-instruments %s %02x:%02x", info_board, mac[4], mac[5]);
+  sk_access_set_identity(id, access_as);
+  sk_access_on_token(on_access_token);
+  sk_access_on_href(on_access_href);
+  if (a.cfg.sk.request[0]) sk_access_resume(a.cfg.sk.request, platform_millis());
+}
+
+bool app_request_access(char *as, size_t n) {
+  if (!a.network) return false;
+  snprintf(as, n, "%s", access_as);
+  sk_access_start();
+  return true;
+}
+
 void app_start_network(void) {
   // Discovery keeps only the groups the configured roles read.
   static const char *prefixes[CFG_MAX_ROLES * ROLE_MAX_GROUPS + 1];
@@ -319,6 +364,7 @@ void app_start_network(void) {
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
   size_t n = bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
+  start_access();
   sk_client_start();
   a.network = true;
 }
@@ -355,7 +401,8 @@ unsigned app_apply_config(const cfg_t *next) {
   bool units = memcmp(&a.cfg.units, &next->units, sizeof a.cfg.units) != 0;
   bool display = units || strcmp(a.cfg.palette, next->palette) || a.cfg.brightness != next->brightness ||
                  a.cfg.buzzer != next->buzzer;
-  bool sk = memcmp(&a.cfg.sk, &next->sk, sizeof a.cfg.sk) != 0;
+  bool sk = strcmp(a.cfg.sk.host, next->sk.host) || a.cfg.sk.port != next->sk.port ||
+            strcmp(a.cfg.sk.token, next->sk.token);   // a stored access-request href is not a reason to reconnect
   bool roles = !same_roles(&a.cfg, next);
   bool wifi = memcmp(&a.cfg.wifi, &next->wifi, sizeof a.cfg.wifi) != 0;
   bool was_auto = !strcmp(a.cfg.palette, "auto");
@@ -510,7 +557,9 @@ static void fill_status(void *arg) {   // UI task
   if (!strcmp(a.cfg.sk.host, "auto")) snprintf(s->signalk, sizeof s->signalk, "%s auto", st);
   else snprintf(s->signalk, sizeof s->signalk, "%s %s:%u", st, a.cfg.sk.host, (unsigned)a.cfg.sk.port);
   s->token = a.cfg.sk.token[0] != 0;
-  snprintf(s->access, sizeof s->access, "%s", "idle");
+  ska_state_t ast = sk_access_state(NULL);
+  if (ast == SKA_IDLE) snprintf(s->access, sizeof s->access, "idle");
+  else snprintf(s->access, sizeof s->access, "%s (%s)", sk_access_state_name(ast), sk_access_message());
   size_t in, ps;
   platform_mem(&in, &ps);
   s->internal_kb = (unsigned)(in / 1024);

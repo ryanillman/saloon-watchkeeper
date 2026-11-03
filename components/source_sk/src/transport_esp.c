@@ -70,6 +70,40 @@ bool sk_http_post(const char *url, const char *token, const char *json_body, int
   return ok;
 }
 
+bool sk_http_request(const char *method, const char *url, const char *token, const char *body,
+                     int *status, char **resp, size_t *resp_len) {
+  *resp = NULL;
+  *resp_len = 0;
+  esp_http_client_method_t m = !strcmp(method, "POST") ? HTTP_METHOD_POST
+                               : !strcmp(method, "PUT") ? HTTP_METHOD_PUT : HTTP_METHOD_GET;
+  esp_http_client_config_t cfg = {.url = url, .method = m, .timeout_ms = 5000};
+  esp_http_client_handle_t h = esp_http_client_init(&cfg);
+  if (!h) return false;
+  char *auth = auth_value(token);
+  if (auth) esp_http_client_set_header(h, "Authorization", auth);
+  int blen = body ? (int)strlen(body) : 0;
+  if (body) esp_http_client_set_header(h, "Content-Type", "application/json");
+  bool ok = esp_http_client_open(h, blen) == ESP_OK;
+  if (ok && blen) ok = esp_http_client_write(h, body, blen) == blen;
+  if (ok) ok = esp_http_client_fetch_headers(h) >= 0;
+  if (ok) {
+    *status = esp_http_client_get_status_code(h);
+    size_t cap = 1024, n = 0;   // access-request replies are small
+    char *buf = malloc(cap);
+    int r;
+    while (buf && n < cap - 1 && (r = esp_http_client_read(h, buf + n, (int)(cap - n - 1))) > 0) n += (size_t)r;
+    if (buf) {
+      buf[n] = 0;
+      *resp = buf;
+      *resp_len = n;
+    }
+  }
+  esp_http_client_close(h);
+  esp_http_client_cleanup(h);
+  free(auth);
+  return ok;
+}
+
 // Messages are copied off the websocket task and delivered from sk_ws_poll,
 // so parsing happens on the Signal K task.
 typedef struct { char *data; size_t len; } msg_t;

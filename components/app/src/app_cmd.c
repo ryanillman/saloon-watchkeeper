@@ -118,8 +118,15 @@ static int config(int argc, char **argv, app_out_fn out) {
 
 static int sk(int argc, char **argv, app_out_fn out) {
   if (argc >= 2 && !strcmp(argv[1], "request-access")) {
-    out("not available yet");
-    return 1;
+    char as[64];
+    if (!app_request_access(as, sizeof as)) {
+      out("Signal K is not running on this panel");
+      return 1;
+    }
+    outf(out, "requested as '%s'", as);
+    out("approve it in the Signal K admin UI: Security > Access Requests (read/write)");
+    out("`status` shows progress; the token is saved when it is approved");
+    return 0;
   }
   out("usage: sk request-access");
   return 1;

@@ -1,4 +1,5 @@
 #include "esp_heap_caps.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -29,3 +30,5 @@ void platform_mem(size_t *internal, size_t *psram) {
   *internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   *psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 }
+
+void platform_mac(uint8_t mac[6]) { esp_read_mac(mac, ESP_MAC_WIFI_STA); }
