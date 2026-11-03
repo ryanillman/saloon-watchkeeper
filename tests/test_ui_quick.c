@@ -17,7 +17,11 @@ static int palette_calls, bright_calls;
 static uint8_t last_bright;
 static void on_palette(const char *c) { snprintf(last_palette, sizeof last_palette, "%s", c); palette_calls++; }
 static void on_bright(uint8_t p) { last_bright = p; bright_calls++; }
-static const ui_quick_cb_t cb = {on_palette, on_bright, NULL};
+static const ui_quick_cb_t cb = {on_palette, on_bright, NULL, NULL, NULL};
+static bool buzz_on;
+static int buzz_calls;
+static void on_buzz(bool on) { buzz_on = on; buzz_calls++; }
+static bool buzz_state(void) { return buzz_on; }
 
 static lv_obj_t *scr;
 static void page(lv_obj_t *area, uint8_t p, size_class_t sc, void *ctx) { (void)area; (void)p; (void)sc; (void)ctx; }
@@ -168,6 +172,26 @@ static void test_new_alarm_behind_banner_closes_panel(void) {
   TEST_ASSERT_FALSE(ui_quick_is_open());
 }
 
+static void test_buzzer_switch_only_with_a_buzzer(void) {
+  ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
+  TEST_ASSERT_NULL(ui_quick_part(UI_QUICK_BUZZER));   // this board has none
+  ui_quick_close();
+  lv_timer_handler();
+  static const ui_quick_cb_t with = {on_palette, on_bright, NULL, on_buzz, buzz_state};
+  buzz_on = false;
+  buzz_calls = 0;
+  ui_quick_open(lv_screen_active(), "day", 80, true, &with);
+  lv_obj_t *sw = ui_quick_part(UI_QUICK_BUZZER);
+  TEST_ASSERT_NOT_NULL(sw);
+  TEST_ASSERT_FALSE(lv_obj_has_state(sw, LV_STATE_CHECKED));
+  lv_obj_add_state(sw, LV_STATE_CHECKED);   // what a touch on the switch does
+  lv_obj_send_event(sw, LV_EVENT_VALUE_CHANGED, NULL);
+  TEST_ASSERT_EQUAL_INT(1, buzz_calls);
+  TEST_ASSERT_TRUE(buzz_on);
+  ui_quick_close();
+  lv_timer_handler();
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -184,5 +208,6 @@ int main(void) {
   RUN_TEST(test_panel_sits_above_banner_and_alarm_closes_it);
   RUN_TEST(test_second_alarm_closes_panel);
   RUN_TEST(test_new_alarm_behind_banner_closes_panel);
+  RUN_TEST(test_buzzer_switch_only_with_a_buzzer);
   return UNITY_END();
 }

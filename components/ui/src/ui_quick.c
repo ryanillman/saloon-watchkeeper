@@ -8,7 +8,7 @@ static const char *const NAMES[] = {"day", "dusk", "night", "auto"};
 static const char *const LABELS[] = {"DAY", "DUSK", "NIGHT", "AUTO"};
 
 static struct {
-  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *bright_label;
+  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *bright_label, *buzzer;
   const ui_quick_cb_t *cb;
   uint8_t sel;
 } q;
@@ -52,6 +52,9 @@ static void on_slider(lv_event_t *e) {
 }
 
 static void on_close(lv_event_t *e) { (void)e; ui_quick_close(); }
+static void on_buzzer(lv_event_t *e) {   // the switch flips itself; report what it shows
+  if (q.cb && q.cb->on_buzzer) q.cb->on_buzzer(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
 static void on_setup(lv_event_t *e) {
   (void)e;
   if (q.cb && q.cb->on_setup) q.cb->on_setup();
@@ -144,6 +147,28 @@ void ui_quick_open(lv_obj_t *screen, const char *choice, uint8_t brightness, boo
     lv_obj_set_style_text_font(q.on, &lv_font_montserrat_20, 0);
   }
 
+  if (cb && cb->buzzer_state) {
+    const ui_colors_t *c = ui_theme();
+    lv_obj_t *zrow = lv_obj_create(q.card);
+    lv_obj_remove_style_all(zrow);
+    lv_obj_set_size(zrow, lv_pct(100), 44);
+    lv_obj_set_flex_flow(zrow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(zrow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(zrow, 16, 0);
+    lv_obj_remove_flag(zrow, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *zl = lv_label_create(zrow);
+    lv_label_set_text(zl, "BUZZER");
+    lv_obj_set_style_text_font(zl, &lv_font_montserrat_20, 0);
+    q.buzzer = lv_switch_create(zrow);
+    lv_obj_set_size(q.buzzer, 72, 40);
+    if (cb->buzzer_state()) lv_obj_add_state(q.buzzer, LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(q.buzzer, c->dim, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(q.buzzer, c->accent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(q.buzzer, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(q.buzzer, c->fg, LV_PART_KNOB);
+    lv_obj_add_event_cb(q.buzzer, on_buzzer, LV_EVENT_VALUE_CHANGED, NULL);
+  }
+
   lv_obj_t *crow = lv_obj_create(q.card);
   lv_obj_remove_style_all(crow);
   lv_obj_set_size(crow, lv_pct(100), LV_SIZE_CONTENT);
@@ -177,6 +202,7 @@ lv_obj_t *ui_quick_part(ui_quick_part_t p) {
     case UI_QUICK_ON_LABEL: return q.on;
     case UI_QUICK_CLOSE: return q.close;
     case UI_QUICK_SETUP: return q.setup;
+    case UI_QUICK_BUZZER: return q.buzzer;
   }
   return NULL;
 }
