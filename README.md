@@ -25,5 +25,30 @@ Needs ESP-IDF v5.5.1 (`. ~/esp/esp-idf/export.sh`).
 ```sh
 idf.py -D BOARD=square4 -B build/square4 build              # square4 | lcd7 | lcd7b
 idf.py -B build/square4 -p /dev/ttyACM0 flash monitor
+tools/build-firmware.sh                                     # all three boards, merged images in out/
 idf.py -D BOARD=lcd7 -D BI_EXTRA=diag/probe.defaults -B build/lcd7-probe build   # hardware probe
+```
+
+### Bench ports
+
+The three bench boards enumerate in a fixed order. Check with `ls /dev/ttyACM*` before flashing.
+
+| Board | Port | Connector |
+|---|---|---|
+| `square4` | `/dev/ttyACM0` | USB-JTAG |
+| `lcd7` | `/dev/ttyACM1` | USB-JTAG |
+| `lcd7b` | `/dev/ttyACM2` | UART (CH340), the 7B's console |
+
+Build and flash all three (flashing in parallel works):
+
+```sh
+. ~/esp/esp-idf/export.sh
+for b in square4 lcd7 lcd7b; do idf.py -D BOARD=$b -B build/$b build; done
+i=0; for b in square4 lcd7 lcd7b; do idf.py -B build/$b -p /dev/ttyACM$i flash & i=$((i+1)); done; wait
+```
+
+Then play a scenario at the local Signal K (needs `tools/sk-inject/.token`, see `docs/testing.md`):
+
+```sh
+python3 -I tools/sk-inject/inject.py tools/sk-inject/scenarios/alarm-coolant.json   # 60 s; alarm at 10 s, cleared at 40 s
 ```

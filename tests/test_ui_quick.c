@@ -125,6 +125,7 @@ static void raise_alarm(const char *id, const char *msg) {
   alert_t al = {0};
   snprintf(al.id, sizeof al.id, "%s", id);
   al.state = AL_ALARM;
+  snprintf(al.ref, sizeof al.ref, "ref-%s", id);
   snprintf(al.message, sizeof al.message, "%s", msg);
   alerts_upsert(&al, 1000);
 }
@@ -135,7 +136,7 @@ static void update(int64_t now) {
   ui_alerts_update(&snap, now);
 }
 
-// The banner already shows an acked alarm; the user opens the panel; a second alarm must close it.
+// An acked alarm has left the banner for the bell; the user opens the panel; a new alarm must close it.
 static void test_second_alarm_closes_panel(void) {
   alerts_init();
   alerts_source_up(true);
@@ -144,7 +145,7 @@ static void test_second_alarm_closes_panel(void) {
   update(0);
   alerts_request("a.one", AL_REQ_ACK);
   update(2000);
-  TEST_ASSERT_TRUE(ui_alerts_banner_visible());
+  TEST_ASSERT_FALSE(ui_alerts_banner_visible());
   ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
   update(3000);
   TEST_ASSERT_TRUE(ui_quick_is_open());   // nothing new: stays open

@@ -1,5 +1,6 @@
 #pragma once
-// Signal K alerts on the glass: the alarm banner, the alert/warn marker and list,
+// Signal K alerts on the glass: the alarm banner (un-acknowledged alarms only), the alert/warn
+// marker, the acknowledged-alarm bell, the list,
 // and "SK ALERTS OFFLINE". Everything is driven by ui_alerts_update.
 #include <stdbool.h>
 #include <stdint.h>
@@ -19,6 +20,7 @@ void ui_alerts_update(const alerts_snapshot_t *s, int64_t now_ms);   // UI task,
 bool ui_alerts_banner_visible(void);
 const char *ui_alerts_banner_text(void);
 bool ui_alerts_go_visible(void);
+const char *ui_alerts_acked_text(void);     // "" when hidden, bell and count of acknowledged alarm/emergency
 const char *ui_alerts_marker_text(void);    // "" when hidden, "2" for two alert/warn
 const char *ui_alerts_offline_text(void);   // "SK ALERTS OFFLINE" or ""
 const char *ui_alerts_corner_text(void);    // banner corner: "+N", "ACK NOT SENT" or ""
@@ -26,5 +28,5 @@ bool ui_alerts_list_visible(void);
 uint8_t ui_alerts_list_rows(void);
 
 typedef enum { UI_ALERTS_BANNER, UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO, UI_ALERTS_MARKER, UI_ALERTS_CLOSE, UI_ALERTS_CORNER, UI_ALERTS_OFFLINE,
-               UI_ALERTS_ROW0_ACK } ui_alerts_part_t;   // ROW0_ACK: the first list row's ACK
+               UI_ALERTS_ROW0_ACK, UI_ALERTS_ACKED_MARKER } ui_alerts_part_t;   // ROW0_ACK: the first list row's ACK
 lv_obj_t *ui_alerts_part(ui_alerts_part_t p);

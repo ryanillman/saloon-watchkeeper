@@ -29,13 +29,13 @@ typedef struct {
 typedef struct {
   char id[64], message[96];
   uint8_t state, n;
-  bool shown, acked, failed, lit;
+  bool shown, failed, lit;
   int8_t role;
   const ui_colors_t *theme;
 } bkey_t;
 
 typedef struct {
-  uint8_t n;
+  uint8_t n, n_acked;
   bool source_up;
   int32_t status_w;
   const ui_colors_t *theme;
@@ -46,7 +46,7 @@ PLATFORM_EXT_BSS static struct {
   size_class_t sc;
   ui_alert_role_fn role_of;
   lv_obj_t *banner, *msg, *corner, *ack, *silence, *go;
-  lv_obj_t *marker, *marker_label, *offline;
+  lv_obj_t *marker, *marker_label, *acked_marker, *acked_label, *offline;
   lv_obj_t *list, *list_rows, *close;
   row_t rows[ALERTS_MAX];
   char ban_id[64];
@@ -172,16 +172,17 @@ static void build_banner(int32_t w, int32_t top) {
 }
 
 static const alert_t *pick_alarm(const alerts_snapshot_t *s, uint8_t *n_alarms) {
-  const alert_t *first = NULL, *unacked = NULL;
+  const alert_t *first = NULL;
+  // An acknowledged alarm leaves the banner for the strip's bell, unless the source never
+  // got the ACK: that stays up, steady, saying ACK NOT SENT.
   *n_alarms = 0;
   for (uint8_t i = 0; i < s->count; i++) {
     const alert_t *a = &s->a[i];
-    if (a->state < AL_ALARM) continue;
+    if (a->state < AL_ALARM || (a->acked && !a->send_failed)) continue;
     (*n_alarms)++;
     if (!first) first = a;
-    if (!unacked && !a->acked) unacked = a;
   }
-  return unacked ? unacked : first;
+  return first;
 }
 
 static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
@@ -197,7 +198,6 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
     k.state = (uint8_t)a->state;
     k.n = n;
     k.shown = true;
-    k.acked = a->acked;
     k.failed = a->send_failed;
     k.lit = a->acked || ((now_ms < 0 ? 0 : now_ms) / 500) % 2 == 0;   // 1 Hz until acked, then steady
     k.role = u.role_of ? u.role_of(a->id) : -1;
@@ -247,23 +247,31 @@ static void on_marker(lv_event_t *e) {
   show(u.list, true);
 }
 
+static lv_obj_t *build_one_marker(lv_obj_t **label) {
+  lv_obj_t *m = lv_obj_create(u.strip);
+  lv_obj_remove_style_all(m);
+  lv_obj_set_size(m, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_hor(m, 10, 0);
+  lv_obj_set_style_pad_ver(m, 1, 0);
+  lv_obj_set_style_radius(m, 6, 0);
+  lv_obj_set_style_border_width(m, 2, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(m, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_ext_click_area(m, 8);
+  lv_obj_add_event_cb(m, on_marker, LV_EVENT_CLICKED, NULL);
+  *label = lv_label_create(m);
+  lv_obj_set_style_text_font(*label, &lv_font_montserrat_20, 0);
+  lv_label_set_text(*label, "");
+  return m;
+}
+
 static void build_marker(void) {
-  u.marker = lv_obj_create(u.strip);
-  lv_obj_remove_style_all(u.marker);
-  lv_obj_set_size(u.marker, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_hor(u.marker, 10, 0);
-  lv_obj_set_style_pad_ver(u.marker, 1, 0);
-  lv_obj_set_style_radius(u.marker, 6, 0);
-  lv_obj_set_style_border_width(u.marker, 2, 0);
+  u.marker = build_one_marker(&u.marker_label);
   lv_obj_set_style_border_color(u.marker, ui_theme()->warn, 0);
   lv_obj_set_style_text_color(u.marker, ui_theme()->warn, 0);
-  lv_obj_add_flag(u.marker, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
-  lv_obj_remove_flag(u.marker, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_ext_click_area(u.marker, 8);
-  lv_obj_add_event_cb(u.marker, on_marker, LV_EVENT_CLICKED, NULL);
-  u.marker_label = lv_label_create(u.marker);
-  lv_obj_set_style_text_font(u.marker_label, &lv_font_montserrat_20, 0);
-  lv_label_set_text(u.marker_label, "");
+  u.acked_marker = build_one_marker(&u.acked_label);
+  lv_obj_set_style_border_color(u.acked_marker, ui_theme()->alarm, 0);
+  lv_obj_set_style_text_color(u.acked_marker, ui_theme()->alarm, 0);
 
   u.offline = lv_label_create(u.strip);
   lv_obj_set_style_text_font(u.offline, &lv_font_montserrat_14, 0);
@@ -277,9 +285,12 @@ static bool offline_in_status(void) { return u.sc == SIZE_SQUARE && ui_shell_sta
 
 static void update_marker(const alerts_snapshot_t *s) {
   lv_obj_t *status = ui_shell_status();
-  unsigned n = 0;
-  for (uint8_t i = 0; i < s->count; i++) n += s->a[i].state == AL_ALERT || s->a[i].state == AL_WARN;
-  mkey_t k = {(uint8_t)n, s->source_up, status ? lv_obj_get_width(status) : 0, ui_theme()};
+  unsigned n = 0, na = 0;
+  for (uint8_t i = 0; i < s->count; i++) {
+    n += s->a[i].state == AL_ALERT || s->a[i].state == AL_WARN;
+    na += s->a[i].state >= AL_ALARM && s->a[i].acked && !s->a[i].send_failed;
+  }
+  mkey_t k = {(uint8_t)n, (uint8_t)na, s->source_up, status ? lv_obj_get_width(status) : 0, ui_theme()};
   if (!memcmp(&k, &u.mkey, sizeof k)) return;
   u.mkey = k;
 
@@ -290,6 +301,12 @@ static void update_marker(const alerts_snapshot_t *s) {
   lv_obj_set_style_border_color(u.marker, c->warn, 0);
   lv_obj_set_style_text_color(u.marker, c->warn, 0);
   show(u.marker, n > 0);
+  char ta[16] = "";
+  if (na) snprintf(ta, sizeof ta, LV_SYMBOL_BELL " %u", na);
+  set_text(u.acked_label, ta);
+  lv_obj_set_style_border_color(u.acked_marker, c->alarm, 0);
+  lv_obj_set_style_text_color(u.acked_marker, c->alarm, 0);
+  show(u.acked_marker, na > 0);
 
   bool in_status = offline_in_status();
   if (in_status) {
@@ -304,9 +321,17 @@ static void update_marker(const alerts_snapshot_t *s) {
 
   // Sit left of the status text, which changes width; the offline text goes left of the marker.
   lv_obj_update_layout(u.strip);
-  if (status) lv_obj_align_to(u.marker, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  // Right to left: status, acknowledged-alarm bell, alert/warn count, offline text.
+  lv_obj_t *left = status;
+  if (na) {
+    if (left) lv_obj_align_to(u.acked_marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+    else lv_obj_align(u.acked_marker, LV_ALIGN_RIGHT_MID, -12, 0);
+    left = u.acked_marker;
+  }
+  if (left) lv_obj_align_to(u.marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
   else lv_obj_align(u.marker, LV_ALIGN_RIGHT_MID, -12, 0);
   if (n) lv_obj_align_to(u.offline, u.marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else if (na) lv_obj_align_to(u.offline, u.acked_marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
   else if (status) lv_obj_align_to(u.offline, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
   else lv_obj_align(u.offline, LV_ALIGN_RIGHT_MID, -12, 0);
   u.mkey.status_w = status ? lv_obj_get_width(status) : 0;   // the override changed it
@@ -408,7 +433,7 @@ static void update_list(const alerts_snapshot_t *s, int64_t now_ms) {
       r->key = k;
       snprintf(r->id, sizeof r->id, "%s", a->id);
       set_text(r->state, STATE_NAME[a->state]);
-      lv_obj_set_style_text_color(r->state, a->state >= AL_ALARM ? c->alarm : c->warn, 0);
+      lv_obj_set_style_text_color(r->state, a->acked ? c->dim : a->state >= AL_ALARM ? c->alarm : c->warn, 0);
       set_text(r->msg, a->message[0] ? a->message : a->id);
       lv_obj_set_style_border_color(r->row, c->dim, 0);
       style_button(r->ack, c->strip_bg, c->fg);
@@ -473,6 +498,7 @@ void ui_alerts_update(const alerts_snapshot_t *s, int64_t now_ms) {
 bool ui_alerts_banner_visible(void) { return u.banner && !lv_obj_has_flag(u.banner, LV_OBJ_FLAG_HIDDEN); }
 const char *ui_alerts_banner_text(void) { return u.msg ? lv_label_get_text(u.msg) : ""; }
 bool ui_alerts_go_visible(void) { return ui_alerts_banner_visible() && !lv_obj_has_flag(u.go, LV_OBJ_FLAG_HIDDEN); }
+const char *ui_alerts_acked_text(void) { return u.acked_label ? lv_label_get_text(u.acked_label) : ""; }
 const char *ui_alerts_marker_text(void) { return u.marker_label ? lv_label_get_text(u.marker_label) : ""; }
 const char *ui_alerts_offline_text(void) {
   if (offline_in_status()) return strcmp(lv_label_get_text(ui_shell_status()), "SK ALERTS OFFLINE") ? "" : "SK ALERTS OFFLINE";
@@ -497,6 +523,7 @@ lv_obj_t *ui_alerts_part(ui_alerts_part_t p) {
     case UI_ALERTS_CORNER: return u.corner;
     case UI_ALERTS_OFFLINE: return offline_in_status() ? ui_shell_status() : u.offline;
     case UI_ALERTS_ROW0_ACK: return u.rows[0].ack;
+    case UI_ALERTS_ACKED_MARKER: return u.acked_marker;
   }
   return NULL;
 }
