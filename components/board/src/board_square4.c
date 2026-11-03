@@ -118,7 +118,7 @@ static esp_err_t init(void) {
     .data_width = 16,
     .bits_per_pixel = 16,
     .num_fbs = 2,
-    .bounce_buffer_size_px = W * 10,
+    .bounce_buffer_size_px = W * 20,   // headroom against PSRAM contention from Wi-Fi
     .psram_trans_align = 64,
     .hsync_gpio_num = 38, .vsync_gpio_num = 39, .de_gpio_num = 40, .pclk_gpio_num = 41,
     .disp_gpio_num = GPIO_NUM_NC,

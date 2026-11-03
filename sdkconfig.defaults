@@ -33,3 +33,8 @@ CONFIG_FATFS_MAX_LFN=255
 
 # app_main loads config.json before starting the UI task
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# RGB panels stream frames from PSRAM; Wi-Fi competes for the same bandwidth.
+# Espressif's recommended cache setup for RGB + Wi-Fi on the S3.
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
