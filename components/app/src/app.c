@@ -36,9 +36,45 @@ static struct {
   bool ui;
   bool dirty;
   int64_t dirty_ms;
+  palette_t auto_last;   // the last palette environment.mode asked for; day until one arrives
 } a;
 
 #define SAVE_DELAY_MS 2000
+
+// Config writes happen on their own task: cfg_save prints JSON and does fopen/fsync/rename on
+// the SD card, which can stall for many frames. app_tick hands over a copy; a newer copy
+// replaces one the worker has not taken yet.
+static struct {
+  void *lock;
+  cfg_t cfg;      // pending copy
+  char dir[128];
+  bool pending, started;
+} w;
+static cfg_t w_work;   // the worker's own copy, off its small stack
+
+static void config_writer(void *arg) {
+  (void)arg;
+  for (;;) {
+    char dir[128];
+    bool take = false;
+    platform_lock(w.lock);
+    if (w.pending) {
+      w_work = w.cfg;
+      memcpy(dir, w.dir, sizeof dir);
+      w.pending = false;
+      take = true;
+    }
+    platform_unlock(w.lock);
+    if (take && !cfg_save(dir, &w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
+    platform_sleep_ms(100);
+  }
+}
+
+static void start_writer(void) {
+  if (w.started) return;
+  w.lock = platform_lock_create();
+  w.started = w.lock && platform_task(config_writer, NULL, "config", 6144);
+}
 
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
@@ -52,6 +88,7 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   a.backlight = backlight;
   a.dims = dims;
   if (dir) snprintf(a.dir, sizeof a.dir, "%s", dir);
+  if (dir) start_writer();
   a.buzzer = buzzer;
   a.buzzer_ok = buzzer_ok;
   if (!roles) roles = calloc(CFG_MAX_ROLES, sizeof *roles);
@@ -130,8 +167,9 @@ void app_bind(void) {
 static palette_t auto_palette(void) {
   bd_id_t id = bd_find("environment.mode");
   bd_sample_t s;
-  if (id == BD_NONE || !bd_get(id, &s) || !s.valid || s.kind != BD_TEXT) return PALETTE_DAY;
-  return palette_from_env_mode(s.text);
+  if (id != BD_NONE && bd_get(id, &s) && s.valid && s.kind == BD_TEXT)
+    a.auto_last = palette_from_env_mode(s.text);   // only a valid sample moves it: stale, invalid or offline holds
+  return a.auto_last;
 }
 
 static palette_t palette_of(const char *p) {
@@ -149,7 +187,8 @@ static void mark_dirty(void) {
 
 static void apply_backlight(void) {
   if (!a.backlight) return;
-  a.backlight(a.dims && a.cfg.brightness ? a.cfg.brightness : 100);
+  uint8_t b = a.dims && a.cfg.brightness ? a.cfg.brightness : 100;
+  a.backlight(b < 10 ? 10 : b);   // a hand-edited 1..9 would be nearly black
 }
 
 static void rebind_subs(void) {
@@ -298,6 +337,12 @@ void app_tick(void) {
   }
   if (a.dirty && now - a.dirty_ms >= SAVE_DELAY_MS) {   // settled: write once, outside any LVGL event
     a.dirty = false;
-    if (!cfg_save(a.dir, &a.cfg)) fprintf(stderr, "config: cannot save %s\n", a.dir);
+    if (w.started) {   // a copy for the writer task; this call does no I/O
+      platform_lock(w.lock);
+      w.cfg = a.cfg;
+      memcpy(w.dir, a.dir, sizeof w.dir);
+      w.pending = true;
+      platform_unlock(w.lock);
+    }
   }
 }

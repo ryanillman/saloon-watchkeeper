@@ -122,7 +122,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 ## Palette and brightness
 
 - Tapping the palette area of the top strip opens a quick panel: DAY, DUSK, NIGHT, AUTO, and a brightness slider.
-- **AUTO** follows Signal K `environment.mode`: `dawn` and `dusk` give dusk, `night` gives night, anything else gives day. Day when the path is absent or Signal K is offline. The client subscribes to `environment.mode` while the palette is auto.
+- **AUTO** follows Signal K `environment.mode`: `dawn` and `dusk` give dusk, `night` gives night, anything else gives day. Day until a mode has been received; after that the last mode is kept while the path is absent or Signal K is offline. The client subscribes to `environment.mode` while the palette is auto.
 - Choosing DAY, DUSK, or NIGHT stores that palette and stops following Signal K until AUTO is chosen again.
 - Brightness calls `board->backlight(percent)`. On `lcd7`, which is on/off only, the slider is replaced by a fixed `ON` note.
 - Palette and brightness are saved with the existing atomic config save, 2 s after the last change. Without an SD card, changes last for the session.
