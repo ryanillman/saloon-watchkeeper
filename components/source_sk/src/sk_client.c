@@ -9,7 +9,7 @@
 
 #define MAX_BOUND 256
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   cfg_sk_t cfg;
   sk_sub_t bound[MAX_BOUND];
   size_t n_bound;
@@ -171,7 +171,9 @@ static void run(void *arg) {
   }
 }
 
-void sk_client_start(void) { platform_task(run, NULL, "signalk", 8192); }
+void sk_client_start(void) {
+  if (!platform_task(run, NULL, "signalk", 8192)) fprintf(stderr, "signalk: cannot start the client task; staying offline\n");
+}
 
 uint32_t sk_client_discovery_count(void) {
   platform_lock(c.lock);

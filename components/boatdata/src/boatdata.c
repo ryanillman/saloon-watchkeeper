@@ -11,7 +11,7 @@ typedef struct {
   bd_meta_t *meta;   // NULL until a source supplies one
 } entry_t;
 
-static entry_t entries[BD_MAX_PATHS];   // id N lives at entries[N - 1]
+PLATFORM_EXT_BSS static entry_t entries[BD_MAX_PATHS];   // id N lives at entries[N - 1]
 static uint16_t count;
 static void *lock;
 

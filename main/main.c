@@ -82,6 +82,11 @@ static void ui_task(void *arg) {
   app_bind();
   app_start_ui(d, board->size_class);
   app_start_network();
+  // Early warning: tasks, Wi-Fi and the RGB bounce buffers all need internal RAM.
+  ESP_LOGI(TAG, "RAM after start: internal free %u, largest block %u; PSRAM free %u",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   lv_timer_create(tick_cb, 100, NULL);
   for (;;) {
     uint32_t wait = lv_timer_handler();

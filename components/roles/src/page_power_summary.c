@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <strings.h>
+#include "platform.h"
 #include "power_page.h"
 
 #define MAX_SRC 12   // 4 solar + 4 charger + 2 dcdc + 2 alternator
@@ -74,7 +75,7 @@ static bool shore(const role_binding_t *b) {
 
 void power_summary_refresh(role_binding_t *b, int64_t now) {
   static const uint8_t SRC_G[] = {G_SOLAR, G_CHARGER, G_DCDC, G_ALTERNATOR};
-  static bd_sample_t st[MAX_SRC][3];
+  PLATFORM_EXT_BSS static bd_sample_t st[MAX_SRC][3];
   power_src_t src[MAX_SRC];
   size_t n = 0;
   for (size_t c = 0; c < sizeof SRC_G; c++)

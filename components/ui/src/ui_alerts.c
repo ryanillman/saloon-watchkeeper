@@ -3,6 +3,7 @@
 #include "ui_alerts.h"
 #include <stdio.h>
 #include <string.h>
+#include "platform.h"
 #include "ui_quick.h"
 #include "ui_shell.h"
 
@@ -35,7 +36,7 @@ typedef struct {
   const ui_colors_t *theme;
 } mkey_t;
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   lv_obj_t *screen, *strip;
   size_class_t sc;
   ui_alert_role_fn role_of;

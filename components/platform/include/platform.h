@@ -2,6 +2,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// Large zero-initialised statics that no ISR or DMA engine touches: on the boards they go to
+// PSRAM, keeping internal RAM for task stacks, Wi-Fi and the RGB panel's bounce buffers.
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define PLATFORM_EXT_BSS EXT_RAM_BSS_ATTR
+#else
+#define PLATFORM_EXT_BSS
+#endif
+
 // Monotonic milliseconds since an arbitrary start point.
 int64_t platform_millis(void);
 
