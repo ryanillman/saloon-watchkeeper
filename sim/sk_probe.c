@@ -17,7 +17,8 @@ int main(int argc, char **argv) {
   size_t n = 0;
   for (int i = 2; i < argc && n < 32; i++) {
     ids[n] = bd_intern(argv[i]);
-    subs[n++] = (sk_sub_t){ids[n - 1], 0};
+    subs[n] = (sk_sub_t){ids[n], 0};
+    n++;
   }
   sk_client_init(&cfg.sk, subs, n);
   sk_client_start();

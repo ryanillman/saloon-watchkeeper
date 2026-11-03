@@ -85,7 +85,7 @@ The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`,
 - Backlight: EXIO2 is on/off. PWM 0x05 dims, inverted, and the demo caps it at 97%.
 - RGB pins are identical to the 800×480 board.
 
-`board_lcd7b.c` is written from these and builds, but has not yet run on hardware.
+`board_lcd7b.c` was written from these and has run on the bench since 2026-11-03: bring-up, the swipe tearing fix below, and the internal RAM fix (see Internal RAM).
 
 **7B (2026-11-03):** the same tearing appeared on the 7B at 30 MHz PCLK; 21 MHz (about 23 fps with these porches) removed it with no visible flicker.
 
