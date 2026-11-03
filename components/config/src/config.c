@@ -86,6 +86,26 @@ static void parse_role(const cJSON *j, cfg_role_t *r) {
   }
 }
 
+// Applies a unit only if it is one we can draw; anything else is reported and
+// the default stays. Compared whole, so "barometric" can never become "bar".
+static void unit(const cJSON *units, const char *key, char *dst, size_t n, const char *const *allowed,
+                 cfg_report_t *rep) {
+  const cJSON *j = cJSON_GetObjectItem(units, key);
+  if (!j) return;
+  for (size_t i = 0; cJSON_IsString(j) && allowed[i]; i++)
+    if (strcmp(j->valuestring, allowed[i]) == 0) {
+      snprintf(dst, n, "%s", allowed[i]);
+      return;
+    }
+  char path[32], msg[96] = "unknown unit; using the default. Valid:";
+  snprintf(path, sizeof path, "units.%s", key);
+  for (size_t i = 0; allowed[i]; i++) {
+    strncat(msg, " ", sizeof msg - strlen(msg) - 1);
+    strncat(msg, allowed[i], sizeof msg - strlen(msg) - 1);
+  }
+  issue(rep, path, 0, msg);
+}
+
 static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *w = cJSON_GetObjectItem(root, "wifi");
   COPY(c->wifi.ssid, cJSON_GetObjectItem(w, "ssid"));
@@ -98,11 +118,11 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   COPY(c->sk.token, cJSON_GetObjectItem(sk, "token"));
 
   const cJSON *u = cJSON_GetObjectItem(root, "units");
-  COPY(c->units.temperature, cJSON_GetObjectItem(u, "temperature"));
-  COPY(c->units.pressure, cJSON_GetObjectItem(u, "pressure"));
-  COPY(c->units.volume, cJSON_GetObjectItem(u, "volume"));
-  COPY(c->units.speed, cJSON_GetObjectItem(u, "speed"));
-  COPY(c->units.distance, cJSON_GetObjectItem(u, "distance"));
+  unit(u, "temperature", c->units.temperature, sizeof c->units.temperature, (const char *[]){"C", "F", NULL}, rep);
+  unit(u, "pressure", c->units.pressure, sizeof c->units.pressure, (const char *[]){"bar", "psi", "kPa", NULL}, rep);
+  unit(u, "volume", c->units.volume, sizeof c->units.volume, (const char *[]){"L", "gal", NULL}, rep);
+  unit(u, "speed", c->units.speed, sizeof c->units.speed, (const char *[]){"kn", "m/s", "km/h", NULL}, rep);
+  unit(u, "distance", c->units.distance, sizeof c->units.distance, (const char *[]){"nm", "m", "ft", NULL}, rep);
 
   const cJSON *d = cJSON_GetObjectItem(root, "display");
   COPY(c->palette, cJSON_GetObjectItem(d, "palette"));
