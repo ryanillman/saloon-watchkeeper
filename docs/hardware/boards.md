@@ -13,7 +13,23 @@ Hardware facts for the three supported boards. Every board is an ESP32-S3 with a
 | Buzzer | Yes |
 | Extras | RTC, IMU (unused in v1) |
 
-Both expander versions are in the field, so the profile probes rather than assumes. The 4" was historically hard to bring up. Keep a build flag for RGB color-bar and I2C-probe diagnostics.
+Both expander versions are in the field, so the profile probes rather than assumes.
+
+**Bench unit (2026-11-02), probed with `diag/probe.defaults`:** 16 MB flash, 8 MB octal PSRAM. Every I2C device is on one bus, SDA GPIO15 / SCL GPIO7: `0x24` (expander, the v4 kind, not TCA9554), `0x51` (PCF85063 RTC), `0x5D` (GT911). Nothing answers on GPIO8/GPIO9. Waveshare's wiki notes that newer revisions put I2C0 and I2C1 on one bus. The 0x24 expander shares its address with the 7B's, which suggests the same chip and protocol. Confirm the register protocol from Waveshare's v4 or 7B ESP-IDF demo before writing the driver.
+
+From Waveshare's wiki for this board (the pin table is flattened, so the grouping is partly inferred):
+
+| Signal | Pin |
+|---|---|
+| RGB | HSYNC 38, VSYNC 39, DE 40, PCLK 41. R1 46, R2 3, R3 8, R4 18, R5 17. G0 14, G1 13, G2 12, G3 11, G4 10, G5 9. B1 5, B2 45, B3 48, B4 47, B5 21 |
+| ST7701 3-wire SPI | SDA GPIO1, SCL GPIO2, CS GPIO42. Reset on expander |
+| Touch | GT911 0x5D, INT GPIO16, reset on expander |
+| SD | GPIO1/2/4 (shared with the ST7701 init lines), CS on expander. The wiki shows SPI and SDMMC naming; **confirm** which bus |
+| CAN | RX GPIO0, TX GPIO6 (TJA1051) |
+| RS485 | RX GPIO43, TX GPIO44 |
+| PCLK | 21 MHz in Waveshare's LVGL benchmark |
+
+The wiki's expander pin list (EXIO0 TP_RST, EXIO1 BL_EN, EXIO2 LCD_RST, EXIO3 SD_CS, EXIO4 BLC, EXIO5 BEE_EN, EXIO6 RTC_INT, EXIO7 DO1) is for the TCA9554 revision. **confirm** the v4 mapping. The 4" was historically hard to bring up. Keep a build flag for RGB color-bar and I2C-probe diagnostics.
 
 ## lcd7: Waveshare ESP32-S3-Touch-LCD-7 (800×480)
 
@@ -29,6 +45,8 @@ Both expander versions are in the field, so the profile probes rather than assum
 | RS485 | TX GPIO15, RX GPIO16 |
 | UART | Separate CH343 Type-C port. The UART switch must be on UART1 for it to pass bytes |
 | Benchmark PCLK | 21 MHz (Waveshare LVGL demo) |
+
+**Bench unit (2026-11-02), probed with `diag/probe.defaults`:** GPIO8/GPIO9 answers at 0x20–0x27 and 0x30–0x3F (CH422G, which uses those addresses as registers) and 0x5D (GT911). The CH343 UART enumerates as USB 1a86:55d3.
 
 The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`, device `4018` (16 MB), 8 MB octal PSRAM. Waveshare's spec table says 8 MB flash, which contradicts the N16R8 module name. Trust the probe. An image built for 16 MB flash crashes on a chip that probes as 4 MB (`spi_flash: Detected size(4096k) ... header(16384k)`). Run `flash_id` on every new unit before the first image.
 

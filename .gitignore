@@ -4,3 +4,5 @@ sdkconfig.old
 managed_components/
 out/
 .superpowers/
+dependencies.lock
+*.log

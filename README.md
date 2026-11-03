@@ -17,3 +17,13 @@ ctest --test-dir build/sim --output-on-failure
 ```
 
 Swipe with the mouse or use the arrow keys. Left/Right change role, Up/Down change page.
+
+## Firmware
+
+Needs ESP-IDF v5.5.1 (`. ~/esp/esp-idf/export.sh`).
+
+```sh
+idf.py -D BOARD=square4 -B build/square4 build              # square4 | lcd7 | lcd7b
+idf.py -B build/square4 -p /dev/ttyACM0 flash monitor
+idf.py -D BOARD=lcd7 -D BI_EXTRA=diag/probe.defaults -B build/lcd7-probe build   # hardware probe
+```
