@@ -11,6 +11,7 @@ include(FetchContent)
 include(CTest)
 
 add_subdirectory(${BI_ROOT}/components/platform components/platform)
+add_subdirectory(${BI_ROOT}/components/ui components/ui)
 
 if(BUILD_TESTING)
   FetchContent_Declare(unity

@@ -6,3 +6,4 @@ function(bi_test name)
 endfunction()
 
 bi_test(test_platform platform)
+bi_test(test_ui_nav ui)
