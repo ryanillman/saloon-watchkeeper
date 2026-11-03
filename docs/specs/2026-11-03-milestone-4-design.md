@@ -18,7 +18,7 @@ Power is built against the default signalk-venus paths listed below. A capture f
 
 Two facts decide details below. Each is checked against the local Signal K server before the code that depends on it, and the result is written back into this document.
 1. **Fixed-period subscriptions.** Whether Signal K 2.35 resends unchanged values to a subscription with `policy: "fixed"`. The Power max ages depend on it.
-   **Result (Signal K 2.35.1, checked 2026-11-03):** a `policy: "fixed"`, `period: 2000` subscription delivered the current value once on subscribe and nothing in the following 20 s with no writes. `ideal` is rejected (`Only 'instant' and 'fixed' policies supported`), and `instant` with `minPeriod` also resent nothing. Unchanged values are not resent. **Power slots use `resend_ms = 0` and max age 0**; a steady Power value is held until it changes, and only the connection watchdog reports a dead feed.
+   **Result (Signal K 2.35.1, checked 2026-11-03):** a `policy: "fixed"`, `period: 2000` subscription delivered the current value once on subscribe and nothing in the following 20 s with no writes. `ideal` is rejected (`Only 'instant' and 'fixed' policies supported`), and `instant` with `minPeriod` also resent nothing. Unchanged values are not resent. **Power slots use `resend_ms = 0` and no max age**: Power paths subscribe with the default instant policy, and only source loss and `null` flag a field.
 2. **Notification acknowledge and silence.** Whether 2.35 offers a notifications API for acknowledge and silence, or accepts a v1 PUT to a notification path without a plugin to handle it.
    **Result (Signal K 2.35.1, checked 2026-11-03):** the server has a built-in v2 notifications API, and both actions work with the write token, no plugin needed. Notifications carry an `id` (UUID) in the value and a `status` object (`silenced`, `acknowledged`, `canSilence`, `canAcknowledge`); `GET /signalk/v2/api/notifications` lists them keyed by id. The id is stable across a sender repeating the same alarm.
    - Silence: `POST /signalk/v2/api/notifications/{id}/silence`, HTTP 200 `{"state":"COMPLETED","statusCode":200,"message":"OK"}`. The server removes `"sound"` from `method` (`["visual"]`) and sets `status.silenced: true`; every other client sees this delta about 10 ms later.
@@ -26,8 +26,11 @@ Two facts decide details below. Each is checked against the local Signal K serve
    - A sender re-sending the same alarm afterwards does not undo it: `method` stays `[]` and `acknowledged` stays true.
    - `PUT /signalk/v1/api/vessels/self/notifications/...` is not supported: HTTP 404, no change. The paths `/signalk/v2/api/notifications/silence` and `/acknowledge` do not exist (POST 404).
    - `DELETE /signalk/v2/api/notifications/{id}` returned 400 on an active alarm (`canClear` false).
+   - Request shape: `POST` needs only `Authorization: Bearer <token>`; no body and no `Content-Type` is fine (an empty `{}` body with `Content-Type: application/json` also gives 200). Without the header: HTTP 401. An unknown but valid UUID: HTTP 400 `{"state":"FAILED","statusCode":400,"message":"Alarm not found!"}`. A non-UUID id: HTTP 400 `Invalid Data supplied.`
+   - The WebSocket delta's value carries `id` and `status` directly, so a client subscribed to `notifications.*` learns the id without any REST call: `{"state":"alarm","method":[...],"message":"...","id":"<uuid>","status":{"silenced":false,"acknowledged":false,"canSilence":true,"canAcknowledge":true,"canClear":false}}`.
+   - Clearing: a `null` write arrives as `state: "normal"`, `method: []`, `message: ""`, same `id`. Raising it again gives the same `id` with `silenced` and `acknowledged` false.
 
-   **Chosen:** acknowledge is `POST /signalk/v2/api/notifications/{id}/acknowledge` and silence is `POST /signalk/v2/api/notifications/{id}/silence`, `{id}` taken from the notification value's `id`. Closest listed branch differs: this is neither "local only" case. A notification without an `id` (a server older than 2.35, or a notification the server did not wrap) falls back to local acknowledge with `ACK NOT SENT` shown. Task 7 must show state from the delta (`status.silenced`, `status.acknowledged`, `method`), not from local flags alone.
+   **Chosen:** acknowledge is `POST /signalk/v2/api/notifications/{id}/acknowledge` and silence is `POST /signalk/v2/api/notifications/{id}/silence`, with `{id}` taken from the delta value's `id`. A notification without an `id` is local only and shows `ACK NOT SENT`.
 
 ## Role instance groups
 
@@ -89,7 +92,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 - **Primary bank:** the first battery instance with a stateOfCharge path, unless config sets `"primary": "<id>"` on the power role.
 - **Strict totals:** if any bound contributor to IN is invalid, IN shows `IN FAIL` and DC LOAD shows `LOAD FAIL`. If the primary bank is invalid, BATTERY, DC LOAD, and SoC flag. A valid 0 (an MPPT at night) is a reading, not a fault.
 - **Time remaining:** signalk-venus sends `null` while a bank is not discharging. On a valid bank with current ≥ 0, the field reads `CHARGING`. It flags only when the bank itself is invalid.
-- **Max age:** if check 1 confirms fixed-period resends, Power paths are subscribed with `policy: "fixed"` and a 15 s max age, so a device that stops reporting flags. If not, Power slots have no max age, and only source loss and `null` flag a field, as for tanks.
+- **Max age:** none. Power paths subscribe with the default instant policy (`resend_ms` 0), and only source loss and `null` flag a field, as for tanks. Signal K 2.35.1 does not resend unchanged values to a fixed-period subscription, so a max age would flag every steady value.
 - **Known limit:** with several monitored banks, BATTERY covers the primary bank only. Charge into another bank (a start battery) counts as load.
 
 ## Alerts over Signal K
@@ -104,8 +107,10 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 
 - The client subscribes to `notifications.*` alongside the bound paths. A delta carrying `{state, method, message}` updates an entry. A `null` value or `normal` state clears it.
 - On disconnect the list is cleared and the top strip shows `SK ALERTS OFFLINE` until the connection is back. The server resends current notifications on subscribe, which rebuilds the list. An empty list is never shown as all clear while alerts cannot be received.
-- Acknowledge and silence are queued by the UI and sent by the Signal K task with the configured token, using the method check 2 finds. Silence falls back to a v1 PUT of the notification with `sound` removed from `method`.
-- The local state changes at once: flashing and buzzer stop. If the request fails, the banner shows `ACK NOT SENT`.
+- Acknowledge and silence are queued by the UI and sent by the Signal K task with the configured token, as `POST /signalk/v2/api/notifications/{id}/acknowledge` and `.../silence`, with `{id}` from the delta value's `id`.
+- The UI is optimistic: the local state changes at once (flashing and buzzer stop) and the request is POSTed. Shown acknowledged = local flag OR `status.acknowledged` from the delta; shown silenced = local flag OR `status.silenced`. If the POST fails (non-2xx, connection down, or the notification has no `id`), the local state stays and the banner shows `ACK NOT SENT`.
+- Banner flashing is driven by acknowledged (as above). The buzzer sounds only for an un-acknowledged, un-silenced `alarm` or `emergency` whose `method` includes `sound`.
+- Re-raise: an escalation to a more severe state, or the notification being cleared (`null` or `normal`) and raised again, resets acknowledged and silenced. The same alarm repeated by its sender keeps them, matching the stable `id`.
 
 ### On the glass
 
@@ -124,7 +129,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 
 ## Testing
 
-- **Host tests:** `role_bind` per group (Engine unchanged, Tanks at depth 2, Power with several groups, prefixed excludes); `power_calc` (sums, negative charger current as load, strict failure, `CHARGING`, primary bank choice); alert transitions (raise, escalate, clear, re-raise after acknowledge, source down); notification parsing including `null` and missing fields; `environment.mode` to palette.
+- **Host tests:** `role_bind` per group (Engine unchanged, Tanks at depth 2, Power with several groups, prefixed excludes); `power_calc` (sums, negative charger current as load, strict failure, `CHARGING`, primary bank choice); alert transitions (raise, escalate, clear, source down; re-raise after clear resets acknowledge; repeat of the same state keeps it); notification parsing including `null` and missing fields; `environment.mode` to palette.
 - **Snapshots:** Tanks; Power Summary, Batteries, and Charging; each live and faulted; an alarm banner over Engine; the alert list. Every size and palette.
 - **Live:** injector scenarios `victron-power`, `tanks`, `alarm-coolant` (raise, then clear), and `warn-tank-low`. An ACK from the panel is visible on the server.
 - **Bench:** each board runs the scenarios. Banner and buzzer are checked on `square4`.
