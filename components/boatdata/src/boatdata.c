@@ -176,3 +176,10 @@ size_t bd_match(const char *pattern, bd_id_t *out, size_t max) {
   UNLOCK();
   return n;
 }
+
+bd_id_t bd_count(void) {
+  LOCK();
+  bd_id_t n = count;
+  UNLOCK();
+  return n;
+}
