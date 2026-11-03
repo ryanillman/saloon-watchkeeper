@@ -39,6 +39,7 @@ add_subdirectory(${BI_ROOT}/components/platform components/platform)
 add_subdirectory(${BI_ROOT}/components/ui components/ui)
 add_subdirectory(${BI_ROOT}/components/boatdata components/boatdata)
 add_subdirectory(${BI_ROOT}/components/config components/config)
+add_subdirectory(${BI_ROOT}/components/units components/units)
 
 add_library(sim_boards STATIC sim_boards.c)
 target_include_directories(sim_boards PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
