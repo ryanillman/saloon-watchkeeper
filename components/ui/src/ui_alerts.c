@@ -17,7 +17,12 @@ typedef struct {
   lv_obj_t *row, *state, *msg, *age, *ack;
   char id[64];
   rkey_t key;   // what the row shows now; restyle only when it changes
+  int64_t changed_ms;   // when this row last started showing a different alert
 } row_t;
+
+// After the alarm under a button changes, taps are ignored for this long, so the second
+// tap of a double tap (or a bounce) cannot acknowledge an alarm nobody has read yet.
+#define TAP_GUARD_MS 1000
 
 // What the banner shows now. update_banner restyles only when this changes, so an
 // unchanged tick invalidates nothing.
@@ -51,7 +56,12 @@ PLATFORM_EXT_BSS static struct {
   bkey_t bkey;
   mkey_t mkey;
   const ui_colors_t *list_theme;
+  int64_t now_ms, ban_changed_ms;   // now_ms: the last tick's time
+  char unacked[ALERTS_MAX][64];     // un-acked alarm/emergency ids at the last tick
+  uint8_t n_unacked;
 } u;
+
+static bool settled(int64_t changed_ms) { return u.now_ms - changed_ms >= TAP_GUARD_MS; }
 
 static const char *const STATE_NAME[] = {"NORMAL", "ALERT", "WARN", "ALARM", "EMERGENCY"};
 #define BTN_ACK_W 100
@@ -97,8 +107,14 @@ static void style_button(lv_obj_t *b, lv_color_t bg, lv_color_t fg) {
 
 // ---- banner ----
 
-static void on_ack(lv_event_t *e) { (void)e; if (u.ban_id[0]) alerts_request(u.ban_id, AL_REQ_ACK); }
-static void on_silence(lv_event_t *e) { (void)e; if (u.ban_id[0]) alerts_request(u.ban_id, AL_REQ_SILENCE); }
+static void on_ack(lv_event_t *e) {
+  (void)e;
+  if (u.ban_id[0] && settled(u.ban_changed_ms)) alerts_request(u.ban_id, AL_REQ_ACK);
+}
+static void on_silence(lv_event_t *e) {
+  (void)e;
+  if (u.ban_id[0] && settled(u.ban_changed_ms)) alerts_request(u.ban_id, AL_REQ_SILENCE);
+}
 static void on_go(lv_event_t *e) {
   (void)e;
   if (u.ban_role >= 0) ui_shell_goto_role((uint8_t)u.ban_role);
@@ -187,7 +203,8 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
     k.role = u.role_of ? u.role_of(a->id) : -1;
   }
   if (!memcmp(&k, &u.bkey, sizeof k)) return;
-  if (k.shown && !u.bkey.shown) ui_quick_close();   // the quick panel sits above the banner, so a new alarm closes it
+  if (strcmp(k.id, u.bkey.id) || k.state != u.bkey.state) u.ban_changed_ms = now_ms;   // a different alarm under ACK
+  if (k.shown && !u.bkey.shown) ui_quick_close();   // the quick panel sits above the banner
   u.bkey = k;
 
   show(u.banner, k.shown);
@@ -305,7 +322,7 @@ static void on_close(lv_event_t *e) {
 
 static void on_row_ack(lv_event_t *e) {
   row_t *r = lv_event_get_user_data(e);
-  if (r->id[0]) alerts_request(r->id, AL_REQ_ACK);
+  if (r->id[0] && settled(r->changed_ms)) alerts_request(r->id, AL_REQ_ACK);
 }
 
 static void build_list(int32_t w, int32_t h) {
@@ -387,6 +404,7 @@ static void update_list(const alerts_snapshot_t *s, int64_t now_ms) {
     k.state = (uint8_t)a->state;
     k.acked = a->acked;
     if (all || memcmp(&k, &r->key, sizeof k)) {
+      if (strcmp(k.id, r->key.id) || k.state != r->key.state) r->changed_ms = now_ms;
       r->key = k;
       snprintf(r->id, sizeof r->id, "%s", a->id);
       set_text(r->state, STATE_NAME[a->state]);
@@ -423,8 +441,30 @@ void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_ale
   build_list(w, h);
 }
 
+// The quick panel sits above the banner and has no timeout, so any newly raised (or
+// re-raised) un-acked alarm closes it, even while the banner already shows another.
+static void close_quick_on_new_alarm(const alerts_snapshot_t *s) {
+  char now[ALERTS_MAX][64];
+  uint8_t n = 0;
+  bool fresh = false;
+  for (uint8_t i = 0; i < s->count && n < ALERTS_MAX; i++) {
+    const alert_t *a = &s->a[i];
+    if (a->state < AL_ALARM || a->acked) continue;
+    snprintf(now[n], sizeof now[n], "%s", a->id);
+    bool seen = false;
+    for (uint8_t j = 0; j < u.n_unacked && !seen; j++) seen = strcmp(u.unacked[j], now[n]) == 0;
+    fresh |= !seen;
+    n++;
+  }
+  memcpy(u.unacked, now, sizeof now[0] * n);
+  u.n_unacked = n;
+  if (fresh) ui_quick_close();
+}
+
 void ui_alerts_update(const alerts_snapshot_t *s, int64_t now_ms) {
   if (!u.screen) return;
+  u.now_ms = now_ms;
+  close_quick_on_new_alarm(s);
   update_banner(s, now_ms);
   update_marker(s);
   update_list(s, now_ms);
@@ -456,6 +496,7 @@ lv_obj_t *ui_alerts_part(ui_alerts_part_t p) {
     case UI_ALERTS_CLOSE: return u.close;
     case UI_ALERTS_CORNER: return u.corner;
     case UI_ALERTS_OFFLINE: return offline_in_status() ? ui_shell_status() : u.offline;
+    case UI_ALERTS_ROW0_ACK: return u.rows[0].ack;
   }
   return NULL;
 }

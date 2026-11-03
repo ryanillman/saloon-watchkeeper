@@ -115,6 +115,8 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 ### On the glass
 
 - **Banner** for `alarm` and `emergency`: full-width red, flashing until acknowledged, with ACK and SILENCE, and GO when the path maps to a configured role: `propulsion.*` to Engine, `electrical.*` to Power, `tanks.*` to Tanks, `navigation.anchor.*` to Anchor. Several active alarms show the most severe first with a `+N` count. The display never changes pages on its own.
+- **Tap guard:** ACK and SILENCE ignore taps for 1 s after the alarm under them changes (a different alarm, or a new state), so a double tap or a bounce cannot acknowledge an alarm nobody has read. The list's row ACK does the same.
+- **Nothing hides an alarm:** the quick panel closes whenever a new un-acknowledged `alarm` or `emergency` is raised, even while the banner already shows another.
 - **Top strip:** amber marker with a count for `alert` and `warn`. Tapping it opens the alert list: state, message, age, and ACK per row.
 - **Field colour:** a page refreshing a slot checks for an active notification on that slot's path and draws the readout in the alert colour, in addition to zone bands.
 - **Buzzer:** through the existing `board->buzzer` hook (`square4` only; a no-op in the sim). Off unless `buzzer.enabled`. Sounds only for unacknowledged `alarm` and `emergency` whose `method` includes `sound`: slow pulse for alarm, fast for emergency. A non-blocking pattern advanced on the UI tick.

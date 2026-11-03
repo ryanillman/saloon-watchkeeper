@@ -88,6 +88,7 @@ static void test_offline_text_when_source_down(void) {
 static void test_ack_button_requests_ack(void) {
   raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
   tick(0);
+  tick(1000);   // past the tap guard
   lv_obj_send_event(ui_alerts_part(UI_ALERTS_ACK), LV_EVENT_CLICKED, NULL);
   alert_t a;
   TEST_ASSERT_TRUE(alerts_get("propulsion.port.temperature", &a));
@@ -98,6 +99,7 @@ static void test_ack_button_requests_ack(void) {
 static void test_silence_button_requests_silence(void) {
   raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
   tick(0);
+  tick(1000);   // past the tap guard
   lv_obj_send_event(ui_alerts_part(UI_ALERTS_SILENCE), LV_EVENT_CLICKED, NULL);
   alert_t a;
   TEST_ASSERT_TRUE(alerts_get("propulsion.port.temperature", &a));
@@ -314,6 +316,60 @@ static void test_palette_switch_restyles_alerts(void) {
   TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_border_color(marker, 0), n->warn));
 }
 
+static void click(ui_alerts_part_t p) { lv_obj_send_event(ui_alerts_part(p), LV_EVENT_CLICKED, NULL); }
+
+static void test_double_tap_acks_only_the_first_alarm(void) {
+  raise("a.one", AL_ALARM, "One");
+  raise("a.two", AL_ALARM, "Two");
+  tick(0);
+  tick(5000);
+  TEST_ASSERT_EQUAL_STRING("One", ui_alerts_banner_text());
+  click(UI_ALERTS_ACK);
+  tick(5100);   // the banner moves on to the next un-acked alarm
+  TEST_ASSERT_EQUAL_STRING("Two", ui_alerts_banner_text());
+  click(UI_ALERTS_ACK);   // second tap, 100 ms later
+  click(UI_ALERTS_SILENCE);
+  alert_t a;
+  TEST_ASSERT_TRUE(alerts_get("a.one", &a));
+  TEST_ASSERT_TRUE(a.acked);
+  TEST_ASSERT_TRUE(alerts_get("a.two", &a));
+  TEST_ASSERT_FALSE(a.acked);
+  TEST_ASSERT_FALSE(a.silenced);
+  tick(6100);   // a second after it appeared, ACK works again
+  click(UI_ALERTS_ACK);
+  TEST_ASSERT_TRUE(alerts_get("a.two", &a));
+  TEST_ASSERT_TRUE(a.acked);
+}
+
+static void test_state_change_rearms_tap_guard(void) {
+  raise("a.one", AL_ALARM, "One");
+  tick(0);
+  tick(5000);
+  raise("a.one", AL_EMERGENCY, "One");   // same id, escalated
+  tick(5100);
+  click(UI_ALERTS_ACK);
+  alert_t a;
+  TEST_ASSERT_TRUE(alerts_get("a.one", &a));
+  TEST_ASSERT_FALSE(a.acked);
+}
+
+static void test_list_row_ack_guarded(void) {
+  raise("a.one", AL_ALARM, "One");
+  tick(0);
+  click(UI_ALERTS_MARKER);   // marker is hidden with no warns, but its handler opens the list
+  tick(100);
+  TEST_ASSERT_TRUE(ui_alerts_list_visible());
+  lv_obj_t *row_ack = ui_alerts_part(UI_ALERTS_ROW0_ACK);
+  lv_obj_send_event(row_ack, LV_EVENT_CLICKED, NULL);   // the row appeared 100 ms ago
+  alert_t a;
+  TEST_ASSERT_TRUE(alerts_get("a.one", &a));
+  TEST_ASSERT_FALSE(a.acked);
+  tick(1200);
+  lv_obj_send_event(row_ack, LV_EVENT_CLICKED, NULL);
+  TEST_ASSERT_TRUE(alerts_get("a.one", &a));
+  TEST_ASSERT_TRUE(a.acked);
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -339,5 +395,8 @@ int main(void) {
   RUN_TEST(test_list_has_a_row_per_alert);
   RUN_TEST(test_square_offline_clear_of_page_dots);
   RUN_TEST(test_palette_switch_restyles_alerts);
+  RUN_TEST(test_double_tap_acks_only_the_first_alarm);
+  RUN_TEST(test_state_change_rearms_tap_guard);
+  RUN_TEST(test_list_row_ack_guarded);
   return UNITY_END();
 }
