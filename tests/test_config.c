@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include "unity.h"
 #include "config.h"
+#include "cJSON.h"
 
 static char dir[64];
 
@@ -230,6 +231,149 @@ static void test_power_primary_round_trip(void) {
   TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
 }
 
+// ---- milestone 5a: unknown roles survive, key-path edits ----
+
+static const char *WITH_UNKNOWN =
+  "{\n"
+  "  \"wifi\": { \"ssid\": \"Boatnet\", \"password\": \"pw\" },\n"
+  "  \"roles\": [\n"
+  "    { \"role\": \"engine\" },\n"
+  "    { \"role\": \"windlass\", \"mine\": 1 },\n"
+  "    { \"role\": \"tanks\", \"exclude\": [\"x.0\"] },\n"
+  "    { \"role\": \"anchor\" },\n"
+  "    { \"role\": \"foo\", \"bar\": [1, 2] }\n"
+  "  ]\n"
+  "}\n";
+
+static cJSON *roles_of(const char *text) {
+  cJSON *root = cJSON_Parse(text);
+  TEST_ASSERT_NOT_NULL(root);
+  return root;
+}
+
+static void test_unknown_roles_survive_save(void) {
+  write_file("config.json", WITH_UNKNOWN);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(3, c.role_count);
+  strcpy(c.palette, "night");
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cJSON *root = roles_of(read_file("config.json"));
+  cJSON *roles = cJSON_GetObjectItem(root, "roles");
+  TEST_ASSERT_EQUAL_INT(5, cJSON_GetArraySize(roles));
+  const char *want[] = {"engine", "tanks", "anchor", "windlass", "foo"};   // known first, unknown kept after
+  for (int i = 0; i < 5; i++)
+    TEST_ASSERT_EQUAL_STRING(want[i], cJSON_GetObjectItem(cJSON_GetArrayItem(roles, i), "role")->valuestring);
+  TEST_ASSERT_NOT_NULL(cJSON_GetObjectItem(cJSON_GetArrayItem(roles, 1), "exclude"));   // tanks kept its exclude
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetObjectItem(cJSON_GetArrayItem(roles, 3), "mine")->valueint);
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(cJSON_GetObjectItem(cJSON_GetArrayItem(roles, 4), "bar")));
+  cJSON_Delete(root);
+}
+
+static void test_reordered_roles_keep_their_settings(void) {
+  write_file("config.json", WITH_UNKNOWN);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  cfg_role_t t = c.roles[0];   // swap engine and tanks
+  c.roles[0] = c.roles[1];
+  c.roles[1] = t;
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_t back;
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_EQUAL_STRING("tanks", back.roles[0].role);
+  TEST_ASSERT_EQUAL_UINT8(1, back.roles[0].exclude_count);
+  TEST_ASSERT_EQUAL_STRING("engine", back.roles[1].role);
+  TEST_ASSERT_EQUAL_UINT8(0, back.roles[1].exclude_count);
+}
+
+static void test_cfg_set_string(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  cfg_t out;
+  TEST_ASSERT_TRUE(cfg_set(dir, "sources.signalk.token", "abc123", &out, &r));
+  TEST_ASSERT_EQUAL_STRING("abc123", out.sk.token);
+  cfg_t back;
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_EQUAL_STRING("abc123", back.sk.token);
+  TEST_ASSERT_EQUAL_STRING("Boatnet", back.wifi.ssid);
+}
+
+static void test_cfg_set_number_and_bool(void) {
+  write_file("config.json",
+             "{ \"wifi\": {\"ssid\": \"B\"}, \"display\": {\"brightness\": 80}, \"buzzer\": {\"enabled\": false},"
+             "  \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.brightness", "40", &out, &r));
+  TEST_ASSERT_EQUAL_UINT8(40, out.brightness);
+  TEST_ASSERT_TRUE(cfg_set(dir, "buzzer.enabled", "true", &out, &r));
+  TEST_ASSERT_TRUE(out.buzzer);
+  cJSON *root = roles_of(read_file("config.json"));
+  TEST_ASSERT_TRUE(cJSON_IsNumber(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "display"), "brightness")));
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled")));
+  cJSON_Delete(root);
+}
+
+static void test_cfg_set_rejects_bad_number(void) {
+  write_file("config.json",
+             "{ \"wifi\": {\"ssid\": \"B\"}, \"display\": {\"brightness\": 80}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  char before[1024];
+  snprintf(before, sizeof before, "%s", read_file("config.json"));
+  TEST_ASSERT_FALSE(cfg_set(dir, "display.brightness", "abc", &out, &r));
+  TEST_ASSERT_TRUE(r.count >= 1);
+  TEST_ASSERT_EQUAL_STRING("display.brightness", r.issues[0].key_path);
+  TEST_ASSERT_EQUAL_STRING(before, read_file("config.json"));
+}
+
+static void test_cfg_set_rejects_invalid_value(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  char before[1024];
+  snprintf(before, sizeof before, "%s", read_file("config.json"));
+  TEST_ASSERT_FALSE(cfg_set(dir, "units.temperature", "K", &out, &r));
+  TEST_ASSERT_EQUAL_STRING("units.temperature", r.issues[0].key_path);
+  TEST_ASSERT_NOT_NULL(strstr(r.issues[0].message, "unknown unit"));
+  TEST_ASSERT_EQUAL_STRING(before, read_file("config.json"));
+  // the cached tree is untouched too: a later save does not carry the rejected value
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NULL(strstr(read_file("config.json"), "\"K\""));
+}
+
+static void test_cfg_set_creates_missing_string_key(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_set(dir, "sources.signalk.host", "192.168.0.108", &out, &r));
+  TEST_ASSERT_EQUAL_STRING("192.168.0.108", out.sk.host);
+}
+
+static void test_cfg_show_masks_secrets(void) {
+  write_file("config.json",
+             "{ \"wifi\": {\"ssid\": \"B\", \"password\": \"hunter22\"},"
+             "  \"sources\": {\"signalk\": {\"token\": \"tok-secret\"}}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  char *s = cfg_show(dir);
+  TEST_ASSERT_NOT_NULL(s);
+  TEST_ASSERT_NULL(strstr(s, "hunter22"));
+  TEST_ASSERT_NULL(strstr(s, "tok-secret"));
+  TEST_ASSERT_NOT_NULL(strstr(s, "set (8 chars)"));
+  TEST_ASSERT_NOT_NULL(strstr(s, "set (10 chars)"));
+  free(s);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_minimal_file_loads);
@@ -245,6 +389,14 @@ int main(void) {
   RUN_TEST(test_save_from_defaults_creates_file);
   RUN_TEST(test_unknown_unit_reported_and_defaulted);
   RUN_TEST(test_long_unit_value_not_truncated_into_a_valid_one);
+  RUN_TEST(test_unknown_roles_survive_save);
+  RUN_TEST(test_reordered_roles_keep_their_settings);
+  RUN_TEST(test_cfg_set_string);
+  RUN_TEST(test_cfg_set_number_and_bool);
+  RUN_TEST(test_cfg_set_rejects_bad_number);
+  RUN_TEST(test_cfg_set_rejects_invalid_value);
+  RUN_TEST(test_cfg_set_creates_missing_string_key);
+  RUN_TEST(test_cfg_show_masks_secrets);
   RUN_TEST(test_power_primary_round_trip);
   return UNITY_END();
 }
