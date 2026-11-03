@@ -33,6 +33,7 @@ static conv_t conv(quantity_t q, const cfg_units_t *u) {
     case Q_CURRENT: return (conv_t){1.0, 0, "A"};
     case Q_RATIO: return (conv_t){100.0, 0, "%"};
     case Q_DURATION: return (conv_t){1.0 / 3600.0, 0, "h"};
+    case Q_POWER: return (conv_t){1.0, 0, "W"};
     default: return (conv_t){1.0, 0, ""};
   }
 }

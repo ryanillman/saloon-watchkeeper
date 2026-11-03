@@ -41,6 +41,12 @@ static void test_roundtrip_all(void) {
     }
 }
 
+static void test_power_identity_and_label(void) {
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 450.0, units_from_si(Q_POWER, 450.0, &metric));
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, -20.0, units_to_si(Q_POWER, -20.0, &imperial));
+  TEST_ASSERT_EQUAL_STRING("W", units_label(Q_POWER, &metric));
+}
+
 static void test_labels(void) {
   TEST_ASSERT_EQUAL_STRING("°C", units_label(Q_TEMPERATURE, &metric));
   TEST_ASSERT_EQUAL_STRING("°F", units_label(Q_TEMPERATURE, &imperial));
@@ -70,5 +76,6 @@ int main(void) {
   RUN_TEST(test_volts_unchanged);
   RUN_TEST(test_roundtrip_all);
   RUN_TEST(test_labels);
+  RUN_TEST(test_power_identity_and_label);
   return UNITY_END();
 }
