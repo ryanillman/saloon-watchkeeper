@@ -13,6 +13,9 @@ void sk_client_start(void);                           // init first; runs sk_cli
 void sk_client_run_once(void);                        // one discover/connect/live cycle; returns when closed
 void sk_client_rebind(const sk_sub_t *subs, size_t n);   // resubscribe with a new path set
 sk_state_t sk_client_state(void);
+
+// New host, port, or token: the live connection closes and the next cycle uses these.
+void sk_client_reconfigure(const cfg_sk_t *cfg);
 int sk_client_backoff_ms(int attempt);
 
 // Increments each time a discovery (REST snapshot) completes; roles rebind when it changes.

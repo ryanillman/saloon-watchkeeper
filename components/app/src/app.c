@@ -4,6 +4,7 @@
 #include <string.h>
 #include "alerts.h"
 #include "boatdata.h"
+#include "net.h"
 #include "platform.h"
 #include "role.h"
 #include "sk_client.h"
@@ -313,7 +314,109 @@ static bool instances_changed(void) {
   return false;
 }
 
+const cfg_t *app_config(void) { return &a.cfg; }
+const char *app_config_dir(void) { return a.dir; }
+
+static bool same_roles(const cfg_t *x, const cfg_t *y) {
+  if (x->role_count != y->role_count || strcmp(x->start_role, y->start_role)) return false;
+  for (uint8_t i = 0; i < x->role_count; i++) {
+    cfg_role_t p = x->roles[i], q = y->roles[i];
+    p.src_entry = q.src_entry = 0;   // where it sits in the file is not a change to show
+    if (memcmp(&p, &q, sizeof p)) return false;
+  }
+  return true;
+}
+
+unsigned app_apply_config(const cfg_t *next) {
+  unsigned did = APPLY_NONE;
+  bool units = memcmp(&a.cfg.units, &next->units, sizeof a.cfg.units) != 0;
+  bool display = units || strcmp(a.cfg.palette, next->palette) || a.cfg.brightness != next->brightness ||
+                 a.cfg.buzzer != next->buzzer;
+  bool sk = memcmp(&a.cfg.sk, &next->sk, sizeof a.cfg.sk) != 0;
+  bool roles = !same_roles(&a.cfg, next);
+  bool wifi = memcmp(&a.cfg.wifi, &next->wifi, sizeof a.cfg.wifi) != 0;
+  bool was_auto = !strcmp(a.cfg.palette, "auto");
+  uint8_t old_count = a.count;
+  a.cfg = *next;
+  if (display) {
+    did |= APPLY_DISPLAY;
+    apply_backlight();
+    apply_palette();
+    if (was_auto != !strcmp(a.cfg.palette, "auto")) rebind_subs();   // environment.mode follows auto
+  }
+  if (sk) {
+    did |= APPLY_SIGNALK;
+    if (a.network) sk_client_reconfigure(&a.cfg.sk);
+  }
+  if (roles) {
+    did |= APPLY_ROLES;
+    app_bind();
+    rebind_subs();
+  }
+  if (a.ui && (roles || units)) {   // units change every drawn value; roles change the pages
+    if (a.count != old_count) ui_shell_set_roles(a.count);
+    else ui_shell_rebuild();
+  }
+  if (wifi) {
+    did |= APPLY_WIFI;
+    net_wifi_restart(&a.cfg.wifi);
+  }
+  return did;
+}
+
+// ---- requests from other tasks ----
+
+static struct {
+  void *lock;
+  struct { app_req_fn fn; void *arg; volatile bool *done; } q[8];
+  uint8_t n;
+  volatile bool *running;   // done flag of the request being run, so a timed-out waiter can cancel it
+} post;
+
+bool app_post(app_req_fn fn, void *arg, uint32_t wait_ms) {
+  if (!post.lock) post.lock = platform_lock_create();   // first use is app_init's task, before others post
+  volatile bool done = false;
+  platform_lock(post.lock);
+  bool room = post.n < sizeof post.q / sizeof post.q[0];
+  if (room) post.q[post.n++] = (typeof(post.q[0])){fn, arg, wait_ms ? &done : NULL};
+  platform_unlock(post.lock);
+  if (!room || !wait_ms) return room;
+  for (int64_t t0 = platform_millis(); !done; platform_sleep_ms(5))
+    if (platform_millis() - t0 >= wait_ms) {
+      platform_lock(post.lock);   // give up: make sure it will not write to this stack frame later
+      for (uint8_t i = 0; i < post.n; i++)
+        if (post.q[i].done == &done) post.q[i].done = NULL;
+      if (post.running == &done) post.running = NULL;
+      bool ran = done;
+      platform_unlock(post.lock);
+      return ran;
+    }
+  return true;
+}
+
+static void run_posted(void) {
+  if (!post.lock) return;
+  for (;;) {
+    platform_lock(post.lock);
+    if (!post.n) {
+      platform_unlock(post.lock);
+      return;
+    }
+    typeof(post.q[0]) r = post.q[0];
+    memmove(&post.q[0], &post.q[1], (size_t)(post.n - 1) * sizeof post.q[0]);
+    post.n--;
+    post.running = r.done;
+    platform_unlock(post.lock);
+    r.fn(r.arg);
+    platform_lock(post.lock);
+    if (post.running) *post.running = true;   // NULL if the waiter gave up meanwhile
+    post.running = NULL;
+    platform_unlock(post.lock);
+  }
+}
+
 void app_tick(void) {
+  run_posted();
   if (a.network) {
     uint32_t d = sk_client_discovery_count();
     if (d != a.discoveries) {   // the server told us what this boat has
