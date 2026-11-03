@@ -16,6 +16,7 @@ bi_test(test_units units)
 bi_test(test_sk_parse source_sk_core)
 bi_test(test_sk_client source_sk_core)
 bi_test(test_role_bind roles)
+bi_test(test_engine_state roles)
 
 add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap

@@ -23,9 +23,11 @@ typedef struct {
 lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t needle_count,
                          const char *const *needle_labels);   // labels may be NULL
 void ui_dial_set(lv_obj_t *dial, uint8_t needle, double value, bool valid);
+void ui_dial_set_off(lv_obj_t *dial, uint8_t needle);   // engine off: dim "OFF", no needle, no cross
 
 lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool vertical);
 void ui_strip_set(lv_obj_t *strip, double value, bool valid);
+void ui_strip_set_off(lv_obj_t *strip);                 // dim "OFF", no pointer, no cross
 
 lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *unit, uint8_t decimals);
 void ui_readout_set(lv_obj_t *readout, double value, bool valid);

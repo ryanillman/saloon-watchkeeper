@@ -54,7 +54,7 @@ static void fixture_engines(void) {
     {"propulsion.port.runTime", 4410000},           {"propulsion.starboard.runTime", 4395600},
     {"propulsion.port.fuel.rate", 0.0000031},       {"propulsion.starboard.fuel.rate", 0.0000030},
   };
-  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, 0);
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, platform_millis());
   bd_meta_t m = {.zone_count = 2};
   m.zones[0] = (bd_zone_t){.lower = 368.15, .upper = 373.15, .state = 2};   // warn 95-100 °C
   m.zones[1] = (bd_zone_t){.lower = 373.15, .upper = 393.15, .state = 3};   // alarm above 100 °C
@@ -118,6 +118,10 @@ static int run_snapshots(const char *out) {
             if (write_page(disp, dir, "-live", b)) return 1;
             bd_set_invalid(bd_find("propulsion.port.temperature"));   // the port coolant sender fails
             if (write_page(disp, dir, "-fault", b)) return 1;
+            fixture_engines();                                        // starboard shut down
+            bd_set_number(bd_find("propulsion.starboard.revolutions"), 0, SK_SOURCE_ID, platform_millis());
+            bd_set_number(bd_find("propulsion.starboard.oilPressure"), 0, SK_SOURCE_ID, platform_millis());
+            if (write_page(disp, dir, "-off", b)) return 1;
           } else if (write_page(disp, dir, "", b)) {
             return 1;
           }

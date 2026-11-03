@@ -100,6 +100,36 @@ static void test_fault_label_text(void) {
   TEST_ASSERT_EQUAL_STRING("COOLANT FAIL", ui_field_fault_text(r));
 }
 
+static void test_dial_off_is_not_a_fault(void) {
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  ui_dial_set_off(d, 0);
+  render();
+  TEST_ASSERT_FALSE(ui_dial_needle_visible(d, 0));
+  TEST_ASSERT_FALSE(ui_dial_needle_faulted(d, 0));
+  TEST_ASSERT_FALSE(ui_field_faulted(d));
+  TEST_ASSERT_EQUAL_STRING("OFF", ui_dial_text(d, 0));
+}
+
+static void test_dial_one_off_one_running(void) {
+  const char *labels[] = {"P", "S"};
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 2, labels);
+  ui_dial_set_off(d, 0);
+  ui_dial_set(d, 1, 1500, true);
+  render();
+  TEST_ASSERT_FALSE(ui_field_faulted(d));
+  TEST_ASSERT_TRUE(ui_dial_needle_visible(d, 1));
+  TEST_ASSERT_EQUAL_STRING("OFF", ui_dial_text(d, 0));
+}
+
+static void test_strip_off_is_not_a_fault(void) {
+  ui_gauge_spec_t oil = {.label = "OIL", .unit = "bar", .lo = 0, .hi = 6, .decimals = 1};
+  lv_obj_t *s = ui_strip_create(scr, &oil, false);
+  ui_strip_set_off(s);
+  render();
+  TEST_ASSERT_FALSE(ui_field_faulted(s));
+  TEST_ASSERT_EQUAL_STRING("OFF", ui_strip_text(s));
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(480, 480);
@@ -116,5 +146,8 @@ int main(void) {
   RUN_TEST(test_readout_invalid_has_no_digits);
   RUN_TEST(test_valid_after_invalid_clears_fault);
   RUN_TEST(test_fault_label_text);
+  RUN_TEST(test_dial_off_is_not_a_fault);
+  RUN_TEST(test_dial_one_off_one_running);
+  RUN_TEST(test_strip_off_is_not_a_fault);
   return UNITY_END();
 }

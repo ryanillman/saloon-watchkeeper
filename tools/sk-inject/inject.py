@@ -47,7 +47,8 @@ def request_access():
 
 
 def value_at(spec, t, duration):
-    """A scenario value: a number, null, or {"from": a, "to": b} ramped over the duration."""
+    """A scenario value: a number, null, or {"from": a, "to": b} ramped over the duration.
+    In "after" events, "$stop" stops sending that path."""
     if isinstance(spec, dict) and "from" in spec:
         frac = min(1.0, t / duration) if duration else 1.0
         wobble = spec.get("wobble", 0) * math.sin(t / 1500.0)
@@ -82,7 +83,11 @@ async def play(path):
             while events and events[0]["atMs"] <= t:
                 e = events.pop(0)
                 print(f"{t/1000:5.1f}s  {e.get('note', 'event')}")
-                values.update(e["values"])
+                for p, v in e["values"].items():
+                    if v == "$stop":
+                        values.pop(p, None)   # stop sending it: the sender went silent
+                    else:
+                        values[p] = v
             await ws.send(json.dumps(delta({p: value_at(s, t, duration) for p, s in values.items()})))
             if t >= duration:
                 break

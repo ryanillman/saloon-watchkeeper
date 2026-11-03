@@ -133,9 +133,26 @@ A sample is invalid:
 - From boot until the first real update for that path.
 - When the received value is JSON `null`, not finite, or the wrong type for the path. An invalid value is never stored as 0.
 - When its source goes down: Wi-Fi lost, WebSocket closed, or (milestone 7) NMEA 2000 bus silent past its timeout. Every path that source wrote becomes invalid.
-- When a role slot declares a maximum age and the sample is older than that. Initial values: anchor-role `navigation.position` 10 s, `navigation.headingTrue` 5 s. Engine hours, tank levels, and battery values have none.
+- When a role slot declares a maximum age and the sample is older than that. Initial values: engine RPM 3 s; engine coolant, oil pressure, alternator volts, and fuel rate 5 s; anchor-role `navigation.position` 10 s, `navigation.headingTrue` 5 s. Engine hours, tank levels, and battery values have none.
 
 A path that is quiet on a live connection stays valid. Signal K subscriptions send on change, and a steady tank level is healthy.
+
+### Engine running state
+
+An engine controller transmits continuously while it is on. When it goes quiet, Signal K stops sending and keeps the last values, so silence alone cannot tell "key off" from "controller failed". Each engine instance is assessed on every refresh (`engine_state.c`). Oil pressure is the second witness, because it collapses within seconds of a stop and is independent of the RPM pickup:
+
+| Inputs | Mode | Glass |
+|---|---|---|
+| `propulsion.<id>.state` = `stopped` (when a server provides it) and oil pressure not above 0.5 bar | OFF | Dim "OFF" on that engine's running fields; hours still shown |
+| RPM fresh and above 30 RPM | RUNNING | Normal |
+| RPM fresh and 0, oil pressure fresh and above 0.5 bar | RUNNING, RPM suspect | `RPM FAIL` on that engine only; other fields live |
+| RPM fresh and 0, oil pressure low or absent | OFF | As above |
+| RPM silent, oil pressure fresh and above 0.5 bar | RUNNING | RPM flags by age; other fields live |
+| RPM silent after reading 0 | OFF | Key off |
+| RPM silent after reading above 0, or never seen | NO DATA | Every running field flagged |
+| `state` = `unusable` | NO DATA | Every running field flagged |
+
+The standard n2k-signalk mapping does not set `propulsion.<id>.state`; it is used when present. Without an oil pressure sender, RPM 0 has to be taken as off. Signal K resends cached values on subscribe, so a display that reboots with the key off sees the last RPM (0) and shows OFF.
 
 ### Units
 
