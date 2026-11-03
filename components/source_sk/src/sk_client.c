@@ -106,6 +106,7 @@ void sk_client_run_once(void) {
   if (sk_ws_connect(url, token, on_message, NULL) && subscribe()) {
     c.attempt = 0;
     set_state(SK_LIVE);
+    printf("signalk: live at %s:%u\n", host, port);
     for (;;) {
       platform_lock(c.lock);
       bool again = c.resubscribe;
@@ -114,6 +115,7 @@ void sk_client_run_once(void) {
       if (!sk_ws_poll(200)) break;
     }
   }
+  if (sk_client_state() == SK_LIVE) printf("signalk: connection closed\n");
   sk_ws_close();
   bd_invalidate_source(SK_SOURCE_ID);   // nothing from this server can be trusted now
   set_state(SK_BACKOFF);
