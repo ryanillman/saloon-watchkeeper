@@ -4,6 +4,7 @@
 #include "boatdata.h"
 #include "config.h"
 #include "lvgl.h"
+#include "ui_gauge.h"
 #include "ui_theme.h"
 #include "units.h"
 
@@ -41,6 +42,7 @@ typedef struct {
   const role_group_t *groups;
   uint8_t group_count;
   uint8_t page_count;
+  uint8_t (*pages)(const struct role_binding *b, size_class_t sc);   // NULL = page_count
   void (*build_page)(lv_obj_t *area, uint8_t page, size_class_t sc, struct role_binding *b);
   void (*refresh)(struct role_binding *b, int64_t now_ms);   // updates the widgets build_page made
 } role_def_t;
@@ -59,6 +61,11 @@ typedef struct role_binding {
   const cfg_role_t *cfg;                  // for role options such as "primary"; may be NULL
   role_group_binding_t g[ROLE_MAX_GROUPS];
 } role_binding_t;
+
+// Builds the gauge spec for slot k of instance i in group g, in display units, with
+// meta.zones as bands. Callers set decimals and sweep. spec, bands and label must outlive the widget.
+const ui_gauge_spec_t *role_gauge_spec(role_binding_t *b, uint8_t g, uint8_t i, uint8_t k, ui_gauge_spec_t *spec,
+                                       ui_band_t bands[6], char label[32]);
 
 const role_def_t *role_find(const char *name);   // NULL if not implemented
 

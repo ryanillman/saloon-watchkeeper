@@ -20,6 +20,7 @@ static struct {
   ui_role_view_t views[CFG_MAX_ROLES];
   uint8_t count;
   bool network;
+  size_class_t sc;
   uint32_t discoveries;
 } a;
 
@@ -86,7 +87,7 @@ void app_bind(void) {
     if (r->def) role_bind(r->def, &a.cfg.roles[i], &a.cfg.units, &r->binding);
     a.views[i] = (ui_role_view_t){
       .name = r->def ? r->def->title : r->title,
-      .page_count = r->def ? r->def->page_count : 1,
+      .page_count = !r->def ? 1 : r->def->pages ? r->def->pages(&r->binding, a.sc) : r->def->page_count,
       .build_page = build,
       .refresh = refresh,
       .ctx = r,
@@ -101,6 +102,9 @@ static palette_t palette_of(const char *p) {
 }
 
 void app_start_ui(lv_display_t *disp, size_class_t sc) {
+  a.sc = sc;
+  for (uint8_t i = 0; i < a.count; i++)   // page counts can depend on the size class
+    if (a.roles[i].def && a.roles[i].def->pages) a.views[i].page_count = a.roles[i].def->pages(&a.roles[i].binding, sc);
   uint8_t start = 0;
   for (uint8_t i = 0; i < a.count; i++)
     if (!strcmp(a.cfg.roles[i].role, a.cfg.start_role)) start = i;

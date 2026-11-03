@@ -42,6 +42,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `rpm-pickup-fails` after 5 s | `PORT RPM FAIL` only; oil pressure says the engine is running, so everything else stays live |
 | `key-off` after 5 s | Starboard dim `OFF` (no crosses), hours still shown; port live |
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
+| `tanks` after 20 s | Five tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 

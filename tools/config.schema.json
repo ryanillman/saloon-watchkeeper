@@ -55,7 +55,7 @@
         "properties": {
           "role": { "$ref": "#/$defs/roleName" },
           "instances": {
-            "type": "array", "maxItems": 4,
+            "type": "array", "maxItems": 8,
             "description": "Pinned instances. Without this, the role uses whatever discovery finds.",
             "items": {
               "type": "object",

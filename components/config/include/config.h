@@ -14,7 +14,7 @@ typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<
 typedef struct { char slot[24]; bool has_min, has_max; double min, max; } cfg_override_t;
 typedef struct {
   char role[12];
-  cfg_instance_t inst[4]; uint8_t inst_count;
+  cfg_instance_t inst[8]; uint8_t inst_count;
   cfg_bind_t bind[8]; uint8_t bind_count;
   cfg_override_t ovr[8]; uint8_t ovr_count;
   char exclude[8][48]; uint8_t exclude_count;
