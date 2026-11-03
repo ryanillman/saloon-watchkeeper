@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "platform.h"
+#include <stdio.h>
 
 typedef struct {
   char *path;
@@ -47,6 +48,11 @@ bd_id_t bd_find(const char *path) {
 bd_id_t bd_intern(const char *path) {
   LOCK();
   bd_id_t id = find_locked(path);
+  if (id == BD_NONE && count >= BD_MAX_PATHS) {
+    static bool warned;
+    if (!warned) printf("boatdata: path table full (%d); ignoring %s and later paths\n", BD_MAX_PATHS, path);
+    warned = true;
+  }
   if (id == BD_NONE && count < BD_MAX_PATHS) {
     char *copy = strdup(path);
     if (copy) {

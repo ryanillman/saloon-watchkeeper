@@ -21,5 +21,10 @@ void sk_parse_message(const char *json, size_t len, int64_t now_ms);
 // stores its meta. Values are left to the stream.
 bool sk_parse_full(const char *json, size_t len);   // false if not a JSON object
 
+// Limits sk_parse_full to leaves under these top-level groups (NULL-terminated;
+// NULL = everything). A large boat's tree can hold thousands of paths; only the
+// ones the configured roles read are kept. The array must outlive its use.
+void sk_parse_set_discovery_prefixes(const char *const *prefixes);
+
 // {"context":"vessels.self","subscribe":[{"path":...,"policy":"instant"},...]}; caller frees.
 char *sk_build_subscribe(const bd_id_t *ids, size_t n);
