@@ -26,18 +26,18 @@ static lv_color_t state_color(uint8_t state) {
 
 // Builds the gauge spec for one slot of one engine, in display units.
 static const ui_gauge_spec_t *spec_for(role_binding_t *b, uint8_t i, uint8_t k) {
-  const role_slot_t *sl = &b->def->slots[k];
+  const role_slot_t *sl = &b->def->groups[0].slots[k];
   ui_gauge_spec_t *s = &v.spec[i][k];
   memset(s, 0, sizeof *s);
   snprintf(v.label[i][k], sizeof v.label[i][k], "%s", sl->fail_label);   // the column header names the engine
   s->label = v.label[i][k];
   s->unit = units_label(sl->q, b->units);
-  s->lo = units_from_si(sl->q, b->min[i][k], b->units);
-  s->hi = units_from_si(sl->q, b->max[i][k], b->units);
+  s->lo = units_from_si(sl->q, b->g[0].min[i][k], b->units);
+  s->hi = units_from_si(sl->q, b->g[0].max[i][k], b->units);
   s->sweep = SWEEP_THREE_QUARTER;
   s->decimals = DECIMALS[k];
   bd_meta_t m;
-  if (b->ids[i][k] != BD_NONE && bd_get_meta(b->ids[i][k], &m)) {
+  if (b->g[0].ids[i][k] != BD_NONE && bd_get_meta(b->g[0].ids[i][k], &m)) {
     for (uint8_t z = 0; z < m.zone_count && s->band_count < 6; z++) {
       if (m.zones[z].state == 0) continue;   // normal zones are not drawn
       ui_band_t *band = &v.bands[i][k][s->band_count++];
@@ -68,8 +68,8 @@ static lv_obj_t *place(lv_obj_t *o, int32_t x, int32_t y, int32_t w, int32_t h) 
 
 static void overview(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area), pad = 8;
-  uint8_t n = b->inst_count, needles = n > 2 ? 2 : n;
-  for (uint8_t i = 0; i < needles; i++) v.needle_label[i] = n > 1 ? b->inst_label[i] : NULL;
+  uint8_t n = b->g[0].inst_count, needles = n > 2 ? 2 : n;
+  for (uint8_t i = 0; i < needles; i++) v.needle_label[i] = n > 1 ? b->g[0].inst_label[i] : NULL;
   const uint8_t rows[] = {S_COOLANT, S_OIL, S_VOLTS};
 
   int32_t dial, sx, sy, sw, sh;
@@ -90,7 +90,7 @@ static void overview(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   sy += hdr;
   if (sc == SIZE_WIDE) sh = (H - sy - pad - 2 * pad) / 3;
   else sh = (H - sy - pad - 2 * 4) / 3;
-  for (uint8_t i = 0; n > 1 && i < n; i++) column_header(area, b->inst_label[i], sx + i * (sw + pad), sy - hdr, sw);
+  for (uint8_t i = 0; n > 1 && i < n; i++) column_header(area, b->g[0].inst_label[i], sx + i * (sw + pad), sy - hdr, sw);
   v.dial = ui_dial_create(area, spec_for(b, 0, S_RPM), needles, v.needle_label);
   if (sc == SIZE_WIDE) place(v.dial, pad, (H - dial) / 2, dial, dial);
   else place(v.dial, (W - dial) / 2, 0, dial, dial);
@@ -103,16 +103,16 @@ static void overview(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
 
 static void detail(lv_obj_t *area, role_binding_t *b) {
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area), pad = 8;
-  uint8_t n = b->inst_count;
+  uint8_t n = b->g[0].inst_count;
   const uint8_t rows[] = {S_RPM, S_COOLANT, S_OIL, S_VOLTS, S_FUEL};
   int32_t hdr = n > 1 ? 18 : 0;
   int32_t cw = (W - 2 * pad - (n - 1) * pad) / n, rh = (H - pad - hdr) / 6;
   for (uint8_t i = 0; i < n; i++) {
     int32_t x = pad + i * (cw + pad);
-    if (n > 1) column_header(area, b->inst_label[i], x, 0, cw);
+    if (n > 1) column_header(area, b->g[0].inst_label[i], x, 0, cw);
     for (uint8_t r = 0; r < 5; r++)
       v.w[i][rows[r]] = place(ui_strip_create(area, spec_for(b, i, rows[r]), false), x, hdr + pad / 2 + r * rh, cw, rh - 4);
-    const role_slot_t *hs = &b->def->slots[S_HOURS];
+    const role_slot_t *hs = &b->def->groups[0].slots[S_HOURS];
     spec_for(b, i, S_HOURS);
     v.w[i][S_HOURS] = place(ui_readout_create(area, v.label[i][S_HOURS], units_label(hs->q, b->units), 1),
                             x, hdr + pad / 2 + 5 * rh, cw, rh - 4);
@@ -128,14 +128,14 @@ void engine_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
 }
 
 static bool sample(role_binding_t *b, uint8_t i, uint8_t k, bd_sample_t *out) {
-  return b->ids[i][k] != BD_NONE && bd_get(b->ids[i][k], out);
+  return b->g[0].ids[i][k] != BD_NONE && bd_get(b->g[0].ids[i][k], out);
 }
 
 static bool read(role_binding_t *b, uint8_t i, uint8_t k, int64_t now, double *out) {
   bd_sample_t s;
   if (!sample(b, i, k, &s) || s.kind != BD_NUMBER) return false;
-  if (!bd_is_fresh(&s, b->def->slots[k].max_age_ms, now)) return false;
-  *out = units_from_si(b->def->slots[k].q, s.num, b->units);
+  if (!bd_is_fresh(&s, b->def->groups[0].slots[k].max_age_ms, now)) return false;
+  *out = units_from_si(b->def->groups[0].slots[k].q, s.num, b->units);
   return true;
 }
 
@@ -146,9 +146,9 @@ static engine_status_t assess(role_binding_t *b, uint8_t i, int64_t now) {
 }
 
 void engine_refresh(role_binding_t *b, int64_t now) {
-  for (uint8_t i = 0; i < b->inst_count; i++) {
+  for (uint8_t i = 0; i < b->g[0].inst_count; i++) {
     engine_status_t es = assess(b, i, now);
-    for (uint8_t k = 0; k < b->def->slot_count; k++) {
+    for (uint8_t k = 0; k < b->def->groups[0].slot_count; k++) {
       bool is_dial = k == S_RPM && v.dial && i < 2;
       lv_obj_t *w = v.w[i][k];
       if (!w && !is_dial) continue;

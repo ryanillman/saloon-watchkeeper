@@ -7,8 +7,9 @@
 #include "ui_theme.h"
 #include "units.h"
 
-#define ROLE_MAX_INST 4
-#define ROLE_MAX_SLOTS 12
+#define ROLE_MAX_GROUPS 8   // Power uses 7
+#define ROLE_MAX_INST 8
+#define ROLE_MAX_SLOTS 8
 
 typedef struct {
   const char *slot;         // "rpm"
@@ -18,33 +19,52 @@ typedef struct {
   double def_min, def_max;  // SI; equal = no range (a readout)
   int32_t max_age_ms;       // 0 = quiet is fine
   const char *fail_label;   // "RPM" → "RPM FAIL"
+  uint32_t resend_ms;       // 0 = on change
 } role_slot_t;
 
 struct role_binding;
 
+// A kind of device a role reads. A role with one group uses bare instance ids
+// in config; with several, config ids are "<group name>.<id>".
+typedef struct {
+  const char *name;          // "battery"; prefixes config ids when the role has more than one group
+  const char *prefix;        // "propulsion", "tanks", "electrical.solar"
+  uint8_t id_depth;          // path segments in an instance id: 1 "port", 2 "freshWater.0"
+  uint8_t max_inst;          // <= ROLE_MAX_INST
+  const role_slot_t *slots;
+  uint8_t slot_count;        // <= ROLE_MAX_SLOTS
+} role_group_t;
+
 typedef struct {
   const char *name;              // config name: "engine"
   const char *title;             // strip title: "ENGINE"
-  const char *instance_prefix;   // "propulsion": instances are propulsion.<id>.*
-  const role_slot_t *slots;
-  uint8_t slot_count;
+  const role_group_t *groups;
+  uint8_t group_count;
   uint8_t page_count;
   void (*build_page)(lv_obj_t *area, uint8_t page, size_class_t sc, struct role_binding *b);
   void (*refresh)(struct role_binding *b, int64_t now_ms);   // updates the widgets build_page made
 } role_def_t;
 
-typedef struct role_binding {
-  const role_def_t *def;
-  const cfg_units_t *units;
+typedef struct {
   uint8_t inst_count;
-  char inst_id[ROLE_MAX_INST][24];
+  char inst_id[ROLE_MAX_INST][24];       // relative to the group prefix: "freshWater.0"
   char inst_label[ROLE_MAX_INST][12];
   bd_id_t ids[ROLE_MAX_INST][ROLE_MAX_SLOTS];
   double min[ROLE_MAX_INST][ROLE_MAX_SLOTS], max[ROLE_MAX_INST][ROLE_MAX_SLOTS];   // SI
+} role_group_binding_t;
+
+typedef struct role_binding {
+  const role_def_t *def;
+  const cfg_units_t *units;
+  const cfg_role_t *cfg;                  // for role options such as "primary"; may be NULL
+  role_group_binding_t g[ROLE_MAX_GROUPS];
 } role_binding_t;
 
 const role_def_t *role_find(const char *name);   // NULL if not implemented
 
-// Instances: pinned in config, else discovered (sorted), else one placeholder
+// Per group: instances pinned in config, else discovered (sorted), else one placeholder
 // labelled with the role title whose slots are all BD_NONE.
 void role_bind(const role_def_t *def, const cfg_role_t *cfg, const cfg_units_t *units, role_binding_t *out);
+
+// True if both bindings have the same instances and slot ids in every group.
+bool role_binding_same(const role_binding_t *a, const role_binding_t *b);
