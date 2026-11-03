@@ -30,8 +30,9 @@ target_link_libraries(lvgl PUBLIC PkgConfig::SDL2)
 FetchContent_Declare(cjson
   GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
   GIT_TAG v1.7.18
-  GIT_SHALLOW TRUE)
-FetchContent_Populate(cjson)
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR no-cmake)   # fetch only; we build cJSON.c ourselves below
+FetchContent_MakeAvailable(cjson)
 add_library(json STATIC ${cjson_SOURCE_DIR}/cJSON.c)
 target_include_directories(json PUBLIC ${cjson_SOURCE_DIR})
 
