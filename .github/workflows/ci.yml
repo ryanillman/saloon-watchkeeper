@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libpng-dev libcurl4-openssl-dev ninja-build
+      - name: Layering check
+        run: tools/check-layering.sh
+      - name: Configure
+        run: cmake -S sim -B build/sim -G Ninja -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build/sim
+      - name: Test
+        run: ctest --test-dir build/sim --output-on-failure
+      - name: Upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots
+          path: build/sim/snap

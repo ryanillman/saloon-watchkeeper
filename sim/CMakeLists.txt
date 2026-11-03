@@ -42,5 +42,6 @@ if(BUILD_TESTING)
   add_subdirectory(${BI_ROOT}/tests tests)
 endif()
 
-add_executable(sim sim_main.c)
-target_link_libraries(sim PRIVATE ui sim_boards platform lvgl)
+find_package(PNG REQUIRED)
+add_executable(sim sim_main.c snapshot.c)
+target_link_libraries(sim PRIVATE ui sim_boards platform lvgl PNG::PNG)
