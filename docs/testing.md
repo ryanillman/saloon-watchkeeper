@@ -52,6 +52,43 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 
+### Milestone 4 live results
+
+Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800x480, day palette. Acknowledge and silence from the panel need `"token"` under `sources.signalk` in the sim's `config.json` (the injector's token works); without it the banner shows `ACK NOT SENT`. The headless sim has no pointer, so ACK, SILENCE and the alert marker were clicked by a scratch, uncommitted hook that sent `LV_EVENT_CLICKED` to `ui_alerts_part(...)`. The server was not stopped: "server stopped" rows used a throwaway local TCP proxy (sim pointed at it, proxy killed, and for the restart row started again).
+
+| Row | Result |
+|---|---|
+| No engine data | PASS: `SK LIVE`, every Engine field flagged |
+| `two-engines` | PASS: PORT and STBD columns, values moving |
+| `coolant-null` | PASS: port `COOLANT FAIL` only |
+| `rpm-pickup-fails` | PASS: `PORT RPM FAIL` only |
+| `key-off` | PASS: starboard `OFF` without crosses, hours 1221.0 h shown, port live |
+| `controller-dropout` | PASS: every port field flagged, starboard live |
+| `tanks` | PASS: five tanks, `FRESH 2` `LEVEL FAIL`, only `FUEL` has a volume line (110 L) |
+| `victron-power` | PASS, but only with a scratch fix (see below). Summary IN 658 W, BATTERY 161 W, LOAD 497 W, SOC 82 %, `SHORE`; Batteries `CHARGING` then `4:00` after 30 s; after 45 s `IN FAIL`, `LOAD FAIL`, BATTERY and SOC live, Charging solar `WATTS FAIL` and `AMPS FAIL` |
+| `alarm-coolant` at 10 s | PASS: red banner flashing, `Port coolant high`, ACK, SILENCE, GO; port coolant value red; notification on the server |
+| `alarm-coolant`, ACK | PASS: banner steady red; server `acknowledged: true`, `method: []` |
+| `alarm-coolant`, SILENCE | PASS: server `silenced: true`, `sound` dropped from `method` |
+| `alarm-coolant` at 40 s | PASS: banner gone, coolant white |
+| `warn-tank-low` | PASS: no banner, amber `1` marker, list shows `WARN`, `Fresh water low`, age, ACK; tank value amber |
+| Server stopped with an alarm | PASS: banner gone, `SK ALERTS OFFLINE`, `SK OFFLINE` (buzzer is hardware only) |
+| Server stopped | PASS: `SK OFFLINE`, every field flagged within 2 s |
+| Server restarted | PASS: `SK LIVE`, fields live again |
+
+**Power discovery bug (open):** with the committed code every Power field is flagged against the real server. `wanted()` in `components/source_sk/src/sk_parse.c` compares the top-level segment (`electrical`) with two-segment prefixes (`electrical.batteries`) and skips the whole group, so instances (`279`, `288`, ...) are never discovered. The Power rows above passed with a scratch change that also accepts a top-level segment that is the start of a prefix.
+
+Notes for repeat runs: kill the injector only after its clear event, or write `null` to the notification paths first. The server keeps a notification's acknowledged state when the same alarm is rewritten, and answers a second acknowledge with HTTP 400 `Alarm already acknowledged!`. `GET /signalk/v2/api/notifications` also keeps stale entries for cleared paths.
+
+## Capturing a boat's server
+
+Power reads the signalk-venus default paths. To compare them with a real Cerbo, run this on any computer that can reach the boat's Signal K server:
+
+```sh
+python3 -I tools/sk-capture.py <boat-server>[:port] capture.json [--token-file token.txt]
+```
+
+It saves `GET /signalk/v1/api/vessels/self` as pretty JSON (port 3000 by default) and exits non-zero with a message on a connection or HTTP error. Use `--token-file` only if the server demands a token. Compare the `electrical` tree in `capture.json` (batteries, solar, chargers, inverters, dcdc, alternators, venus) with the slot paths in `components/roles/src/role_power.c` and the Power Groups table in the milestone 4 design, and correct the slots, `tools/sk-inject/scenarios/victron-power.json` and the table where they differ.
+
 ## Repeating the Signal K checks
 
 Milestone 4 recorded two server behaviours in `docs/specs/2026-11-03-milestone-4-design.md` (Verification first). Repeat them after a Signal K upgrade, or against the boat's server.
