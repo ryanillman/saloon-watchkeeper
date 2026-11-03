@@ -23,6 +23,9 @@ static char last_post[256];
 static int post_status = 200;
 static int live_hook;   // 1: queue an ack on the first poll; 2: also check send_failed while live
 static int fail_seen = -1;
+static int sends;
+static int overflow_at_poll;   // sk_ws_take_overflow reports a drop after this poll (0: never)
+static bool overflow_taken;
 
 bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   (void)url; (void)token;
@@ -44,6 +47,7 @@ bool sk_ws_connect(const char *url, const char *token, sk_msg_cb c, void *ctx) {
 
 bool sk_ws_send(const char *text) {
   snprintf(last_sent, sizeof last_sent, "%s", text);
+  sends++;
   return true;
 }
 
@@ -73,6 +77,14 @@ bool sk_ws_poll(int timeout_ms) {
 
 void sk_ws_close(void) {}
 
+bool sk_ws_take_overflow(void) {
+  if (overflow_at_poll && polls == overflow_at_poll && !overflow_taken) {
+    overflow_taken = true;
+    return true;
+  }
+  return false;
+}
+
 bool sk_http_post(const char *url, const char *token, const char *json_body, int *status) {
   (void)token; (void)json_body;
   posts++;
@@ -95,6 +107,9 @@ void setUp(void) {
   last_post[0] = 0;
   post_status = 200;
   live_hook = 0;
+  sends = 0;
+  overflow_at_poll = 0;
+  overflow_taken = false;
   sk_parse_reset();
   connect_ok = true;
   last_sent[0] = 0;
@@ -192,6 +207,20 @@ static void test_no_post_after_reconnect_for_dropped_request(void) {
   TEST_ASSERT_EQUAL_INT(0, posts);
 }
 
+static void test_overflow_resubscribes(void) {   // lost deltas: the server resends on subscribe
+  live_polls = 4;
+  overflow_at_poll = 2;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(2, sends);
+  TEST_ASSERT_NOT_NULL(strstr(last_sent, "propulsion.port.revolutions"));
+}
+
+static void test_no_overflow_subscribes_once(void) {
+  live_polls = 4;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, sends);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_backoff_sequence);
@@ -205,5 +234,7 @@ int main(void) {
   RUN_TEST(test_queued_ack_sent_while_live);
   RUN_TEST(test_post_failure_marks_send_failed);
   RUN_TEST(test_no_post_after_reconnect_for_dropped_request);
+  RUN_TEST(test_overflow_resubscribes);
+  RUN_TEST(test_no_overflow_subscribes_once);
   return UNITY_END();
 }

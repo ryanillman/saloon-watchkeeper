@@ -1,6 +1,8 @@
 // ESP32 transport: esp_http_client, esp_websocket_client, and mDNS.
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_websocket_client.h"
@@ -72,6 +74,10 @@ bool sk_http_post(const char *url, const char *token, const char *json_body, int
 // so parsing happens on the Signal K task.
 typedef struct { char *data; size_t len; } msg_t;
 
+// Deep enough to ride out a rediscovery GET or an ACK POST on a busy Venus.
+// The queue storage lives in PSRAM; it is used only from task context.
+#define WS_QUEUE_LEN 256
+
 static struct {
   esp_websocket_client_handle_t h;
   QueueHandle_t q;
@@ -80,8 +86,14 @@ static struct {
   char *frag;   // text message being reassembled
   size_t frag_len;
   volatile bool closed;
+  atomic_uint dropped;   // messages dropped since the last sk_ws_take_overflow
   char *auth;
 } ws;
+
+static char *msg_alloc(size_t n) {
+  char *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return p ? p : malloc(n);
+}
 
 static void on_ws(void *arg, esp_event_base_t base, int32_t id, void *data) {
   (void)arg; (void)base;
@@ -94,23 +106,32 @@ static void on_ws(void *arg, esp_event_base_t base, int32_t id, void *data) {
   // A frame may arrive in pieces: payload_offset/payload_len describe the whole frame.
   if (e->payload_offset == 0) {
     free(ws.frag);
-    ws.frag = malloc((size_t)e->payload_len + 1);
+    ws.frag = msg_alloc((size_t)e->payload_len + 1);
     ws.frag_len = 0;
   }
-  if (!ws.frag) return;
+  if (!ws.frag) {
+    if (e->payload_offset + e->data_len >= e->payload_len) atomic_fetch_add(&ws.dropped, 1);   // lost to OOM
+    return;
+  }
   memcpy(ws.frag + e->payload_offset, e->data_ptr, (size_t)e->data_len);
   ws.frag_len = (size_t)(e->payload_offset + e->data_len);
   if (ws.frag_len >= (size_t)e->payload_len) {
     ws.frag[ws.frag_len] = 0;
     msg_t m = {ws.frag, ws.frag_len};
-    if (xQueueSend(ws.q, &m, 0) != pdTRUE) free(ws.frag);
+    if (xQueueSend(ws.q, &m, 0) != pdTRUE) {
+      free(ws.frag);
+      atomic_fetch_add(&ws.dropped, 1);
+    }
     ws.frag = NULL;
   }
 }
 
 bool sk_ws_connect(const char *url, const char *token, sk_msg_cb cb, void *ctx) {
   sk_ws_close();
+  if (!ws.q) ws.q = xQueueCreateWithCaps(WS_QUEUE_LEN, sizeof(msg_t), MALLOC_CAP_SPIRAM);
   if (!ws.q) ws.q = xQueueCreate(32, sizeof(msg_t));
+  if (!ws.q) return false;
+  atomic_store(&ws.dropped, 0);
   ws.cb = cb;
   ws.ctx = ctx;
   ws.closed = false;
@@ -157,6 +178,13 @@ bool sk_ws_poll(int timeout_ms) {
     }
   }
   return !ws.closed && esp_websocket_client_is_connected(ws.h);
+}
+
+bool sk_ws_take_overflow(void) {
+  unsigned n = atomic_exchange(&ws.dropped, 0);
+  if (!n) return false;
+  ESP_LOGW(TAG, "%u messages dropped (receive queue full); resubscribing", (unsigned)n);
+  return true;
 }
 
 void sk_ws_close(void) {
