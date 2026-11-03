@@ -47,9 +47,10 @@ def request_access():
 
 
 def value_at(spec, t, duration):
-    """A scenario value: a number, null, or {"from": a, "to": b} ramped over the duration.
+    """A scenario value: a number, null, {"from": a, "to": b} ramped over the duration, or any
+    other object (a notification value), which is sent unchanged.
     In "after" events, "$stop" stops sending that path."""
-    if isinstance(spec, dict) and "from" in spec:
+    if isinstance(spec, dict) and "from" in spec and "to" in spec:
         frac = min(1.0, t / duration) if duration else 1.0
         wobble = spec.get("wobble", 0) * math.sin(t / 1500.0)
         return spec["from"] + (spec["to"] - spec["from"]) * frac + wobble

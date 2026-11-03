@@ -21,6 +21,7 @@ typedef struct {
   bool valid[2];
   bool off[2];                   // engine off: shown dim, not as a fault
   bool vertical;
+  uint8_t alert;                 // alert_state_t of the notification on this field
   bool text_mode;                // readout showing a string (ui_readout_set_text)
   char text[2][24];
   lv_obj_t *fault;               // overlay: red cross and "<LABEL> FAIL"
@@ -34,6 +35,11 @@ static const lv_font_t *font_for(int32_t px) {
   if (px >= 32) return &lv_font_montserrat_28;
   if (px >= 22) return &lv_font_montserrat_20;
   return &lv_font_montserrat_14;
+}
+
+static lv_color_t value_color(const gauge_t *g) {
+  const ui_colors_t *c = ui_theme();
+  return g->alert >= 3 ? c->alarm : g->alert >= 1 ? c->warn : c->fg;
 }
 
 static void text_at(lv_layer_t *layer, const char *txt, const lv_font_t *f, lv_color_t c,
@@ -411,8 +417,8 @@ static void draw_strip(lv_event_t *e) {
     lv_area_t mark = {tape.x1 + p - 2, tape.y1 - ps, tape.x1 + p + 2, tape.y2};
     rect(layer, &mark, c->fg, 0);
   }
-  if (g->vertical) text_at(layer, v, vf, c->fg, a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
-  else text_at(layer, v, vf, c->fg, a.x2 - 4, a.y1 + vh / 2, LV_TEXT_ALIGN_RIGHT);
+  if (g->vertical) text_at(layer, v, vf, value_color(g), a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
+  else text_at(layer, v, vf, value_color(g), a.x2 - 4, a.y1 + vh / 2, LV_TEXT_ALIGN_RIGHT);
 }
 
 lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool vertical) {
@@ -466,7 +472,7 @@ static void draw_readout(lv_event_t *e) {
   size_t s0 = 0;
   while (s0 < 3 && steps[s0] != vf) s0++;
   for (size_t k = s0; k < 3 && lv_text_get_width(v, strlen(v), vf, 0) + 8 > lv_area_get_width(&a); k++) vf = steps[k + 1];
-  text_at(layer, v, vf, c->fg, a.x1 + 4, a.y2 - lv_font_get_line_height(vf) / 2, LV_TEXT_ALIGN_LEFT);
+  text_at(layer, v, vf, value_color(g), a.x1 + 4, a.y2 - lv_font_get_line_height(vf) / 2, LV_TEXT_ALIGN_LEFT);
 }
 
 lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *unit, uint8_t decimals) {
@@ -500,6 +506,16 @@ void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
   memcpy(g->text[0], next, sizeof next);
   sync_fault(o);
 }
+
+void ui_field_set_alert(lv_obj_t *o, uint8_t state) {
+  gauge_t *g = G(o);
+  if (state > 4) state = 4;
+  if (g->alert == state) return;
+  g->alert = state;
+  lv_obj_invalidate(o);
+}
+
+lv_color_t ui_field_value_color(lv_obj_t *o) { return value_color(G(o)); }
 
 // ---- queries ----
 

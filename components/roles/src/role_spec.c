@@ -32,3 +32,8 @@ const ui_gauge_spec_t *role_gauge_spec(role_binding_t *b, uint8_t g, uint8_t i, 
   }
   return spec;
 }
+
+void role_field_alert(lv_obj_t *field, bd_id_t id) {
+  const char *path = id != BD_NONE ? bd_path(id) : NULL;
+  ui_field_set_alert(field, path ? (uint8_t)alerts_for_path(path) : 0);
+}

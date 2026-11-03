@@ -75,6 +75,7 @@ static void ui_task(void *arg) {
 #if CONFIG_BI_DIAG_COLORBARS
   color_bars(d);
 #endif
+  app_set_buzzer(board->buzzer, board->has_buzzer && board->buzzer);
   app_bind();
   app_start_ui(d, board->size_class);
   app_start_network();

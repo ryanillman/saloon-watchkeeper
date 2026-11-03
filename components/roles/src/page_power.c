@@ -204,8 +204,10 @@ static void batteries_refresh(role_binding_t *b, int64_t now) {
     double x;
     bool ok = num(b, G_BATTERY, i, B_VOLTS, &x);
     ui_readout_set(bat.v[j], x, ok);
+    role_field_alert(bat.v[j], b->g[G_BATTERY].ids[i][B_VOLTS]);
     ok = num(b, G_BATTERY, i, B_AMPS, &x);
     ui_readout_set(bat.a[j], x, ok);
+    role_field_alert(bat.a[j], b->g[G_BATTERY].ids[i][B_AMPS]);
     bd_sample_t st[3];
     power_src_t src;
     power_src_of(b, G_BATTERY, i, B_VOLTS, B_AMPS, B_POWER, st, &src);
@@ -213,6 +215,7 @@ static void batteries_refresh(role_binding_t *b, int64_t now) {
     ui_readout_set(bat.w[j], x, ok);
     ok = num(b, G_BATTERY, i, B_SOC, &x);
     ui_strip_set(bat.soc[j], x, ok);
+    role_field_alert(bat.soc[j], b->g[G_BATTERY].ids[i][B_SOC]);
 
     bd_sample_t ttg, cur;
     bool ht = power_sample(b, G_BATTERY, i, B_TIME, &ttg), hc = power_sample(b, G_BATTERY, i, B_AMPS, &cur);
@@ -285,6 +288,7 @@ static void charging_refresh(role_binding_t *b, int64_t now) {
     ui_readout_set(chg.w[j], x, ok);
     ok = num(b, g, i, ka, &x);
     ui_readout_set(chg.a[j], x, ok);
+    role_field_alert(chg.a[j], b->g[g].ids[i][ka]);
     if (chg.panel[j]) {
       ok = num(b, g, i, S_PANEL, &x);
       ui_readout_set(chg.panel[j], x, ok);

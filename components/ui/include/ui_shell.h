@@ -34,3 +34,10 @@ void ui_shell_set_status(const char *text, lv_color_t color);
 
 // Current position, for snapshot file names.
 const ui_nav_t *ui_shell_nav(void);
+
+// GO from the alarm banner: page 0 of that role.
+void ui_shell_goto_role(uint8_t role);
+
+// The top strip and its status text, for the alert marker.
+lv_obj_t *ui_shell_strip(void);
+lv_obj_t *ui_shell_status(void);

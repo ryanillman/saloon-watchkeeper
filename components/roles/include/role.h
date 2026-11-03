@@ -1,6 +1,7 @@
 #pragma once
 // A role knows what data it shows. Binding turns its slot definitions into
 // boatdata ids for the instances this boat has.
+#include "alerts.h"
 #include "boatdata.h"
 #include "config.h"
 #include "lvgl.h"
@@ -75,3 +76,6 @@ void role_bind(const role_def_t *def, const cfg_role_t *cfg, const cfg_units_t *
 
 // True if both bindings have the same instances and slot ids in every group.
 bool role_binding_same(const role_binding_t *a, const role_binding_t *b);
+
+// Colours a field's value for the Signal K alert on that boatdata path (normal resets it).
+void role_field_alert(lv_obj_t *field, bd_id_t id);

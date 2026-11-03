@@ -36,6 +36,11 @@ void ui_readout_set(lv_obj_t *readout, double value, bool valid);
 // Shows a string instead of a number (a charging mode, "1:30"); empty or !valid flags the field.
 void ui_readout_set_text(lv_obj_t *readout, const char *text, bool valid);
 
+// Colours the value text for an alert on this field: 0 normal (foreground), 1 alert and 2 warn
+// (palette warn), 3 alarm and 4 emergency (palette alarm). Same numbering as alert_state_t.
+void ui_field_set_alert(lv_obj_t *field, uint8_t state);
+lv_color_t ui_field_value_color(lv_obj_t *field);
+
 // Queries, for pages and tests.
 bool ui_field_faulted(lv_obj_t *field);          // the whole field is flagged
 const char *ui_field_fault_text(lv_obj_t *field);

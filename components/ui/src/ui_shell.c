@@ -181,3 +181,13 @@ void ui_shell_rebuild(void) {
   ui_nav_set_pages(&s.nav, pages);
   rebuild();
 }
+
+void ui_shell_goto_role(uint8_t role) {
+  if (role >= s.nav.role_count) return;
+  s.nav.role = role;
+  s.nav.page = 0;
+  rebuild();
+}
+
+lv_obj_t *ui_shell_strip(void) { return s.strip; }
+lv_obj_t *ui_shell_status(void) { return s.status; }

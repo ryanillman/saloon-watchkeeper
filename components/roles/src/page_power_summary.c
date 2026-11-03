@@ -100,6 +100,7 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
   ui_readout_set(v.batt, units_from_si(Q_POWER, r.batt_w, b->units), r.batt_ok);
   ui_readout_set(v.load, units_from_si(Q_POWER, r.load_w, b->units), r.load_ok);
   ui_strip_set(v.soc, units_from_si(Q_RATIO, r.soc, b->units), r.soc_ok);
+  if (banks) role_field_alert(v.soc, b->g[G_BATTERY].ids[idx[primary]][B_SOC]);
   if (shore(b)) lv_obj_remove_flag(v.shore, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(v.shore, LV_OBJ_FLAG_HIDDEN);
 }
