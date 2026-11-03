@@ -130,6 +130,9 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_set_pos(s.content, 0, strip_h);
   lv_obj_remove_flag(s.content, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(s.content, LV_OBJ_FLAG_CLICKABLE);
+  // LVGL bubbles gestures to the parent by default. Stop them here so swipes
+  // over a page (or any child on it) reach on_gesture.
+  lv_obj_remove_flag(s.content, LV_OBJ_FLAG_GESTURE_BUBBLE);
   lv_obj_add_event_cb(s.content, on_gesture, LV_EVENT_GESTURE, NULL);
   lv_obj_add_event_cb(s.content, on_key, LV_EVENT_KEY, NULL);
   lv_group_t *g = lv_group_get_default();
