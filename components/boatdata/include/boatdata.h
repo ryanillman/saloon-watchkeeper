@@ -50,5 +50,8 @@ bool bd_is_fresh(const bd_sample_t *s, int64_t max_age_ms, int64_t now_ms);   //
 void bd_set_meta(bd_id_t id, const bd_meta_t *m);
 bool bd_get_meta(bd_id_t id, bd_meta_t *out);   // false if none set
 
+// Ids run 1..bd_count(); for walking every known path.
+bd_id_t bd_count(void);
+
 // '*' matches exactly one path segment.
 size_t bd_match(const char *pattern, bd_id_t *out, size_t max);
