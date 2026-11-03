@@ -9,6 +9,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "console.h"
+#include "esp_app_desc.h"
 #include "net.h"
 #include "sdkconfig.h"
 
@@ -79,9 +81,11 @@ static void ui_task(void *arg) {
 #endif
   app_set_buzzer(board->buzzer, board->has_buzzer && board->buzzer);
   app_set_backlight(set_backlight, board->backlight_dims);
+  app_set_info(board->id, esp_app_get_description()->version);
   app_bind();
   app_start_ui(d, board->size_class);
   app_start_network();
+  console_start();
   // Early warning: tasks, Wi-Fi and the RGB bounce buffers all need internal RAM.
   ESP_LOGI(TAG, "RAM after start: internal free %u, largest block %u; PSRAM free %u",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),

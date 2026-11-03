@@ -38,7 +38,10 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   bool dirty;
   int64_t dirty_ms;
   palette_t auto_last;   // the last palette environment.mode asked for; day until one arrives
+  cfg_origin_t origin;
 } a;
+
+static char info_board[16] = "?", info_version[32] = "?";
 
 #define SAVE_DELAY_MS 2000
 
@@ -50,6 +53,11 @@ static struct {
   cfg_t *cfg;     // pending copy, heap (18 KB: PSRAM on the boards, not internal RAM)
   char dir[128];
   bool pending, started;
+  // A console `config set`, run here after any queued save so a stale copy can't overwrite it.
+  bool set_pending, set_done, set_ok;
+  char set_path[96], set_text[256];
+  cfg_report_t set_err;
+  cfg_t *set_out;   // heap, like the others
 } w;
 static cfg_t *w_work;   // the worker's own copy, heap for the same reason
 
@@ -67,20 +75,34 @@ static void config_writer(void *arg) {
     }
     platform_unlock(w.lock);
     if (take && !cfg_save(dir, w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
-    platform_sleep_ms(100);
+    platform_lock(w.lock);
+    bool set = w.set_pending;
+    w.set_pending = false;
+    memcpy(dir, w.dir, sizeof dir);
+    platform_unlock(w.lock);
+    if (set) {
+      bool ok = cfg_set(dir, w.set_path, w.set_text, w.set_out, &w.set_err);
+      platform_lock(w.lock);
+      w.set_ok = ok;
+      w.set_done = true;
+      platform_unlock(w.lock);
+    }
+    platform_sleep_ms(take || set ? 10 : 100);
   }
 }
 
 static void start_writer(void) {
   if (w.started) return;
   w.lock = platform_lock_create();
-  w.cfg = malloc(sizeof *w.cfg);   // two buffers over the 16 KB internal-alloc limit go to PSRAM
+  w.cfg = malloc(sizeof *w.cfg);   // buffers over the 16 KB internal-alloc limit go to PSRAM
   w_work = malloc(sizeof *w_work);
-  if (!w.lock || !w.cfg || !w_work) {
+  w.set_out = malloc(sizeof *w.set_out);
+  if (!w.lock || !w.cfg || !w_work || !w.set_out) {
     fprintf(stderr, "config: no memory for the writer; changes will not be saved\n");
     free(w.cfg);
     free(w_work);
-    w.cfg = w_work = NULL;
+    free(w.set_out);
+    w.cfg = w_work = w.set_out = NULL;
     return;
   }
   w.started = platform_task(config_writer, NULL, "config", 6144);
@@ -105,8 +127,9 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   if (!roles) roles = calloc(CFG_MAX_ROLES, sizeof *roles);
   else memset(roles, 0, CFG_MAX_ROLES * sizeof *roles);
   a.roles = roles;
-  if (dir) cfg_load(dir, &a.cfg, report);
+  if (dir) a.origin = cfg_load(dir, &a.cfg, report);
   else {
+    a.origin = CFG_FROM_DEFAULTS;
     cfg_defaults(&a.cfg);
     memset(report, 0, sizeof *report);
   }
@@ -370,7 +393,6 @@ static struct {
   void *lock;
   struct { app_req_fn fn; void *arg; volatile bool *done; } q[8];
   uint8_t n;
-  volatile bool *running;   // done flag of the request being run, so a timed-out waiter can cancel it
 } post;
 
 bool app_post(app_req_fn fn, void *arg, uint32_t wait_ms) {
@@ -381,16 +403,21 @@ bool app_post(app_req_fn fn, void *arg, uint32_t wait_ms) {
   if (room) post.q[post.n++] = (typeof(post.q[0])){fn, arg, wait_ms ? &done : NULL};
   platform_unlock(post.lock);
   if (!room || !wait_ms) return room;
-  for (int64_t t0 = platform_millis(); !done; platform_sleep_ms(5))
-    if (platform_millis() - t0 >= wait_ms) {
-      platform_lock(post.lock);   // give up: make sure it will not write to this stack frame later
-      for (uint8_t i = 0; i < post.n; i++)
-        if (post.q[i].done == &done) post.q[i].done = NULL;
-      if (post.running == &done) post.running = NULL;
-      bool ran = done;
-      platform_unlock(post.lock);
-      return ran;
-    }
+  // Callers pass pointers into their own stack frame, so a request must never run after its
+  // caller has returned. On timeout a still-queued request is withdrawn; one already running
+  // is waited for (it is on the UI task and about to finish).
+  for (int64_t t0 = platform_millis(); !done; platform_sleep_ms(5)) {
+    if (platform_millis() - t0 < wait_ms) continue;
+    platform_lock(post.lock);
+    for (uint8_t i = 0; i < post.n; i++)
+      if (post.q[i].done == &done) {
+        memmove(&post.q[i], &post.q[i + 1], (size_t)(post.n - i - 1) * sizeof post.q[0]);
+        post.n--;
+        platform_unlock(post.lock);
+        return false;
+      }
+    platform_unlock(post.lock);   // not queued: running now, or just finished
+  }
   return true;
 }
 
@@ -405,12 +432,10 @@ static void run_posted(void) {
     typeof(post.q[0]) r = post.q[0];
     memmove(&post.q[0], &post.q[1], (size_t)(post.n - 1) * sizeof post.q[0]);
     post.n--;
-    post.running = r.done;
     platform_unlock(post.lock);
     r.fn(r.arg);
     platform_lock(post.lock);
-    if (post.running) *post.running = true;   // NULL if the waiter gave up meanwhile
-    post.running = NULL;
+    if (r.done) *r.done = true;   // its waiter is still there: a waiter only leaves once withdrawn or done
     platform_unlock(post.lock);
   }
 }
@@ -458,4 +483,117 @@ void app_tick(void) {
       platform_unlock(w.lock);
     }
   }
+}
+
+// ---- console support ----
+
+void app_set_info(const char *board, const char *version) {
+  snprintf(info_board, sizeof info_board, "%s", board);
+  snprintf(info_version, sizeof info_version, "%s", version);
+}
+
+static void fill_status(void *arg) {   // UI task
+  app_status_t *s = arg;
+  memset(s, 0, sizeof *s);
+  snprintf(s->firmware, sizeof s->firmware, "%s", info_version);
+  snprintf(s->board, sizeof s->board, "%s", info_board);
+  s->wifi = net_wifi_info(s->ip, &s->rssi);
+  const char *st = "offline";
+  if (a.network) {
+    switch (sk_client_state()) {
+      case SK_LIVE: st = "live"; break;
+      case SK_DISCOVERING:
+      case SK_CONNECTING: st = "connecting"; break;
+      default: break;
+    }
+  }
+  if (!strcmp(a.cfg.sk.host, "auto")) snprintf(s->signalk, sizeof s->signalk, "%s auto", st);
+  else snprintf(s->signalk, sizeof s->signalk, "%s %s:%u", st, a.cfg.sk.host, (unsigned)a.cfg.sk.port);
+  s->token = a.cfg.sk.token[0] != 0;
+  snprintf(s->access, sizeof s->access, "%s", "idle");
+  size_t in, ps;
+  platform_mem(&in, &ps);
+  s->internal_kb = (unsigned)(in / 1024);
+  s->psram_kb = (unsigned)(ps / 1024);
+  s->sd = a.dir[0] != 0;
+  snprintf(s->origin, sizeof s->origin, "%s",
+           a.origin == CFG_FROM_MAIN ? "main" : a.origin == CFG_FROM_BACKUP ? "backup" : "defaults");
+  PLATFORM_EXT_BSS static alerts_snapshot_t snap;
+  alerts_snapshot(&snap);
+  s->alerts = snap.count;
+  static const char *names[] = {"normal", "alert", "warn", "alarm", "emergency"};
+  snprintf(s->worst, sizeof s->worst, "%s", snap.count ? names[snap.a[0].state] : "none");
+}
+
+bool app_status(app_status_t *out) { return app_post(fill_status, out, 2000); }
+
+typedef struct { const cfg_t *next; unsigned applied; bool save; } apply_req_t;
+
+static void apply_and_save(void *arg) {   // UI task
+  apply_req_t *r = arg;
+  r->applied = app_apply_config(r->next);
+  if (r->save) mark_dirty();   // the file ends with these values even if an older queued copy is written first
+}
+
+static void refuse(cfg_report_t *err, const char *key, const char *msg) {
+  memset(err, 0, sizeof *err);
+  err->count = 1;
+  snprintf(err->issues[0].key_path, sizeof err->issues[0].key_path, "%s", key);
+  snprintf(err->issues[0].message, sizeof err->issues[0].message, "%s", msg);
+}
+
+bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsigned *applied) {
+  *applied = APPLY_NONE;
+  if (!a.dir[0] || !w.started) {
+    refuse(err, path, "no SD card: nothing can be saved");
+    return false;
+  }
+  platform_lock(w.lock);
+  snprintf(w.set_path, sizeof w.set_path, "%s", path);
+  snprintf(w.set_text, sizeof w.set_text, "%s", text);
+  memcpy(w.dir, a.dir, sizeof w.dir);   // the writer's directory came only from queued saves
+  w.set_done = false;
+  w.set_pending = true;
+  platform_unlock(w.lock);
+  bool done = false;
+  for (int64_t t0 = platform_millis(); !done && platform_millis() - t0 < 5000; platform_sleep_ms(10)) {
+    platform_lock(w.lock);
+    done = w.set_done;
+    platform_unlock(w.lock);
+  }
+  if (!done) {
+    refuse(err, path, "the SD card did not answer");
+    return false;
+  }
+  if (!w.set_ok) {
+    *err = w.set_err;
+    return false;
+  }
+  apply_req_t r = {w.set_out, 0, true};
+  if (!app_post(apply_and_save, &r, 2000)) {
+    refuse(err, path, "saved; the display did not take it yet (it applies on restart)");
+    return false;
+  }
+  *applied = r.applied;
+  return true;
+}
+
+bool app_config_reload(cfg_report_t *rep, unsigned *applied) {
+  *applied = APPLY_NONE;
+  if (!a.dir[0]) {
+    refuse(rep, "config.json", "no SD card");
+    return false;
+  }
+  cfg_t *next = malloc(sizeof *next);
+  if (!next) {
+    refuse(rep, "config.json", "no memory");
+    return false;
+  }
+  cfg_origin_t origin = cfg_load(a.dir, next, rep);
+  apply_req_t r = {next, 0, false};   // a reload never writes: the file may be the broken one
+  bool ok = app_post(apply_and_save, &r, 2000);
+  if (ok) a.origin = origin;
+  *applied = r.applied;
+  free(next);
+  return ok;
 }

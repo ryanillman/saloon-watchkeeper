@@ -45,3 +45,10 @@ void platform_sleep_ms(uint32_t ms) {
   struct timespec ts = {ms / 1000, (long)(ms % 1000) * 1000000L};
   nanosleep(&ts, NULL);
 }
+
+void platform_reboot(void) { exit(0); }
+
+void platform_mem(size_t *internal, size_t *psram) {
+  *internal = 0;
+  *psram = 0;
+}

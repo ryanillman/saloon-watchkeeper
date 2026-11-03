@@ -1,4 +1,5 @@
 #include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -21,3 +22,10 @@ bool platform_task(void (*fn)(void *), void *arg, const char *name, uint32_t sta
 }
 
 void platform_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
+
+void platform_reboot(void) { esp_restart(); }
+
+void platform_mem(size_t *internal, size_t *psram) {
+  *internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  *psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+}
