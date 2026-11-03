@@ -8,6 +8,7 @@ endfunction()
 bi_test(test_platform platform)
 bi_test(test_ui_nav ui)
 bi_test(test_sim_boards sim_boards)
+bi_test(test_boatdata boatdata)
 
 add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap
