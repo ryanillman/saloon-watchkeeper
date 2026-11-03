@@ -16,6 +16,7 @@ PLATFORM_EXT_BSS static struct {
   size_t n_bound;
   bool resubscribe;
   bool reconnect;   // new host, port, or token: close and connect again
+  bool rediscover;  // setup asked to read the tree again now
   sk_state_t state;
   int attempt;
   uint32_t discoveries;
@@ -123,6 +124,13 @@ void sk_client_set_rediscover_ms(int32_t ms) {
   platform_unlock(c.lock);
 }
 
+void sk_client_rediscover_now(void) {
+  if (!c.lock) return;
+  platform_lock(c.lock);
+  c.rediscover = true;
+  platform_unlock(c.lock);
+}
+
 void sk_client_reconfigure(const cfg_sk_t *cfg) {
   if (!c.lock) c.lock = platform_lock_create();
   platform_lock(c.lock);
@@ -164,7 +172,8 @@ void sk_client_run_once(void) {
     int64_t last_discovery = platform_millis();
     for (;;) {
       platform_lock(c.lock);
-      bool again = c.resubscribe, reconnect = c.reconnect;
+      bool again = c.resubscribe, reconnect = c.reconnect, now_please = c.rediscover;
+      c.rediscover = false;
       int32_t every = c.rediscover_ms;
       platform_unlock(c.lock);
       if (reconnect) break;   // closes below; the next cycle uses the new settings
@@ -175,7 +184,7 @@ void sk_client_run_once(void) {
       if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
       sk_access_poll(base, platform_millis());
-      if (platform_millis() - last_discovery >= every) {   // engines that power up later
+      if (now_please || platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);
         last_discovery = platform_millis();
       }

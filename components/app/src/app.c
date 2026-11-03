@@ -271,13 +271,31 @@ static void setup_about(char *out, size_t n) {
            s.psram_kb);
 }
 
-static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about};
+static uint8_t setup_discovery(ui_disc_role_t *out, uint8_t max) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < a.count && n < max; i++) {
+    if (!a.roles[i].def) continue;
+    memset(&out[n], 0, sizeof out[n]);
+    snprintf(out[n].role, sizeof out[n].role, "%s", a.cfg.roles[i].role);
+    out[n].count = role_discover(a.roles[i].def, out[n].ids, 16);
+    n++;
+  }
+  return n;
+}
+
+static void setup_rediscover(void) {
+  if (a.network) sk_client_rediscover_now();
+}
+
+static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery,
+                                 .run_discovery = setup_rediscover};
 
 static void open_setup(void) {
   ui_quick_close();
   setup_cb.has_buzzer = a.buzzer_ok;
   setup_cb.has_sd = a.dir[0] != 0;
   setup_cb.dims = a.dims;
+  setup_cb.roles_available = role_names();
   ui_setup_open(a.screen, &a.cfg, a.sc, &setup_cb);
 }
 
@@ -520,6 +538,7 @@ void app_tick(void) {
     uint32_t d = sk_client_discovery_count();
     if (d != a.discoveries) {   // the server told us what this boat has
       a.discoveries = d;
+      ui_setup_discovery_changed();
       if (instances_changed()) {   // rebuild only when there is something new to show
         app_bind();
         PLATFORM_EXT_BSS static sk_sub_t ids[256];

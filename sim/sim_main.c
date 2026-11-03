@@ -244,7 +244,8 @@ static int run_snapshots(const char *out) {
             lv_obj_send_event(ui_quick_part(UI_QUICK_SETUP), LV_EVENT_CLICKED, NULL);
             lv_timer_handler();
             static const struct { ui_setup_screen_t s; const char *name; } shots[] = {
-              {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"}};
+              {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"},
+              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}};
             for (size_t k = 0; k < sizeof shots / sizeof shots[0]; k++) {
               ui_setup_show(shots[k].s);
               lv_obj_invalidate(lv_display_get_screen_active(disp));
