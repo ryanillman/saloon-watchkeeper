@@ -29,6 +29,13 @@ From Waveshare's wiki for this board (the pin table is flattened, so the groupin
 | RS485 | RX GPIO43, TX GPIO44 |
 | PCLK | 21 MHz in Waveshare's LVGL benchmark |
 
+**V4.0 facts (2026-11-02), from Waveshare's GitHub repo `waveshareteam/ESP32-S3-Touch-LCD-4` (Apache-2.0): its `esp32_s3_touch_lcd_4` BSP v3.0.0, the `custom_io_expander_ch32v003` component, and the V4.0 schematic:**
+
+- The 0x24 chip is a CH32V003 running Waveshare firmware. Registers: 0x02 direction (bit 1 = output), 0x03 output, 0x04 input, 0x05 backlight PWM (inverted: 0 is full, 255 is off), 0x06 battery ADC (10-bit, little-endian), 0x07 RTC interrupt. Each write is `[reg][value]`.
+- Expander pins: EXIO1 TP_RST, EXIO2 TP_INT (schematic), EXIO3 LCD_RST, EXIO5 SYS_EN (power), EXIO6 buzzer, EXIO7 RTC_INT. The backlight is the PWM register, not a pin. There is no SD chip select; SD is SDMMC 1-bit on CLK GPIO2, CMD GPIO1, D0 GPIO4.
+- Panel: `ST7701_480_480_PANEL_60HZ_RGB_TIMING()` from `espressif/esp_lcd_st7701`, a 16-bit bus, and the BSP's vendor init sequence (copied in `board_square4.c`). Data D0–D15 = GPIO 5, 45, 48, 47, 21, 14, 13, 12, 11, 10, 9, 46, 3, 8, 18, 17. The 3-wire SPI is CS 42, SCL 2, SDA 1. Set `auto_del_panel_io` so GPIO1/2 are released for SD; it cannot be combined with `mirror_by_cmd`.
+- **Bench (2026-11-02):** color bars and the shell display correctly, SD mounts and passes the self-check, and the buzzer chirps at power-up until the firmware drives it low. **Open issue:** touch. The GT911 answers (ID "911"), but reports config version 0 and never sets its status flag. EXIO1 low does hold it in reset. Driving EXIO2 high or low before releasing reset gave 0x14 both times; once, with EXIO2 floating, it came up at 0x5D. Still to check: whether touch worked on this unit under earlier firmware, and the touch-panel ribbon.
+
 The wiki's expander pin list (EXIO0 TP_RST, EXIO1 BL_EN, EXIO2 LCD_RST, EXIO3 SD_CS, EXIO4 BLC, EXIO5 BEE_EN, EXIO6 RTC_INT, EXIO7 DO1) is for the TCA9554 revision. **confirm** the v4 mapping. The 4" was historically hard to bring up. Keep a build flag for RGB color-bar and I2C-probe diagnostics.
 
 ## lcd7: Waveshare ESP32-S3-Touch-LCD-7 (800×480)
