@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "alerts.h"
 #include "app.h"
+#include "app_cmd.h"
 #include "boatdata.h"
 #include "lvgl.h"
 #include "platform.h"
@@ -253,6 +254,31 @@ static void tick_cb(lv_timer_t *t) {
   app_tick();
 }
 
+// --console: the same commands as the boards' serial prompt, typed into this terminal.
+static void line_out(const char *line) { printf("%s\n", line); }
+static void console_loop(void *arg) {
+  (void)arg;
+  char line[512];
+  printf("bi> ");
+  fflush(stdout);
+  while (fgets(line, sizeof line, stdin)) {
+    char *argv[16];
+    int argc = 0;
+    for (char *p = line; *p && argc < 16;) {   // words, or "quoted words"
+      while (*p == ' ' || *p == '\t' || *p == '\n') p++;
+      if (!*p) break;
+      char end = *p == '"' ? '"' : ' ';
+      if (end == '"') p++;
+      argv[argc++] = p;
+      while (*p && *p != end && *p != '\n') p++;
+      if (*p) *p++ = 0;
+    }
+    if (argc) app_cmd_run(argc, argv, line_out);
+    printf("bi> ");
+    fflush(stdout);
+  }
+}
+
 static palette_t parse_palette(const char *s) {
   if (strcmp(s, "dusk") == 0) return PALETTE_DUSK;
   if (strcmp(s, "night") == 0) return PALETTE_NIGHT;
@@ -264,6 +290,7 @@ int main(int argc, char **argv) {
   const char *capture = NULL;
   int after_s = 10;
   int page = 0;
+  bool console = false;
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--board") == 0 && i + 1 < argc) board_id = argv[++i];
     else if (strcmp(argv[i], "--palette") == 0 && i + 1 < argc) palette = argv[++i];
@@ -272,10 +299,12 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[i], "--capture") == 0 && i + 1 < argc) capture = argv[++i];
     else if (strcmp(argv[i], "--after") == 0 && i + 1 < argc) after_s = atoi(argv[++i]);
     else if (strcmp(argv[i], "--page") == 0 && i + 1 < argc) page = atoi(argv[++i]);
+    else if (strcmp(argv[i], "--console") == 0) console = true;
     else {
       fprintf(stderr, "usage: sim [--board sim480|sim800|sim1024] [--palette day|dusk|night]\n"
                       "           [--config <dir with config.json>] [--snapshot <dir>]\n"
-                      "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n");
+                      "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n"
+                      "           [--console]   serial commands on this terminal\n");
       return 2;
     }
   }
@@ -296,6 +325,7 @@ int main(int argc, char **argv) {
   for (uint8_t i = 0; i < rep.count; i++)
     fprintf(stderr, "config: %s (line %d): %s\n", rep.issues[i].key_path, rep.issues[i].line, rep.issues[i].message);
   if (palette) snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[parse_palette(palette)]);
+  app_set_info(board_id, "sim");
   app_bind();
 
   if (capture) {   // live data, no window: run for a while, then save the screen
@@ -308,6 +338,7 @@ int main(int argc, char **argv) {
     app_start_ui(disp, b->size_class);
     for (int p = 0; p < page; p++) ui_shell_move(NAV_UP);
     app_start_network();
+    if (console) platform_task(console_loop, NULL, "console", 0);
     int64_t end = platform_millis() + (int64_t)after_s * 1000;
     while (platform_millis() < end) {
       app_tick();
@@ -325,6 +356,7 @@ int main(int argc, char **argv) {
   lv_indev_set_group(lv_sdl_keyboard_create(), lv_group_get_default());
   app_start_ui(disp, b->size_class);
   app_start_network();
+  if (console) platform_task(console_loop, NULL, "console", 0);
   lv_timer_create(tick_cb, 100, NULL);
 
   for (;;) {
