@@ -60,6 +60,7 @@ static bool known_role(const char *name) {
 static void parse_role(const cJSON *j, cfg_role_t *r) {
   const cJSON *it;
   COPY(r->role, cJSON_GetObjectItem(j, "role"));
+  COPY(r->primary, cJSON_GetObjectItem(j, "primary"));
   cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "instances")) {
     if (r->inst_count >= ARRAY_LEN(r->inst)) break;
     cfg_instance_t *in = &r->inst[r->inst_count++];
@@ -237,8 +238,9 @@ static void set_num(cJSON *o, const char *key, double v) {
 
 static void write_role(cJSON *o, const cfg_role_t *r) {
   set_str(o, "role", r->role);
-  const char *owned[] = {"instances", "overrides", "bind", "exclude"};
+  const char *owned[] = {"instances", "overrides", "bind", "exclude", "primary"};
   for (size_t i = 0; i < ARRAY_LEN(owned); i++) cJSON_DeleteItemFromObject(o, owned[i]);
+  if (r->primary[0]) set_str(o, "primary", r->primary);
   if (r->inst_count) {
     cJSON *a = cJSON_AddArrayToObject(o, "instances");
     for (uint8_t i = 0; i < r->inst_count; i++) {

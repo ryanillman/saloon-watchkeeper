@@ -76,6 +76,29 @@ static void fixture_tanks(void) {
   bd_set_meta(bd_find("tanks.fuel.0.currentLevel"), &m);
 }
 
+// A Victron boat, as signalk-venus reports it (SI units; ratios; seconds).
+static void fixture_power(void) {
+  const struct { const char *path; double v; } d[] = {
+    {"electrical.batteries.279.voltage", 13.4}, {"electrical.batteries.279.current", 12.0},
+    {"electrical.batteries.279.stateOfCharge", 0.82},
+    {"electrical.solar.288.voltage", 13.5},     {"electrical.solar.288.current", 18.0},
+    {"electrical.solar.288.panelPower", 260},
+    {"electrical.chargers.276.voltage", 13.6},  {"electrical.chargers.276.current", 10.0},
+    {"electrical.alternators.0.voltage", 14.1}, {"electrical.alternators.0.current", 30.0},
+  };
+  const struct { const char *path; const char *v; } t[] = {
+    {"electrical.solar.288.chargingMode", "bulk"},
+    {"electrical.chargers.276.chargingMode", "absorption"},
+    {"electrical.inverters.275.acin.acState.acSource", "grid"},
+    {"electrical.inverters.275.inverterMode", "charging"},
+    {"electrical.alternators.0.chargingMode", "bulk"},
+  };
+  int64_t now = platform_millis();
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
+  for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) bd_set_text(bd_intern(t[i].path), t[i].v, SK_SOURCE_ID, now);
+  bd_set_invalid(bd_intern("electrical.batteries.279.timeRemaining"));   // charging: Venus sends null
+}
+
 static const char *palette_names[] = {"day", "dusk", "night"};
 
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
@@ -120,13 +143,15 @@ static int run_snapshots(const char *out) {
       snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[pal]);
       fixture_engines();
       fixture_tanks();
+      fixture_power();
       app_bind();
       for (uint8_t r = 0; r < cfg->role_count; r++) {
         snprintf(cfg->start_role, sizeof cfg->start_role, "%s", cfg->roles[r].role);
         app_start_ui(disp, b->size_class);
         const ui_nav_t *n = ui_shell_nav();
         uint8_t pages = n->page_count[n->role];
-        bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks");
+        bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks"),
+             power = !strcmp(cfg->roles[r].role, "power");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -142,6 +167,13 @@ static int run_snapshots(const char *out) {
             if (write_page(disp, dir, "-live", b)) return 1;
             bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));   // the second fresh water sender fails
             if (write_page(disp, dir, "-fault", b)) return 1;
+          } else if (power) {
+            fixture_power();
+            if (write_page(disp, dir, "-live", b)) return 1;
+            if (p == 0) {   // the solar controller's current goes null: IN and LOAD fail, the battery stays live
+              bd_set_invalid(bd_find("electrical.solar.288.current"));
+              if (write_page(disp, dir, "-fault", b)) return 1;
+            }
           } else if (write_page(disp, dir, "", b)) {
             return 1;
           }
