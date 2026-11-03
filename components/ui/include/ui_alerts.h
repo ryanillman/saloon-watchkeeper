@@ -25,5 +25,6 @@ const char *ui_alerts_corner_text(void);    // banner corner: "+N", "ACK NOT SEN
 bool ui_alerts_list_visible(void);
 uint8_t ui_alerts_list_rows(void);
 
-typedef enum { UI_ALERTS_BANNER, UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO, UI_ALERTS_MARKER, UI_ALERTS_CLOSE, UI_ALERTS_CORNER, UI_ALERTS_OFFLINE } ui_alerts_part_t;
+typedef enum { UI_ALERTS_BANNER, UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO, UI_ALERTS_MARKER, UI_ALERTS_CLOSE, UI_ALERTS_CORNER, UI_ALERTS_OFFLINE,
+               UI_ALERTS_ROW0_ACK } ui_alerts_part_t;   // ROW0_ACK: the first list row's ACK
 lv_obj_t *ui_alerts_part(ui_alerts_part_t p);

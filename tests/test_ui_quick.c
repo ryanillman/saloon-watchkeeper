@@ -121,6 +121,53 @@ static void test_panel_sits_above_banner_and_alarm_closes_it(void) {
   TEST_ASSERT_FALSE(ui_quick_is_open());
 }
 
+static void raise_alarm(const char *id, const char *msg) {
+  alert_t al = {0};
+  snprintf(al.id, sizeof al.id, "%s", id);
+  al.state = AL_ALARM;
+  snprintf(al.message, sizeof al.message, "%s", msg);
+  alerts_upsert(&al, 1000);
+}
+
+static void update(int64_t now) {
+  alerts_snapshot_t snap;
+  alerts_snapshot(&snap);
+  ui_alerts_update(&snap, now);
+}
+
+// The banner already shows an acked alarm; the user opens the panel; a second alarm must close it.
+static void test_second_alarm_closes_panel(void) {
+  alerts_init();
+  alerts_source_up(true);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of);
+  raise_alarm("a.one", "One");
+  update(0);
+  alerts_request("a.one", AL_REQ_ACK);
+  update(2000);
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());
+  ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
+  update(3000);
+  TEST_ASSERT_TRUE(ui_quick_is_open());   // nothing new: stays open
+  raise_alarm("a.two", "Two");
+  update(4000);
+  TEST_ASSERT_FALSE(ui_quick_is_open());
+}
+
+// The banner shows an un-acked alarm and a second un-acked one arrives behind it.
+static void test_new_alarm_behind_banner_closes_panel(void) {
+  alerts_init();
+  alerts_source_up(true);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of);
+  raise_alarm("a.one", "One");
+  update(0);
+  ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
+  update(1000);
+  TEST_ASSERT_TRUE(ui_quick_is_open());
+  raise_alarm("a.two", "Two");
+  update(2000);
+  TEST_ASSERT_FALSE(ui_quick_is_open());
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -135,5 +182,7 @@ int main(void) {
   RUN_TEST(test_close_button_and_reopen);
   RUN_TEST(test_strip_tap_calls_handler);
   RUN_TEST(test_panel_sits_above_banner_and_alarm_closes_it);
+  RUN_TEST(test_second_alarm_closes_panel);
+  RUN_TEST(test_new_alarm_behind_banner_closes_panel);
   return UNITY_END();
 }
