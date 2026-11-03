@@ -138,12 +138,18 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
     int i = 0;
     const cJSON *it;
     cJSON_ArrayForEach(it, roles) {
-      cfg_role_t r = {0};
-      parse_role(it, &r);
+      if (c->role_count >= CFG_MAX_ROLES) break;
+      // Parse straight into the next slot (a cfg_role_t is ~2 KB: too big for a small task stack).
+      cfg_role_t *r = &c->roles[c->role_count];
+      memset(r, 0, sizeof *r);
+      parse_role(it, r);
       char key[24];
       snprintf(key, sizeof key, "roles[%d].role", i++);
-      if (!known_role(r.role)) issue(rep, key, 0, "unknown role; skipped");
-      else if (c->role_count < CFG_MAX_ROLES) c->roles[c->role_count++] = r;
+      if (known_role(r->role)) c->role_count++;
+      else {
+        issue(rep, key, 0, "unknown role; skipped");
+        memset(r, 0, sizeof *r);
+      }
     }
     if (c->role_count == 0) {
       issue(rep, "roles", 0, "no valid roles; using the default roles");

@@ -30,3 +30,6 @@ CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 # SD card: long file names (config.json, config.bak.json)
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+
+# app_main loads config.json before starting the UI task
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
