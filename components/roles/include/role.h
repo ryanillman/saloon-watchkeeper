@@ -68,7 +68,14 @@ typedef struct role_binding {
 const ui_gauge_spec_t *role_gauge_spec(role_binding_t *b, uint8_t g, uint8_t i, uint8_t k, ui_gauge_spec_t *spec,
                                        ui_band_t bands[6], char label[32]);
 
-const role_def_t *role_find(const char *name);   // NULL if not implemented
+const role_def_t *role_find(const char *name);
+
+// Names of the roles this firmware draws, NULL-terminated (setup's ADD list).
+const char *const *role_names(void);
+
+// What discovery finds for this role right now, ignoring pins and excludes: instance ids,
+// sorted per group, prefixed with the group name in multi-group roles ("battery.279").
+uint8_t role_discover(const role_def_t *d, char ids[][24], uint8_t max);   // NULL if not implemented
 
 // Per group: instances pinned in config, else discovered (sorted), else one placeholder
 // labelled with the role title whose slots are all BD_NONE.

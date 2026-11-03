@@ -25,7 +25,21 @@ static void on_save(const cfg_t *c) {
   saves++;
 }
 static void on_about(char *out, size_t n) { snprintf(out, n, "firmware: test\nboard: sim800"); }
-static ui_setup_cb_t cb = {.save = on_save, .about = on_about, .has_buzzer = true, .has_sd = true, .dims = true};
+static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
+  (void)max;
+  memset(out, 0, sizeof *out);
+  strcpy(out[0].role, "engine");
+  strcpy(out[0].ids[0], "port");
+  strcpy(out[0].ids[1], "starboard");
+  strcpy(out[0].ids[2], "wing");
+  out[0].count = 3;
+  return 1;
+}
+static int rediscoveries;
+static void on_run_discovery(void) { rediscoveries++; }
+static const char *const implemented[] = {"engine", "power", "tanks", NULL};
+static ui_setup_cb_t cb = {.save = on_save, .about = on_about, .has_buzzer = true, .has_sd = true, .dims = true,
+                           .discovery = on_discovery, .run_discovery = on_run_discovery, .roles_available = implemented};
 
 static void click(const char *part) {
   lv_obj_t *o = ui_setup_part(part);
@@ -47,6 +61,7 @@ void setUp(void) {
   lv_timer_handler();
   cfg_defaults(&cfg);
   saves = 0;
+  rediscoveries = 0;
   cb.has_buzzer = true;
   cb.has_sd = true;
 }
@@ -189,6 +204,76 @@ static void test_no_sd_note(void) {
   TEST_ASSERT_NOT_NULL(ui_setup_part("nosd"));
 }
 
+static int role_index(const cfg_t *c, const char *name) {
+  for (int i = 0; i < c->role_count; i++)
+    if (!strcmp(c->roles[i].role, name)) return i;
+  return -1;
+}
+
+static void test_roles_reorder_and_save(void) {
+  open_setup();
+  click("menu_roles");
+  TEST_ASSERT_EQUAL(SETUP_ROLES, ui_setup_screen());
+  click("down_engine");
+  TEST_ASSERT_EQUAL_STRING("power", ui_setup_working()->roles[0].role);
+  TEST_ASSERT_EQUAL_STRING("engine", ui_setup_working()->roles[1].role);
+  click("save");
+  TEST_ASSERT_EQUAL_INT(1, saves);
+  TEST_ASSERT_EQUAL_STRING("power", saved.roles[0].role);
+}
+
+static void test_add_offers_missing_roles_only(void) {
+  open_setup();
+  click("menu_roles");
+  TEST_ASSERT_NULL(ui_setup_part("add_tanks"));   // already there
+  click("remove_tanks");
+  TEST_ASSERT_EQUAL_INT(-1, role_index(ui_setup_working(), "tanks"));
+  TEST_ASSERT_NULL(ui_setup_part("add_engine"));
+  click("add_tanks");
+  TEST_ASSERT_TRUE(role_index(ui_setup_working(), "tanks") >= 0);
+  TEST_ASSERT_EQUAL_UINT8(0, ui_setup_working()->roles[role_index(ui_setup_working(), "tanks")].src_entry);
+}
+
+static void test_discovery_confirm_writes_pins_and_excludes(void) {
+  open_setup();
+  click("menu_discovery");
+  click("run");
+  TEST_ASSERT_EQUAL_INT(1, rediscoveries);
+  click("keep_engine_wing");   // keep -> skip
+  click("confirm_engine");
+  const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
+  TEST_ASSERT_EQUAL_UINT8(2, r->inst_count);
+  TEST_ASSERT_EQUAL_STRING("port", r->inst[0].id);
+  TEST_ASSERT_EQUAL_STRING("starboard", r->inst[1].id);
+  TEST_ASSERT_EQUAL_UINT8(1, r->exclude_count);
+  TEST_ASSERT_EQUAL_STRING("wing", r->exclude[0]);
+}
+
+static void test_discovery_missing_shown(void) {
+  cfg_role_t *e = &cfg.roles[role_index(&cfg, "engine")];
+  strcpy(e->inst[0].id, "port");
+  strcpy(e->inst[1].id, "center");
+  e->inst_count = 2;
+  open_setup();
+  click("menu_discovery");
+  TEST_ASSERT_NOT_NULL(ui_setup_part("missing_engine_center"));
+  TEST_ASSERT_NULL(ui_setup_part("missing_engine_port"));
+}
+
+static void test_auto_clears_pins(void) {
+  cfg_role_t *e = &cfg.roles[role_index(&cfg, "engine")];
+  strcpy(e->inst[0].id, "port");
+  e->inst_count = 1;
+  strcpy(e->exclude[0], "wing");
+  e->exclude_count = 1;
+  open_setup();
+  click("menu_discovery");
+  click("auto_engine");
+  const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
+  TEST_ASSERT_EQUAL_UINT8(0, r->inst_count);
+  TEST_ASSERT_EQUAL_UINT8(0, r->exclude_count);
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -210,5 +295,10 @@ int main(void) {
   RUN_TEST(test_setup_survives_shell_rebuild);
   RUN_TEST(test_buzzer_hidden_without_buzzer);
   RUN_TEST(test_no_sd_note);
+  RUN_TEST(test_roles_reorder_and_save);
+  RUN_TEST(test_add_offers_missing_roles_only);
+  RUN_TEST(test_discovery_confirm_writes_pins_and_excludes);
+  RUN_TEST(test_discovery_missing_shown);
+  RUN_TEST(test_auto_clears_pins);
   return UNITY_END();
 }

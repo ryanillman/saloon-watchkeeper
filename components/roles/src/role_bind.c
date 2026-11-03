@@ -15,6 +15,12 @@ const role_def_t *role_find(const char *name) {
   return NULL;
 }
 
+const char *const *role_names(void) {
+  static const char *names[sizeof ROLES / sizeof ROLES[0] + 1];
+  for (size_t i = 0; i < sizeof ROLES / sizeof ROLES[0]; i++) names[i] = ROLES[i]->name;
+  return names;
+}
+
 static void label_for(const char *id, char *out, size_t n) {
   static const struct { const char *id, *label; } known[] = {
     {"port", "PORT"}, {"starboard", "STBD"}, {"center", "CTR"}, {"centre", "CTR"}, {"main", "MAIN"},
@@ -183,4 +189,16 @@ bool role_binding_same(const role_binding_t *a, const role_binding_t *b) {
         return false;
   }
   return true;
+}
+
+uint8_t role_discover(const role_def_t *d, char ids[][24], uint8_t max) {
+  uint8_t n = 0;
+  char found[ROLE_MAX_INST][24];
+  for (uint8_t gi = 0; gi < d->group_count; gi++) {
+    const role_group_t *g = &d->groups[gi];
+    if (g->id_depth == 0) continue;   // a fixed path (Power's system group), not an instance
+    uint8_t k = discover(d, g, NULL, found);
+    for (uint8_t i = 0; i < k && n < max; i++) config_key(d, g, found[i], ids[n++], 24);
+  }
+  return n;
 }

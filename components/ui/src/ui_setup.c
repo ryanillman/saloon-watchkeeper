@@ -8,7 +8,7 @@
 #include "ui_alerts.h"
 #include "ui_shell.h"
 
-#define MAX_PARTS 96
+#define MAX_PARTS 160
 #define MAX_SEGS 8
 #define ROW_H 56
 
@@ -30,6 +30,10 @@ PLATFORM_EXT_BSS static struct {
   uint8_t n_parts, n_parts_frame;
   seg_t segs[MAX_SEGS];
   uint8_t n_segs;
+  ui_disc_role_t disc[CFG_MAX_ROLES];
+  uint8_t n_disc;
+  struct { uint8_t role; char id[24]; bool keep; lv_obj_t *btn; } rows[CFG_MAX_ROLES * 16];
+  uint16_t n_rows;
 } u;
 
 static bool open_now(void) { return u.root && lv_obj_is_valid(u.root); }
@@ -227,6 +231,221 @@ static void build_later(void) {
   lv_obj_set_width(l, lv_pct(100));
 }
 
+// Rebuilding from inside a click on a body child would delete the clicked object mid-event.
+static void rebuild_cb(void *arg) {
+  (void)arg;
+  if (open_now()) show_screen(u.screen);
+}
+static void rebuild_later(void) { lv_async_call(rebuild_cb, NULL); }
+
+static void upper(const char *in, char *out, size_t n) {
+  size_t i = 0;
+  for (; in[i] && i + 1 < n; i++) out[i] = (char)(in[i] >= 'a' && in[i] <= 'z' ? in[i] - 32 : in[i]);
+  out[i] = 0;
+}
+
+// ---- Roles ----
+
+enum { ROLE_UP, ROLE_DOWN, ROLE_REMOVE };
+
+static void on_role(lv_event_t *e) {
+  uintptr_t v = (uintptr_t)lv_event_get_user_data(e);
+  uint8_t i = (uint8_t)(v >> 4), op = (uint8_t)(v & 15), n = u.work.role_count;
+  cfg_role_t *r = u.work.roles;
+  if (op == ROLE_UP && i > 0) {
+    cfg_role_t t = r[i - 1];
+    r[i - 1] = r[i];
+    r[i] = t;
+  } else if (op == ROLE_DOWN && i + 1 < n) {
+    cfg_role_t t = r[i + 1];
+    r[i + 1] = r[i];
+    r[i] = t;
+  } else if (op == ROLE_REMOVE && n > 1) {   // a panel always shows at least one role
+    memmove(&r[i], &r[i + 1], (size_t)(n - i - 1) * sizeof r[0]);
+    memset(&r[n - 1], 0, sizeof r[0]);
+    u.work.role_count--;
+  }
+  rebuild_later();
+}
+
+static void on_add(lv_event_t *e) {
+  const char *name = lv_event_get_user_data(e);
+  if (u.work.role_count >= CFG_MAX_ROLES) return;
+  cfg_role_t *r = &u.work.roles[u.work.role_count++];
+  memset(r, 0, sizeof *r);   // src_entry 0: new
+  snprintf(r->role, sizeof r->role, "%s", name);
+  rebuild_later();
+}
+
+static bool has_role(const char *name) {
+  for (uint8_t i = 0; i < u.work.role_count; i++)
+    if (!strcmp(u.work.roles[i].role, name)) return true;
+  return false;
+}
+
+static void build_roles(void) {
+  const ui_colors_t *c = ui_theme();
+  text(u.body, "Swipe order", c->dim);
+  for (uint8_t i = 0; i < u.work.role_count; i++) {
+    const char *name = u.work.roles[i].role;
+    char title[16], pn[32];
+    upper(name, title, sizeof title);
+    lv_obj_t *r = row(u.body);
+    lv_obj_t *l = text(r, title, c->fg);
+    lv_obj_set_width(l, u.sc == SIZE_WIDE ? 200 : 140);
+    static const char *ops[] = {LV_SYMBOL_UP, LV_SYMBOL_DOWN, LV_SYMBOL_CLOSE}, *names[] = {"up", "down", "remove"};
+    for (uint8_t op = 0; op < 3; op++) {
+      lv_obj_t *b = button(r, ops[op], on_role, (void *)(uintptr_t)((i << 4) | op));
+      snprintf(pn, sizeof pn, "%s_%s", names[op], name);
+      part(pn, b);
+    }
+  }
+  if (u.cb->roles_available) {
+    lv_obj_t *r = NULL;
+    for (const char *const *n = u.cb->roles_available; *n; n++) {
+      if (has_role(*n) || u.work.role_count >= CFG_MAX_ROLES) continue;
+      if (!r) {
+        text(u.body, "Add", c->dim);
+        r = row(u.body);
+      }
+      char title[16], pn[32];
+      upper(*n, title, sizeof title);
+      lv_obj_t *b = button(r, title, on_add, (void *)*n);
+      snprintf(pn, sizeof pn, "add_%s", *n);
+      part(pn, b);
+    }
+  }
+  static const char *vals[CFG_MAX_ROLES], *labels[CFG_MAX_ROLES];
+  static char titles[CFG_MAX_ROLES][16];
+  uint8_t n = u.work.role_count > 4 ? 4 : u.work.role_count;   // segmented rows hold 4
+  for (uint8_t i = 0; i < n; i++) {
+    vals[i] = u.work.roles[i].role;
+    upper(vals[i], titles[i], sizeof titles[i]);
+    labels[i] = titles[i];
+  }
+  segmented(u.body, "Start on", "start", u.work.start_role, sizeof u.work.start_role, vals, labels, n);
+}
+
+// ---- Discovery ----
+
+static int find_role(const char *name) {
+  for (uint8_t i = 0; i < u.work.role_count; i++)
+    if (!strcmp(u.work.roles[i].role, name)) return i;
+  return -1;
+}
+
+static bool in_list(const char ids[][24], uint8_t n, const char *id) {
+  for (uint8_t i = 0; i < n; i++)
+    if (!strcmp(ids[i], id)) return true;
+  return false;
+}
+
+static void on_keep(lv_event_t *e) {
+  uint16_t k = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
+  u.rows[k].keep = !u.rows[k].keep;
+  lv_obj_t *l = lv_obj_get_child(u.rows[k].btn, 0);
+  lv_label_set_text(l, u.rows[k].keep ? "KEEP" : "SKIP");
+  style_button(u.rows[k].btn, u.rows[k].keep);
+}
+
+static void on_confirm(lv_event_t *e) {
+  uint8_t ri = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  cfg_role_t *r = &u.work.roles[ri];
+  cfg_role_t old = *r;
+  r->inst_count = 0;
+  r->exclude_count = 0;
+  for (uint16_t k = 0; k < u.n_rows; k++) {
+    if (u.rows[k].role != ri) continue;
+    if (u.rows[k].keep && r->inst_count < 8) {
+      cfg_instance_t *in = &r->inst[r->inst_count++];
+      memset(in, 0, sizeof *in);
+      snprintf(in->id, sizeof in->id, "%s", u.rows[k].id);
+      for (uint8_t j = 0; j < old.inst_count; j++)   // a label set earlier stays
+        if (!strcmp(old.inst[j].id, in->id)) snprintf(in->label, sizeof in->label, "%s", old.inst[j].label);
+    } else if (!u.rows[k].keep && r->exclude_count < 8) {
+      snprintf(r->exclude[r->exclude_count++], sizeof r->exclude[0], "%s", u.rows[k].id);
+    }
+  }
+  rebuild_later();
+}
+
+static void on_auto(lv_event_t *e) {
+  cfg_role_t *r = &u.work.roles[(uint8_t)(uintptr_t)lv_event_get_user_data(e)];
+  r->inst_count = 0;
+  r->exclude_count = 0;
+  rebuild_later();
+}
+
+static void on_run(lv_event_t *e) {
+  (void)e;
+  if (u.cb->run_discovery) u.cb->run_discovery();
+}
+
+static void build_discovery(void) {
+  const ui_colors_t *c = ui_theme();
+  lv_obj_t *run = button(u.body, "RUN DISCOVERY", on_run, NULL);
+  part("run", run);
+  u.n_disc = u.cb->discovery ? u.cb->discovery(u.disc, CFG_MAX_ROLES) : 0;
+  u.n_rows = 0;
+  for (uint8_t d = 0; d < u.n_disc; d++) {
+    int ri = find_role(u.disc[d].role);
+    if (ri < 0) continue;   // removed on the Roles screen, not saved yet
+    cfg_role_t *r = &u.work.roles[ri];
+    char title[16], pn[48];
+    upper(r->role, title, sizeof title);
+    lv_obj_t *head = row(u.body);
+    lv_obj_t *t = text(head, title, c->accent);
+    lv_obj_set_width(t, u.sc == SIZE_WIDE ? 200 : lv_pct(100));
+    text(head, r->inst_count ? "pinned" : "automatic", c->dim);
+    // Every id found, then pinned ones that were not found (MISSING).
+    char ids[32][24];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < u.disc[d].count && n < 32; i++) snprintf(ids[n++], 24, "%s", u.disc[d].ids[i]);
+    for (uint8_t i = 0; i < r->inst_count && n < 32; i++)
+      if (!in_list(ids, n, r->inst[i].id)) snprintf(ids[n++], 24, "%s", r->inst[i].id);
+    if (!n) text(u.body, "nothing found", c->dim);
+    for (uint8_t i = 0; i < n && u.n_rows < sizeof u.rows / sizeof u.rows[0]; i++) {
+      bool pinned = false, excluded = false;
+      const char *label = "";
+      for (uint8_t j = 0; j < r->inst_count; j++)
+        if (!strcmp(r->inst[j].id, ids[i])) {
+          pinned = true;
+          label = r->inst[j].label;
+        }
+      for (uint8_t j = 0; j < r->exclude_count; j++) excluded |= !strcmp(r->exclude[j], ids[i]);
+      bool found = in_list(u.disc[d].ids, u.disc[d].count, ids[i]);
+      uint16_t k = u.n_rows++;
+      u.rows[k].role = (uint8_t)ri;
+      snprintf(u.rows[k].id, sizeof u.rows[k].id, "%s", ids[i]);
+      u.rows[k].keep = r->inst_count ? pinned : !excluded;
+      lv_obj_t *rr = row(u.body);
+      u.rows[k].btn = button(rr, u.rows[k].keep ? "KEEP" : "SKIP", on_keep, (void *)(uintptr_t)k);
+      style_button(u.rows[k].btn, u.rows[k].keep);
+      snprintf(pn, sizeof pn, "keep_%s_%s", r->role, ids[i]);
+      part(pn, u.rows[k].btn);
+      char line[48];
+      snprintf(line, sizeof line, "%s%s%s", ids[i], label[0] ? "  " : "", label);
+      text(rr, line, c->fg);
+      if (pinned && !found) {
+        lv_obj_t *m = text(rr, "MISSING", c->warn);
+        snprintf(pn, sizeof pn, "missing_%s_%s", r->role, ids[i]);
+        part(pn, m);
+      }
+    }
+    lv_obj_t *act = row(u.body);
+    lv_obj_t *cb = button(act, "CONFIRM", on_confirm, (void *)(uintptr_t)ri);
+    snprintf(pn, sizeof pn, "confirm_%s", r->role);
+    part(pn, cb);
+    lv_obj_t *ab = button(act, "AUTO", on_auto, (void *)(uintptr_t)ri);
+    snprintf(pn, sizeof pn, "auto_%s", r->role);
+    part(pn, ab);
+  }
+}
+
+void ui_setup_discovery_changed(void) {
+  if (open_now() && u.screen == SETUP_DISCOVERY) rebuild_later();
+}
+
 static const char *title_of(ui_setup_screen_t s) {
   static const char *t[] = {"SETUP", "WI-FI", "SIGNAL K", "ROLES", "DISCOVERY", "DISPLAY", "ABOUT"};
   return t[s];
@@ -265,6 +484,8 @@ static void show_screen(ui_setup_screen_t s) {
     case SETUP_MENU: build_menu(); break;
     case SETUP_DISPLAY: build_display(); break;
     case SETUP_ABOUT: build_about(); break;
+    case SETUP_ROLES: build_roles(); break;
+    case SETUP_DISCOVERY: build_discovery(); break;
     default: build_later(); break;
   }
   lv_obj_scroll_to_y(u.body, 0, LV_ANIM_OFF);
