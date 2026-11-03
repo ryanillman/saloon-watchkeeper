@@ -1,0 +1,37 @@
+#include "gt911_lvgl.h"
+#include "esp_lcd_touch_gt911.h"
+#include "esp_log.h"
+
+static esp_lcd_touch_handle_t tp;
+
+static void read_cb(lv_indev_t *i, lv_indev_data_t *data) {
+  (void)i;
+  esp_lcd_touch_point_data_t pt;
+  uint8_t n = 0;
+  esp_lcd_touch_read_data(tp);
+  if (esp_lcd_touch_get_data(tp, &pt, &n, 1) == ESP_OK && n > 0) {
+    data->point.x = pt.x;
+    data->point.y = pt.y;
+    data->state = LV_INDEV_STATE_PRESSED;
+  } else {
+    data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
+
+lv_indev_t *gt911_lvgl_indev(i2c_master_bus_handle_t bus, uint16_t w, uint16_t h, int int_gpio) {
+  esp_lcd_panel_io_handle_t io;
+  esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
+  io_cfg.scl_speed_hz = 400000;
+  if (esp_lcd_new_panel_io_i2c(bus, &io_cfg, &io) != ESP_OK) return NULL;
+  esp_lcd_touch_config_t cfg = {
+    .x_max = w, .y_max = h, .rst_gpio_num = GPIO_NUM_NC, .int_gpio_num = int_gpio,
+  };
+  if (esp_lcd_touch_new_i2c_gt911(io, &cfg, &tp) != ESP_OK) {
+    ESP_LOGE("gt911", "init failed");
+    return NULL;
+  }
+  lv_indev_t *indev = lv_indev_create();
+  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(indev, read_cb);
+  return indev;
+}
