@@ -56,7 +56,7 @@ static esp_err_t init(void) {
   esp_lcd_rgb_panel_config_t pc = {
     .clk_src = LCD_CLK_SRC_DEFAULT,
     .timings = {
-      .pclk_hz = 30 * 1000 * 1000, .h_res = W, .v_res = H,
+      .pclk_hz = 21 * 1000 * 1000, .h_res = W, .v_res = H, // 30 MHz tore during swipes (PSRAM bandwidth); 21 MHz verified on the bench
       .hsync_pulse_width = 162, .hsync_back_porch = 152, .hsync_front_porch = 48,
       .vsync_pulse_width = 45, .vsync_back_porch = 13, .vsync_front_porch = 3,
       .flags.pclk_active_neg = 1,
