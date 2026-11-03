@@ -225,6 +225,13 @@ static void test_overflow_resubscribes(void) {   // lost deltas: the server rese
   TEST_ASSERT_NOT_NULL(strstr(sent_log[2], "propulsion.port.revolutions"));
 }
 
+static void test_no_overflow_subscribes_once(void) {   // a quiet session sends one subscribe, no unsubscribe
+  live_polls = 4;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, sends);
+  TEST_ASSERT_NULL(strstr(sent_log[0], "unsubscribe"));
+}
+
 static void test_rebind_unsubscribes_first(void) {   // the server does not dedupe repeated subscribes
   live_polls = 4;
   rebind_at_poll = 2;
