@@ -1,0 +1,211 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "unity.h"
+#include "config.h"
+
+static char dir[64];
+
+static void write_file(const char *name, const char *text) {
+  char p[128];
+  snprintf(p, sizeof p, "%s/%s", dir, name);
+  FILE *f = fopen(p, "w");
+  fputs(text, f);
+  fclose(f);
+}
+
+static char *read_file(const char *name) {
+  char p[128];
+  snprintf(p, sizeof p, "%s/%s", dir, name);
+  FILE *f = fopen(p, "r");
+  if (!f) return NULL;
+  static char buf[8192];
+  size_t n = fread(buf, 1, sizeof buf - 1, f);
+  buf[n] = 0;
+  fclose(f);
+  return buf;
+}
+
+void setUp(void) {
+  strcpy(dir, "/tmp/bi_cfg_XXXXXX");
+  TEST_ASSERT_NOT_NULL(mkdtemp(dir));
+}
+
+void tearDown(void) {
+  char cmd[96];
+  snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+  system(cmd);
+}
+
+static const char *MINIMAL =
+  "{\n"
+  "  \"wifi\": { \"ssid\": \"Boatnet\", \"password\": \"pw\" },\n"
+  "  \"roles\": [ { \"role\": \"engine\" } ]\n"
+  "}\n";
+
+static void test_minimal_file_loads(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_STRING("Boatnet", c.wifi.ssid);
+  TEST_ASSERT_EQUAL_UINT8(1, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("engine", c.roles[0].role);
+  // unspecified sections take defaults
+  TEST_ASSERT_EQUAL_STRING("auto", c.sk.host);
+  TEST_ASSERT_EQUAL_UINT16(3000, c.sk.port);
+  TEST_ASSERT_EQUAL_STRING("C", c.units.temperature);
+  TEST_ASSERT_EQUAL_UINT8(80, c.brightness);
+}
+
+static void test_full_role_fields(void) {
+  write_file("config.json",
+    "{ \"roles\": [ { \"role\": \"engine\",\n"
+    "  \"instances\": [ {\"id\": \"port\", \"label\": \"PORT\"}, {\"id\": \"starboard\", \"label\": \"STBD\"} ],\n"
+    "  \"overrides\": { \"rpm\": { \"max\": 3600 } },\n"
+    "  \"bind\": { \"port.coolant\": \"propulsion.port.exhaustTemperature\" },\n"
+    "  \"exclude\": [ \"center\" ] } ],\n"
+    "  \"sources\": { \"signalk\": { \"host\": \"10.0.0.5\", \"port\": 3443, \"token\": \"abc\" } } }\n");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  cfg_role_t *e = &c.roles[0];
+  TEST_ASSERT_EQUAL_UINT8(2, e->inst_count);
+  TEST_ASSERT_EQUAL_STRING("STBD", e->inst[1].label);
+  TEST_ASSERT_EQUAL_UINT8(1, e->ovr_count);
+  TEST_ASSERT_EQUAL_STRING("rpm", e->ovr[0].slot);
+  TEST_ASSERT_FALSE(e->ovr[0].has_min);
+  TEST_ASSERT_TRUE(e->ovr[0].has_max);
+  TEST_ASSERT_EQUAL_DOUBLE(3600, e->ovr[0].max);
+  TEST_ASSERT_EQUAL_STRING("propulsion.port.exhaustTemperature", e->bind[0].path);
+  TEST_ASSERT_EQUAL_STRING("center", e->exclude[0]);
+  TEST_ASSERT_EQUAL_STRING("10.0.0.5", c.sk.host);
+  TEST_ASSERT_EQUAL_UINT16(3443, c.sk.port);
+  TEST_ASSERT_EQUAL_STRING("abc", c.sk.token);
+}
+
+static void test_missing_main_uses_backup(void) {
+  write_file("config.bak.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_BACKUP, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_STRING("Boatnet", c.wifi.ssid);
+}
+
+static void test_both_missing_uses_defaults(void) {
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_DEFAULTS, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("engine", c.roles[0].role);
+  TEST_ASSERT_EQUAL_STRING("anchor", c.roles[3].role);
+}
+
+static void test_parse_error_reports_line_and_falls_back(void) {
+  write_file("config.json",
+    "{\n"                               // 1
+    "  \"wifi\": {\n"                   // 2
+    "    \"ssid\": \"Boatnet\"\n"       // 3
+    "  },\n"                            // 4
+    "  \"display\": {\n"                // 5
+    "    \"palette\": \"day\",\n"       // 6
+    "    \"brightness\": 80 80\n"       // 7
+    "  }\n"
+    "}\n");
+  write_file("config.bak.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_BACKUP, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_INT(7, r.issues[0].line);
+}
+
+static void test_unknown_role_skipped_others_load(void) {
+  write_file("config.json", "{ \"roles\": [ {\"role\": \"engnie\"}, {\"role\": \"tanks\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("roles[0].role", r.issues[0].key_path);
+  TEST_ASSERT_EQUAL_UINT8(1, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("tanks", c.roles[0].role);
+}
+
+static void test_no_valid_roles_uses_default_roles(void) {
+  write_file("config.json", "{ \"roles\": [ {\"role\": \"engnie\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);   // never a blank display
+}
+
+static void test_unknown_keys_survive_save(void) {
+  write_file("config.json",
+    "{ \"note\": \"keep me\", \"wifi\": {\"ssid\": \"A\", \"channel\": 6},\n"
+    "  \"roles\": [ {\"role\": \"engine\", \"comment\": \"twin\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  strcpy(c.wifi.ssid, "B");
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  const char *out = read_file("config.json");
+  TEST_ASSERT_NOT_NULL(strstr(out, "keep me"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"channel\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "twin"));
+  cfg_t again;
+  cfg_load(dir, &again, &r);
+  TEST_ASSERT_EQUAL_STRING("B", again.wifi.ssid);
+}
+
+static void test_save_rotates_backup(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  strcpy(c.wifi.ssid, "First");
+  cfg_save(dir, &c);
+  strcpy(c.wifi.ssid, "Second");
+  cfg_save(dir, &c);
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.bak.json"), "First"));
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "Second"));
+  TEST_ASSERT_NULL(read_file("config.tmp"));
+}
+
+static void test_version_written_and_missing_treated_as_1(void) {
+  write_file("config.json", MINIMAL);   // no "version"
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  cfg_save(dir, &c);
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "\"version\":\t1"));
+}
+
+static void test_save_from_defaults_creates_file(void) {
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_t again;
+  TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &again, &r));
+  TEST_ASSERT_EQUAL_UINT8(4, again.role_count);
+}
+
+int main(void) {
+  UNITY_BEGIN();
+  RUN_TEST(test_minimal_file_loads);
+  RUN_TEST(test_full_role_fields);
+  RUN_TEST(test_missing_main_uses_backup);
+  RUN_TEST(test_both_missing_uses_defaults);
+  RUN_TEST(test_parse_error_reports_line_and_falls_back);
+  RUN_TEST(test_unknown_role_skipped_others_load);
+  RUN_TEST(test_no_valid_roles_uses_default_roles);
+  RUN_TEST(test_unknown_keys_survive_save);
+  RUN_TEST(test_save_rotates_backup);
+  RUN_TEST(test_version_written_and_missing_treated_as_1);
+  RUN_TEST(test_save_from_defaults_creates_file);
+  return UNITY_END();
+}

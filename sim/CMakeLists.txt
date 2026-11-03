@@ -26,9 +26,19 @@ FetchContent_Declare(lvgl
 FetchContent_MakeAvailable(lvgl)
 target_link_libraries(lvgl PUBLIC PkgConfig::SDL2)
 
+# cJSON, as a target named "json" to match the ESP-IDF component name
+FetchContent_Declare(cjson
+  GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
+  GIT_TAG v1.7.18
+  GIT_SHALLOW TRUE)
+FetchContent_Populate(cjson)
+add_library(json STATIC ${cjson_SOURCE_DIR}/cJSON.c)
+target_include_directories(json PUBLIC ${cjson_SOURCE_DIR})
+
 add_subdirectory(${BI_ROOT}/components/platform components/platform)
 add_subdirectory(${BI_ROOT}/components/ui components/ui)
 add_subdirectory(${BI_ROOT}/components/boatdata components/boatdata)
+add_subdirectory(${BI_ROOT}/components/config components/config)
 
 add_library(sim_boards STATIC sim_boards.c)
 target_include_directories(sim_boards PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

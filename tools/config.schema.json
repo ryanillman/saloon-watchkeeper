@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "boat-instruments config.json",
+  "description": "Lives at the root of the SD card. Keys not listed here are kept when the device rewrites the file.",
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "wifi": {
+      "type": "object",
+      "properties": {
+        "ssid": { "type": "string", "maxLength": 32 },
+        "password": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "properties": {
+        "signalk": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string", "description": "\"auto\" finds the server with mDNS", "default": "auto" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 3000 },
+            "token": { "type": "string", "description": "Written by the device after you approve its access request" }
+          }
+        },
+        "n2k": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } }
+      }
+    },
+    "units": {
+      "type": "object",
+      "properties": {
+        "temperature": { "enum": ["C", "F"], "default": "C" },
+        "pressure": { "enum": ["bar", "psi", "kPa"], "default": "bar" },
+        "volume": { "enum": ["L", "gal"], "default": "L" },
+        "speed": { "enum": ["kn", "m/s", "km/h"], "default": "kn" },
+        "distance": { "enum": ["nm", "m", "ft"], "default": "nm" }
+      }
+    },
+    "display": {
+      "type": "object",
+      "properties": {
+        "palette": { "enum": ["auto", "day", "dusk", "night"], "default": "auto" },
+        "brightness": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 },
+        "start_role": { "$ref": "#/$defs/roleName" }
+      }
+    },
+    "buzzer": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } },
+    "roles": {
+      "type": "array",
+      "description": "Swipe order. Unknown role names are reported and skipped.",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": { "$ref": "#/$defs/roleName" },
+          "instances": {
+            "type": "array", "maxItems": 4,
+            "description": "Pinned instances. Without this, the role uses whatever discovery finds.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Signal K instance name, e.g. port" },
+                "label": { "type": "string", "maxLength": 11 }
+              }
+            }
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Per-slot display range, in display units: { \"rpm\": { \"max\": 3600 } }",
+            "additionalProperties": {
+              "type": "object",
+              "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
+            }
+          },
+          "bind": {
+            "type": "object",
+            "description": "Explicit paths: { \"port.coolant\": \"propulsion.port.exhaustTemperature\" }",
+            "additionalProperties": { "type": "string" }
+          },
+          "exclude": { "type": "array", "items": { "type": "string" }, "description": "Instance ids to hide" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "roleName": { "enum": ["engine", "power", "tanks", "anchor", "wind", "nav"] }
+  }
+}
