@@ -39,7 +39,18 @@ static int find(const char *id) {
     if (strcmp(list[i].a.id, id) == 0) return i;
   return -1;
 }
+static void purge_queue(const char *id) {
+  uint8_t n = 0;
+  for (uint8_t k = 0; k < qcount; k++) {
+    req_t q = queue[(qhead + k) % QUEUE_MAX];
+    if (strcmp(q.id, id) != 0) queue[(qhead + n++) % QUEUE_MAX] = q;
+  }
+  qcount = n;
+}
 static void remove_at(int i) {
+  char id[64];
+  snprintf(id, sizeof id, "%s", list[i].a.id);
+  purge_queue(id);
   list[i] = list[--count];
 }
 static void merge(entry_t *e) {
