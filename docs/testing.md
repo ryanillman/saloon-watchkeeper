@@ -43,7 +43,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `key-off` after 5 s | Starboard dim `OFF` (no crosses), hours still shown; port live |
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | `tanks` after 20 s | Five tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
-| `victron-power` | Power Summary: IN grows with the solar ramp, `SHORE` marker, BATTERY and SOC live, LOAD = IN - BATTERY. After 30 s the battery discharges and Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `IN FAIL` and `LOAD FAIL`, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. The paths are the signalk-venus defaults and may change after the Cerbo capture |
+| `victron-power` | Power Summary: IN grows with the solar ramp, `SHORE` marker, BATTERY and SOC live (from `capacity.stateOfCharge`), DC LOAD = IN - BATTERY. After 30 s the battery discharges and Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `IN FAIL` and DC LOAD `LOAD FAIL`, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. The paths are the signalk-venus defaults and may change after the Cerbo capture |
 | `alarm-coolant` at 10 s | Red banner under the strip, flashing 1 Hz: `Port coolant high`, ACK, SILENCE, and GO (GO opens Engine page 1). The port coolant value turns red. Buzzer on boards that have one (Square 4.0). The notification appears in `GET /signalk/v2/api/notifications` |
 | `alarm-coolant`, tap ACK | Flashing stops, the banner stays red; the server shows the notification acknowledged. Tap SILENCE first and the buzzer stops, the server shows silenced |
 | `alarm-coolant` at 40 s | Banner disappears and the coolant value returns to white |
@@ -65,7 +65,7 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 | `key-off` | PASS: starboard `OFF` without crosses, hours 1221.0 h shown, port live |
 | `controller-dropout` | PASS: every port field flagged, starboard live |
 | `tanks` | PASS: five tanks, `FRESH 2` `LEVEL FAIL`, only `FUEL` has a volume line (110 L) |
-| `victron-power` | PASS (after the discovery fix). Summary IN 658 W, BATTERY 161 W, LOAD 497 W, SOC 82 %, `SHORE`; Batteries `CHARGING` then `4:00` after 30 s; after 45 s `IN FAIL`, `LOAD FAIL`, BATTERY and SOC live, Charging solar `WATTS FAIL` and `AMPS FAIL` |
+| `victron-power` | PASS, re-run after the final-review fixes (SoC and time remaining on the `capacity.` paths, `DC LOAD` label). Summary at 20 s: IN 658 W, BATTERY 161 W, DC LOAD 497 W, SOC 82 %, `SHORE`; Batteries at 35 s: −15.0 A, −201 W, SOC 82 %, `4:00`; Summary at 50 s: `IN FAIL`, `LOAD FAIL`, BATTERY −201 W and SOC 82 % live. The Charging page was not re-captured |
 | `alarm-coolant` at 10 s | PASS: red banner flashing, `Port coolant high`, ACK, SILENCE, GO; port coolant value red; notification on the server |
 | `alarm-coolant`, ACK | PASS: banner steady red; server `acknowledged: true`, `method: []` |
 | `alarm-coolant`, SILENCE | PASS: server `silenced: true`, `sound` dropped from `method` |

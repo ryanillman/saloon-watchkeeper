@@ -107,6 +107,7 @@ Paths are the default signalk-venus layout. They are checked against a Cerbo cap
 
 - The client subscribes to `notifications.*` alongside the bound paths. A delta carrying `{state, method, message}` updates an entry. A `null` value or `normal` state clears it.
 - On disconnect the list is cleared and the top strip shows `SK ALERTS OFFLINE` until the connection is back. The server resends current notifications on subscribe, which rebuilds the list. An empty list is never shown as all clear while alerts cannot be received.
+- If the display falls behind and drops deltas (its receive queue fills while the Signal K task waits on a rediscovery GET or an ACK POST), it logs one line and resubscribes, so the server resends current values and notifications. A lost notification would otherwise never come back.
 - Acknowledge and silence are queued by the UI and sent by the Signal K task with the configured token, as `POST /signalk/v2/api/notifications/{id}/acknowledge` and `.../silence`, with `{id}` from the delta value's `id`.
 - The UI is optimistic: the local state changes at once (flashing and buzzer stop) and the request is POSTed. Shown acknowledged = local flag OR `status.acknowledged` from the delta; shown silenced = local flag OR `status.silenced`. If the POST fails (non-2xx, connection down, or the notification has no `id`), the local state stays and the banner shows `ACK NOT SENT`.
 - Banner flashing is driven by acknowledged (as above). The buzzer sounds only for an un-acknowledged, un-silenced `alarm` or `emergency` whose `method` includes `sound`.
