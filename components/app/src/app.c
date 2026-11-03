@@ -361,11 +361,20 @@ static void open_setup(void) {
   ui_setup_open(a.screen, &a.cfg, a.sc, &setup_cb);
 }
 
-static const ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup};
+static void on_buzzer(bool on) {
+  a.cfg.buzzer = on;   // alerts_buzzer_on reads it on the next tick
+  mark_dirty();
+}
+static bool buzzer_state(void) { return a.cfg.buzzer; }
+
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL};   // buzzer_state set per board
 
 static void toggle_quick(void) {
   if (ui_quick_is_open()) ui_quick_close();
-  else ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
+  else {
+    quick_cb.buzzer_state = a.buzzer_ok ? buzzer_state : NULL;   // no switch on a board without a buzzer
+    ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
+  }
 }
 
 // Alert id (a notification path) to the configured role that shows that data, or -1.

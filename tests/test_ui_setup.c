@@ -84,7 +84,7 @@ static int setup_from_quick;
 static void quick_setup(void) { setup_from_quick++; }
 
 static void test_setup_opens_from_quick_panel(void) {
-  static const ui_quick_cb_t qcb = {NULL, NULL, quick_setup};
+  static const ui_quick_cb_t qcb = {NULL, NULL, quick_setup, NULL, NULL};
   setup_from_quick = 0;
   ui_quick_open(scr, "day", 80, true, &qcb);
   lv_obj_t *b = ui_quick_part(UI_QUICK_SETUP);
