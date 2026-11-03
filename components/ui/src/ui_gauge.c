@@ -226,9 +226,9 @@ static void draw_dial(lv_event_t *e) {
   rect(layer, &ha, c->strip_bg, LV_RADIUS_CIRCLE);
 
   // Digits, one row per needle, in the lower part of the face.
-  const lv_font_t *dig = font_for(g->n > 1 ? r / 4 : r / 3);
+  const lv_font_t *dig = font_for(g->n > 1 ? r / 5 : r / 3);
   int32_t row_h = lv_font_get_line_height(dig);
-  int32_t y0 = cy + r / 3 + (g->n > 1 ? -row_h / 2 : 0);
+  int32_t y0 = cy + r * 2 / 5 + (g->n > 1 ? -row_h / 2 : 0);
   bool any = false;
   for (uint8_t i = 0; i < g->n; i++) any |= g->valid[i];
   for (uint8_t i = 0; i < g->n && any; i++) {
@@ -284,18 +284,36 @@ static void draw_strip(lv_event_t *e) {
   lv_obj_get_coords(o, &a);
   int32_t w = lv_area_get_width(&a), h = lv_area_get_height(&a);
 
-  // Tape geometry: horizontal runs left to right under the text row;
-  // vertical runs bottom to top between the value (top) and label (bottom).
-  const lv_font_t *lf = font_for(g->vertical ? w / 5 : h / 3);
-  const lv_font_t *vf = font_for(g->vertical ? w / 3 : h / 2);
-  int32_t lh = lv_font_get_line_height(lf), vh = lv_font_get_line_height(vf);
+  // Text: label (dim) and value; the value takes the largest font that fits.
+  static const lv_font_t *const FONTS[] = {&lv_font_montserrat_48, &lv_font_montserrat_28,
+                                           &lv_font_montserrat_20, &lv_font_montserrat_14};
+  const lv_font_t *lf = (g->vertical ? w : h) >= 70 ? &lv_font_montserrat_20 : &lv_font_montserrat_14;
+  int32_t lh = lv_font_get_line_height(lf);
+  int32_t lw = lv_text_get_width(s->label, strlen(s->label), lf, 0);
+  char v[40];
+  snprintf(v, sizeof v, "%s %s", g->valid[0] ? g->text[0] : "", s->unit);
+  const lv_font_t *vf = &lv_font_montserrat_14;
+  for (size_t i = 0; i < sizeof FONTS / sizeof FONTS[0]; i++) {
+    int32_t fh = lv_font_get_line_height(FONTS[i]);
+    int32_t fw = lv_text_get_width(v, strlen(v), FONTS[i], 0);
+    bool fits = g->vertical ? (fw <= w - 4 && fh <= h / 4) : (fh <= h * 55 / 100 && fw <= w - lw - 16);
+    if (fits) {
+      vf = FONTS[i];
+      break;
+    }
+  }
+  int32_t vh = lv_font_get_line_height(vf);
+
+  // Tape: horizontal runs left to right under the text row; vertical runs
+  // bottom to top between the value (top) and the label (bottom).
   lv_area_t tape;
   if (g->vertical) {
     int32_t tw = w / 4;
     tape = (lv_area_t){a.x1 + w / 2 - tw / 2, a.y1 + vh + 8, a.x1 + w / 2 + tw / 2, a.y2 - lh - 6};
   } else {
-    int32_t th = h - vh - 10;
+    int32_t th = h - vh - 6;
     if (th > h / 3) th = h / 3;
+    if (th < 6) th = 6;
     tape = (lv_area_t){a.x1 + 4, a.y2 - th - 2, a.x2 - 4, a.y2 - 2};
   }
   rect(layer, &tape, c->strip_bg, 2);
@@ -324,7 +342,7 @@ static void draw_strip(lv_event_t *e) {
   if (g->vertical) {
     text_at(layer, s->label, lf, c->dim, a.x1 + w / 2, a.y2 - lh / 2, LV_TEXT_ALIGN_CENTER);
   } else {
-    text_at(layer, s->label, lf, c->dim, a.x1 + 4, a.y1 + vh / 2, LV_TEXT_ALIGN_LEFT);
+    text_at(layer, s->label, lf, c->dim, a.x1 + 4, a.y1 + vh - lh / 2 - 2, LV_TEXT_ALIGN_LEFT);
   }
   if (!g->valid[0]) return;   // the fault overlay covers the rest
 
@@ -339,8 +357,6 @@ static void draw_strip(lv_event_t *e) {
     lv_area_t mark = {tape.x1 + p - 2, tape.y1 - ps, tape.x1 + p + 2, tape.y2};
     rect(layer, &mark, c->fg, 0);
   }
-  char v[40];
-  snprintf(v, sizeof v, "%s %s", g->text[0], s->unit);
   if (g->vertical) text_at(layer, v, vf, c->fg, a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
   else text_at(layer, v, vf, c->fg, a.x2 - 4, a.y1 + vh / 2, LV_TEXT_ALIGN_RIGHT);
 }

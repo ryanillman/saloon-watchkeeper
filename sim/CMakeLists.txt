@@ -43,6 +43,7 @@ add_subdirectory(${BI_ROOT}/components/config components/config)
 add_subdirectory(${BI_ROOT}/components/units components/units)
 add_subdirectory(${BI_ROOT}/components/source_sk components/source_sk)
 add_subdirectory(${BI_ROOT}/components/roles components/roles)
+add_subdirectory(${BI_ROOT}/components/app components/app)
 
 add_library(sim_boards STATIC sim_boards.c)
 target_include_directories(sim_boards PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -60,7 +61,7 @@ endif()
 
 find_package(PNG REQUIRED)
 add_executable(sim sim_main.c snapshot.c)
-target_link_libraries(sim PRIVATE ui sim_boards platform lvgl PNG::PNG)
+target_link_libraries(sim PRIVATE app ui sim_boards platform lvgl source_sk boatdata PNG::PNG)
 
 add_executable(sk_probe sk_probe.c)
 target_link_libraries(sk_probe PRIVATE source_sk boatdata platform config)

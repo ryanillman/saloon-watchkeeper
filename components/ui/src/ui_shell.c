@@ -1,4 +1,5 @@
 #include "ui_shell.h"
+#include <string.h>
 
 static struct {
   const ui_role_view_t *roles;
@@ -14,7 +15,6 @@ static void apply_palette(void) {
   lv_obj_set_style_bg_color(s.screen, c->bg, 0);
   lv_obj_set_style_text_color(s.screen, c->fg, 0);
   lv_obj_set_style_bg_color(s.strip, c->strip_bg, 0);
-  lv_obj_set_style_text_color(s.status, c->dim, 0);
   lv_obj_set_style_bg_opa(s.content, LV_OPA_TRANSP, 0);
 }
 
@@ -133,6 +133,7 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   s.status = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.status, &lv_font_montserrat_14, 0);
   lv_label_set_text(s.status, "NO SOURCE");
+  lv_obj_set_style_text_color(s.status, ui_theme_colors(pal)->dim, 0);
   lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, 0, 0);
 
   s.content = lv_obj_create(s.screen);
@@ -160,3 +161,19 @@ void ui_shell_set_palette(palette_t pal) {
 }
 
 const ui_nav_t *ui_shell_nav(void) { return &s.nav; }
+
+void ui_shell_refresh(void) {
+  if (s.nav.role_count == 0 || !s.roles) return;
+  const ui_role_view_t *r = &s.roles[s.nav.role];
+  if (r->refresh) r->refresh(r->ctx);
+}
+
+void ui_shell_set_status(const char *text, lv_color_t color) {
+  if (!s.status) return;
+  if (strcmp(lv_label_get_text(s.status), text) != 0) lv_label_set_text(s.status, text);
+  lv_obj_set_style_text_color(s.status, color, 0);
+}
+
+void ui_shell_rebuild(void) {
+  if (s.content) rebuild();
+}

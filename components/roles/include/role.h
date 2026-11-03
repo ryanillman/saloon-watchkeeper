@@ -30,6 +30,7 @@ typedef struct {
   uint8_t slot_count;
   uint8_t page_count;
   void (*build_page)(lv_obj_t *area, uint8_t page, size_class_t sc, struct role_binding *b);
+  void (*refresh)(struct role_binding *b, int64_t now_ms);   // updates the widgets build_page made
 } role_def_t;
 
 typedef struct role_binding {

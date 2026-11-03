@@ -10,8 +10,9 @@ static const role_slot_t slots[] = {
   {"fuel",    "fuel.rate",         NULL,                 Q_FLOW,        0,      40.0 / 1000.0 / 3600.0, 0, "FUEL"},
 };
 
-// Pages are attached in page_engine.c.
+// Pages live in page_engine.c.
 void engine_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b);
+void engine_refresh(role_binding_t *b, int64_t now_ms);
 
 const role_def_t role_engine = {
   .name = "engine",
@@ -21,4 +22,5 @@ const role_def_t role_engine = {
   .slot_count = sizeof slots / sizeof slots[0],
   .page_count = 2,
   .build_page = engine_build_page,
+  .refresh = engine_refresh,
 };

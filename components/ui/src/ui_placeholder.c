@@ -11,10 +11,10 @@ static void placeholder_page(lv_obj_t *area, uint8_t page, size_class_t sc, void
 }
 
 static ui_role_view_t roles[] = {
-  {"ENGINE", 2, placeholder_page, NULL},
-  {"POWER", 2, placeholder_page, NULL},
-  {"TANKS", 1, placeholder_page, NULL},
-  {"ANCHOR", 1, placeholder_page, NULL},
+  {"ENGINE", 2, placeholder_page, NULL, NULL},
+  {"POWER", 2, placeholder_page, NULL, NULL},
+  {"TANKS", 1, placeholder_page, NULL, NULL},
+  {"ANCHOR", 1, placeholder_page, NULL, NULL},
 };
 
 const ui_role_view_t *ui_placeholder_roles(uint8_t *count) {
