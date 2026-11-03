@@ -12,6 +12,7 @@
 #include "sk_parse.h"
 #include "ui_alerts.h"
 #include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -43,6 +44,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
 } a;
 
 static char info_board[16] = "?", info_version[32] = "?";
+static void fill_status_now(app_status_t *s);
 
 #define SAVE_DELAY_MS 2000
 
@@ -254,7 +256,32 @@ static void on_brightness(uint8_t percent) {
   mark_dirty();
 }
 
-static const ui_quick_cb_t quick_cb = {on_palette, on_brightness};
+// Setup: SAVE applies the edited copy and saves it (when there is an SD card).
+static void setup_save(const cfg_t *edited) {
+  app_apply_config(edited);
+  mark_dirty();
+}
+
+static void setup_about(char *out, size_t n) {
+  app_status_t s;
+  fill_status_now(&s);
+  snprintf(out, n,
+           "Firmware: %s\nBoard: %s\nIP: %s\nSD card: %s\nConfig: %s\nMemory free: internal %u KB, PSRAM %u KB",
+           s.firmware, s.board, s.wifi ? s.ip : "not connected", s.sd ? "mounted" : "none", s.origin, s.internal_kb,
+           s.psram_kb);
+}
+
+static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about};
+
+static void open_setup(void) {
+  ui_quick_close();
+  setup_cb.has_buzzer = a.buzzer_ok;
+  setup_cb.has_sd = a.dir[0] != 0;
+  setup_cb.dims = a.dims;
+  ui_setup_open(a.screen, &a.cfg, a.sc, &setup_cb);
+}
+
+static const ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup};
 
 static void toggle_quick(void) {
   if (ui_quick_is_open()) ui_quick_close();
@@ -510,6 +537,7 @@ void app_tick(void) {
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   ui_shell_refresh();
+  ui_setup_tick();
 
   PLATFORM_EXT_BSS static alerts_snapshot_t snap;   // 2 KB: off the UI task stack
   int64_t now = platform_millis();
@@ -539,8 +567,9 @@ void app_set_info(const char *board, const char *version) {
   snprintf(info_version, sizeof info_version, "%s", version);
 }
 
-static void fill_status(void *arg) {   // UI task
-  app_status_t *s = arg;
+static void fill_status(void *arg) { fill_status_now(arg); }
+
+static void fill_status_now(app_status_t *s) {   // UI task
   memset(s, 0, sizeof *s);
   snprintf(s->firmware, sizeof s->firmware, "%s", info_version);
   snprintf(s->board, sizeof s->board, "%s", info_board);

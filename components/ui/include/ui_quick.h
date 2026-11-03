@@ -8,6 +8,7 @@
 typedef struct {
   void (*on_palette)(const char *choice);   // "day" | "dusk" | "night" | "auto"
   void (*on_brightness)(uint8_t percent);
+  void (*on_setup)(void);   // SETUP tapped; NULL hides the button
 } ui_quick_cb_t;
 
 // Opens the panel on `screen`, above everything else on it (an alarm banner included),
@@ -23,5 +24,6 @@ typedef enum {
   UI_QUICK_SLIDER,    // NULL when the backlight does not dim
   UI_QUICK_ON_LABEL,  // NULL when it does
   UI_QUICK_CLOSE,
+  UI_QUICK_SETUP,     // NULL when on_setup is NULL
 } ui_quick_part_t;
 lv_obj_t *ui_quick_part(ui_quick_part_t p);   // for tests; NULL when closed

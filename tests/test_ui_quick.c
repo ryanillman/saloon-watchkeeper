@@ -17,7 +17,7 @@ static int palette_calls, bright_calls;
 static uint8_t last_bright;
 static void on_palette(const char *c) { snprintf(last_palette, sizeof last_palette, "%s", c); palette_calls++; }
 static void on_bright(uint8_t p) { last_bright = p; bright_calls++; }
-static const ui_quick_cb_t cb = {on_palette, on_bright};
+static const ui_quick_cb_t cb = {on_palette, on_bright, NULL};
 
 static lv_obj_t *scr;
 static void page(lv_obj_t *area, uint8_t p, size_class_t sc, void *ctx) { (void)area; (void)p; (void)sc; (void)ctx; }

@@ -17,6 +17,8 @@
 #include "sk_parse.h"
 #include "snapshot.h"
 #include "ui_alerts.h"
+#include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 static uint32_t tick(void) { return (uint32_t)platform_millis(); }
@@ -235,6 +237,22 @@ static int run_snapshots(const char *out) {
             snprintf(path, sizeof path, "%s/quick-panel.png", dir);
             if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
             lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+            lv_timer_handler();
+          }
+          if ((!strcmp(b->id, "sim800") || !strcmp(b->id, "sim480")) && pal != PALETTE_DUSK) {   // setup
+            lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+            lv_obj_send_event(ui_quick_part(UI_QUICK_SETUP), LV_EVENT_CLICKED, NULL);
+            lv_timer_handler();
+            static const struct { ui_setup_screen_t s; const char *name; } shots[] = {
+              {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"}};
+            for (size_t k = 0; k < sizeof shots / sizeof shots[0]; k++) {
+              ui_setup_show(shots[k].s);
+              lv_obj_invalidate(lv_display_get_screen_active(disp));
+              lv_refr_now(disp);
+              snprintf(path, sizeof path, "%s/%s.png", dir, shots[k].name);
+              if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+            }
+            ui_setup_close();
             lv_timer_handler();
           }
         }
