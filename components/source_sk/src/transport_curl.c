@@ -49,6 +49,29 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   return true;
 }
 
+bool sk_http_post(const char *url, const char *token, const char *json_body, int *status) {
+  CURL *h = curl_easy_init();
+  if (!h) return false;
+  struct curl_slist *hdr = auth_header(token);
+  hdr = curl_slist_append(hdr, "Content-Type: application/json");
+  buf_t b = {0};
+  curl_easy_setopt(h, CURLOPT_URL, url);
+  curl_easy_setopt(h, CURLOPT_POST, 1L);
+  curl_easy_setopt(h, CURLOPT_POSTFIELDS, json_body ? json_body : "");
+  curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, on_body);
+  curl_easy_setopt(h, CURLOPT_WRITEDATA, &b);
+  curl_easy_setopt(h, CURLOPT_TIMEOUT, 5L);
+  curl_easy_setopt(h, CURLOPT_HTTPHEADER, hdr);
+  CURLcode rc = curl_easy_perform(h);
+  long code = 0;
+  if (rc == CURLE_OK) curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &code);
+  curl_slist_free_all(hdr);
+  curl_easy_cleanup(h);
+  free(b.data);
+  *status = (int)code;
+  return rc == CURLE_OK;
+}
+
 static struct {
   CURL *h;
   struct curl_slist *hdr;

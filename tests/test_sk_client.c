@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "unity.h"
+#include "alerts.h"
 #include "boatdata.h"
 #include "sk_client.h"
 #include "sk_parse.h"
@@ -17,6 +18,11 @@ static bool connect_ok;
 static char last_sent[512];
 static char last_ws_url[160];
 static bool valid_while_live;
+static int posts;
+static char last_post[256];
+static int post_status = 200;
+static int live_hook;   // 1: queue an ack on the first poll; 2: also check send_failed while live
+static int fail_seen = -1;
 
 bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   (void)url; (void)token;
@@ -46,9 +52,18 @@ bool sk_ws_poll(int timeout_ms) {
   polls++;
   if (polls > 1 && polls <= live_polls) return true;
   if (polls == 1) {
+    if (live_hook == 1 || live_hook == 2) {
+      const char *n = "{\"updates\":[{\"values\":[{\"path\":\"notifications.a.b\",\"value\":{\"state\":\"alarm\",\"message\":\"m\",\"id\":\"u-9\"}}]}]}";
+      cb(n, strlen(n), cb_ctx);
+      alerts_request("a.b", AL_REQ_ACK);
+    }
     const char *d = "{\"updates\":[{\"values\":[{\"path\":\"propulsion.port.revolutions\",\"value\":30}]}]}";
     cb(d, strlen(d), cb_ctx);
     return true;
+  }
+  if (live_hook == 2 && polls == 4) {
+    alert_t a;
+    fail_seen = alerts_get("a.b", &a) && a.send_failed;
   }
   bd_sample_t s;
   bd_get(bd_find("propulsion.port.revolutions"), &s);
@@ -57,6 +72,14 @@ bool sk_ws_poll(int timeout_ms) {
 }
 
 void sk_ws_close(void) {}
+
+bool sk_http_post(const char *url, const char *token, const char *json_body, int *status) {
+  (void)token; (void)json_body;
+  posts++;
+  snprintf(last_post, sizeof last_post, "%s", url);
+  *status = post_status;
+  return true;
+}
 
 bool sk_resolve_auto(char *host, size_t n, unsigned *port) {
   (void)host; (void)n; (void)port;
@@ -67,6 +90,11 @@ static bd_id_t rpm;
 
 void setUp(void) {
   bd_init();
+  alerts_init();
+  posts = 0;
+  last_post[0] = 0;
+  post_status = 200;
+  live_hook = 0;
   sk_parse_reset();
   connect_ok = true;
   last_sent[0] = 0;
@@ -78,7 +106,8 @@ void setUp(void) {
   cfg_t c;
   cfg_defaults(&c);
   strcpy(c.sk.host, "localhost");
-  sk_client_init(&c.sk, &rpm, 1);
+  sk_sub_t sub = {rpm, 0};
+  sk_client_init(&c.sk, &sub, 1);
 }
 void tearDown(void) {}
 
@@ -129,6 +158,40 @@ static void test_unparseable_snapshot_is_not_a_discovery(void) {
   TEST_ASSERT_EQUAL_UINT32(before, sk_client_discovery_count());
 }
 
+static void test_disconnect_clears_alerts(void) {
+  live_hook = 1;
+  sk_client_run_once();
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL_UINT8(0, s.count);
+  TEST_ASSERT_FALSE(s.source_up);
+}
+
+static void test_queued_ack_sent_while_live(void) {
+  live_hook = 1;
+  live_polls = 3;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, posts);
+  TEST_ASSERT_NOT_NULL(strstr(last_post, "/signalk/v2/api/notifications/u-9/acknowledge"));
+}
+
+static void test_post_failure_marks_send_failed(void) {
+  post_status = 401;
+  live_hook = 2;   // check the flag while still live
+  live_polls = 3;
+  fail_seen = -1;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, posts);
+  TEST_ASSERT_EQUAL_INT(1, fail_seen);
+}
+
+static void test_no_post_after_reconnect_for_dropped_request(void) {
+  alerts_source_up(false);
+  alerts_request("a.b", AL_REQ_ACK);   // source down: dropped, marked failed
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(0, posts);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_backoff_sequence);
@@ -138,5 +201,9 @@ int main(void) {
   RUN_TEST(test_failed_connect_goes_to_backoff);
   RUN_TEST(test_rediscovers_while_live);
   RUN_TEST(test_unparseable_snapshot_is_not_a_discovery);
+  RUN_TEST(test_disconnect_clears_alerts);
+  RUN_TEST(test_queued_ack_sent_while_live);
+  RUN_TEST(test_post_failure_marks_send_failed);
+  RUN_TEST(test_no_post_after_reconnect_for_dropped_request);
   return UNITY_END();
 }

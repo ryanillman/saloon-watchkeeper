@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "alerts.h"
 #include "platform.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
@@ -10,7 +11,7 @@
 
 static struct {
   cfg_sk_t cfg;
-  bd_id_t bound[MAX_BOUND];
+  sk_sub_t bound[MAX_BOUND];
   size_t n_bound;
   bool resubscribe;
   sk_state_t state;
@@ -40,13 +41,13 @@ sk_state_t sk_client_state(void) {
   return s;
 }
 
-static void set_bound(const bd_id_t *ids, size_t n) {
+static void set_bound(const sk_sub_t *ids, size_t n) {
   if (n > MAX_BOUND) n = MAX_BOUND;
   memcpy(c.bound, ids, n * sizeof *ids);
   c.n_bound = n;
 }
 
-void sk_client_init(const cfg_sk_t *cfg, const bd_id_t *bound, size_t n) {
+void sk_client_init(const cfg_sk_t *cfg, const sk_sub_t *bound, size_t n) {
   if (!c.lock) c.lock = platform_lock_create();
   platform_lock(c.lock);
   c.cfg = *cfg;
@@ -58,7 +59,7 @@ void sk_client_init(const cfg_sk_t *cfg, const bd_id_t *bound, size_t n) {
   platform_unlock(c.lock);
 }
 
-void sk_client_rebind(const bd_id_t *bound, size_t n) {
+void sk_client_rebind(const sk_sub_t *bound, size_t n) {
   platform_lock(c.lock);
   set_bound(bound, n);
   c.resubscribe = true;
@@ -78,6 +79,23 @@ static bool subscribe(void) {
   bool ok = msg && sk_ws_send(msg);
   free(msg);
   return ok;
+}
+
+// Sends each queued acknowledge or silence; the server's answer decides the alert's send_failed.
+static void drain_requests(const char *base, const char *token) {
+  char id[64];
+  alert_req_t req;
+  while (alerts_next_request(id, &req)) {
+    alert_t a;
+    char path[160], url[320];
+    int status = 0;
+    bool ok = alerts_get(id, &a) && sk_build_alert_request(&a, req, path, sizeof path);
+    if (ok) {
+      snprintf(url, sizeof url, "%s%s", base, path);
+      ok = sk_http_post(url, token, NULL, &status) && status >= 200 && status < 300;
+    }
+    alerts_request_result(id, ok);
+  }
 }
 
 // Reads the REST snapshot; counts a discovery only when it parsed.
@@ -108,7 +126,8 @@ void sk_client_run_once(void) {
     return;
   }
   const char *token = c.cfg.token[0] ? c.cfg.token : NULL;
-  char url[160], rest[160];
+  char url[160], rest[160], base[96];
+  snprintf(base, sizeof base, "http://%s:%u", host, port);
 
   set_state(SK_DISCOVERING);
   snprintf(rest, sizeof rest, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
@@ -120,6 +139,7 @@ void sk_client_run_once(void) {
   if (sk_ws_connect(url, token, on_message, NULL) && subscribe()) {
     c.attempt = 0;
     set_state(SK_LIVE);
+    alerts_source_up(true);
     printf("signalk: live at %s:%u\n", host, port);
     int64_t last_discovery = platform_millis();
     for (;;) {
@@ -129,6 +149,7 @@ void sk_client_run_once(void) {
       platform_unlock(c.lock);
       if (again && !subscribe()) break;
       if (!sk_ws_poll(200)) break;
+      drain_requests(base, token);
       if (platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);
         last_discovery = platform_millis();
@@ -137,6 +158,7 @@ void sk_client_run_once(void) {
   }
   if (sk_client_state() == SK_LIVE) printf("signalk: connection closed\n");
   sk_ws_close();
+  alerts_source_up(false);
   bd_invalidate_source(SK_SOURCE_ID);   // nothing from this server can be trusted now
   set_state(SK_BACKOFF);
 }

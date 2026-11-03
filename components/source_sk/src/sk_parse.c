@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "alerts.h"
 #include "cJSON.h"
 
 static char self_ctx[96];   // e.g. "vessels.urn:mrn:signalk:uuid:..."
@@ -72,7 +73,37 @@ static void store_meta(bd_id_t id, const cJSON *m) {
   bd_set_meta(id, &meta);
 }
 
+#define NOTE_PREFIX "notifications."
+
+static void store_notification(const char *path, const cJSON *v, int64_t now) {
+  const char *id = path + strlen(NOTE_PREFIX);
+  if (!*id) return;
+  const cJSON *state = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, "state") : NULL;
+  if (!cJSON_IsString(state) || state_of(state->valuestring) == SK_STATE_NORMAL) {
+    alerts_clear(id);
+    return;
+  }
+  alert_t a = {0};
+  snprintf(a.id, sizeof a.id, "%s", id);
+  a.state = (alert_state_t)state_of(state->valuestring);
+  const cJSON *m = cJSON_GetObjectItem(v, "message");
+  if (cJSON_IsString(m)) snprintf(a.message, sizeof a.message, "%s", m->valuestring);
+  const cJSON *method;
+  cJSON_ArrayForEach(method, cJSON_GetObjectItem(v, "method"))
+    if (cJSON_IsString(method) && !strcmp(method->valuestring, "sound")) a.audible = true;
+  const cJSON *ref = cJSON_GetObjectItem(v, "id");
+  if (cJSON_IsString(ref)) snprintf(a.ref, sizeof a.ref, "%s", ref->valuestring);
+  const cJSON *st = cJSON_GetObjectItem(v, "status");
+  a.acked = cJSON_IsTrue(cJSON_GetObjectItem(st, "acknowledged"));
+  a.silenced = cJSON_IsTrue(cJSON_GetObjectItem(st, "silenced"));
+  alerts_upsert(&a, now);
+}
+
 static void store_value(const char *path, const cJSON *v, int64_t now) {
+  if (!strncmp(path, NOTE_PREFIX, strlen(NOTE_PREFIX))) {
+    store_notification(path, v, now);
+    return;
+  }
   bd_id_t id = bd_intern(path);
   if (id == BD_NONE) return;
   if (cJSON_IsNumber(v)) {
@@ -160,19 +191,35 @@ bool sk_parse_full(const char *json, size_t len) {
   return ok;
 }
 
-char *sk_build_subscribe(const bd_id_t *ids, size_t n) {
+char *sk_build_subscribe(const sk_sub_t *subs, size_t n) {
   cJSON *root = cJSON_CreateObject();
   cJSON_AddStringToObject(root, "context", "vessels.self");
-  cJSON *subs = cJSON_AddArrayToObject(root, "subscribe");
+  cJSON *arr = cJSON_AddArrayToObject(root, "subscribe");
   for (size_t i = 0; i < n; i++) {
-    const char *p = bd_path(ids[i]);
+    const char *p = bd_path(subs[i].id);
     if (!p) continue;
     cJSON *s = cJSON_CreateObject();
     cJSON_AddStringToObject(s, "path", p);
-    cJSON_AddStringToObject(s, "policy", "instant");
-    cJSON_AddItemToArray(subs, s);
+    if (subs[i].resend_ms) {
+      cJSON_AddStringToObject(s, "policy", "fixed");
+      cJSON_AddNumberToObject(s, "period", subs[i].resend_ms);
+    } else {
+      cJSON_AddStringToObject(s, "policy", "instant");
+    }
+    cJSON_AddItemToArray(arr, s);
   }
+  cJSON *s = cJSON_CreateObject();
+  cJSON_AddStringToObject(s, "path", "notifications.*");
+  cJSON_AddStringToObject(s, "policy", "instant");
+  cJSON_AddItemToArray(arr, s);
   char *out = cJSON_PrintUnformatted(root);
   cJSON_Delete(root);
   return out;
+}
+
+bool sk_build_alert_request(const alert_t *a, alert_req_t req, char *path_out, size_t path_n) {
+  const char *verb = req == AL_REQ_ACK ? "acknowledge" : req == AL_REQ_SILENCE ? "silence" : NULL;
+  if (!a || !a->ref[0] || !verb) return false;
+  int n = snprintf(path_out, path_n, "/signalk/v2/api/notifications/%s/%s", a->ref, verb);
+  return n > 0 && (size_t)n < path_n;
 }

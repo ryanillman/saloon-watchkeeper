@@ -13,9 +13,13 @@ int main(int argc, char **argv) {
   if (argc > 1) snprintf(cfg.sk.host, sizeof cfg.sk.host, "%s", argv[1]);
   bd_init();
   bd_id_t ids[32];
+  sk_sub_t subs[32];
   size_t n = 0;
-  for (int i = 2; i < argc && n < 32; i++) ids[n++] = bd_intern(argv[i]);
-  sk_client_init(&cfg.sk, ids, n);
+  for (int i = 2; i < argc && n < 32; i++) {
+    ids[n] = bd_intern(argv[i]);
+    subs[n++] = (sk_sub_t){ids[n - 1], 0};
+  }
+  sk_client_init(&cfg.sk, subs, n);
   sk_client_start();
   for (int t = 0; t < 10; t++) {
     platform_sleep_ms(1000);

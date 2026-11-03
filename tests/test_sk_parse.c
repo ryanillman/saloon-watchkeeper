@@ -1,11 +1,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "unity.h"
+#include "alerts.h"
 #include "boatdata.h"
 #include "sk_parse.h"
 
 void setUp(void) {
   bd_init();
+  alerts_init();
+  alerts_source_up(true);
   sk_parse_reset();
 }
 void tearDown(void) {}
@@ -142,12 +145,78 @@ static void test_full_model_prefix_is_a_whole_segment(void) {
 }
 
 static void test_subscribe_json_shape(void) {
-  bd_id_t ids[2] = {bd_intern("propulsion.port.revolutions"), bd_intern("tanks.fuel.0.currentLevel")};
+  sk_sub_t ids[2] = {{bd_intern("propulsion.port.revolutions"), 0}, {bd_intern("tanks.fuel.0.currentLevel"), 0}};
   char *s = sk_build_subscribe(ids, 2);
   TEST_ASSERT_NOT_NULL(strstr(s, "\"context\":\"vessels.self\""));
   TEST_ASSERT_NOT_NULL(strstr(s, "{\"path\":\"propulsion.port.revolutions\",\"policy\":\"instant\"}"));
   TEST_ASSERT_NOT_NULL(strstr(s, "{\"path\":\"tanks.fuel.0.currentLevel\",\"policy\":\"instant\"}"));
   free(s);
+}
+
+#define NOTE(state_and_more) "{\"updates\":[{\"values\":[{\"path\":\"notifications.propulsion.port.temperature\",\"value\":" state_and_more "}]}]}"
+
+static void test_notification_raises_alert(void) {
+  feed(NOTE("{\"state\":\"alarm\",\"method\":[\"visual\",\"sound\"],\"message\":\"Hot\",\"id\":\"u-1\",\"status\":{\"silenced\":false,\"acknowledged\":true}}"));
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL_UINT8(1, s.count);
+  TEST_ASSERT_EQUAL_STRING("propulsion.port.temperature", s.a[0].id);
+  TEST_ASSERT_EQUAL(AL_ALARM, s.a[0].state);
+  TEST_ASSERT_TRUE(s.a[0].audible);
+  TEST_ASSERT_TRUE(s.a[0].acked);
+  TEST_ASSERT_FALSE(s.a[0].silenced);
+  TEST_ASSERT_EQUAL_STRING("Hot", s.a[0].message);
+  TEST_ASSERT_EQUAL_STRING("u-1", s.a[0].ref);
+}
+
+static void test_notification_null_clears(void) {
+  feed(NOTE("{\"state\":\"alarm\",\"method\":[\"sound\"],\"message\":\"Hot\"}"));
+  feed(NOTE("null"));
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL_UINT8(0, s.count);
+}
+
+static void test_notification_missing_state_clears(void) {
+  feed(NOTE("{\"state\":\"warn\",\"message\":\"Hot\"}"));
+  feed(NOTE("{\"message\":\"no state\"}"));
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL_UINT8(0, s.count);
+}
+
+static void test_notification_normal_clears(void) {
+  feed(NOTE("{\"state\":\"warn\",\"message\":\"Hot\"}"));
+  feed(NOTE("{\"state\":\"normal\",\"id\":\"u-1\"}"));
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL_UINT8(0, s.count);
+}
+
+static void test_notification_not_in_boatdata(void) {
+  feed(NOTE("{\"state\":\"alarm\",\"message\":\"Hot\"}"));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("notifications.propulsion.port.temperature"));
+}
+
+static void test_subscribe_has_notifications_and_fixed_policy(void) {
+  sk_sub_t subs[2] = {{bd_intern("a.b"), 5000}, {bd_intern("c.d"), 0}};
+  char *s = sk_build_subscribe(subs, 2);
+  TEST_ASSERT_NOT_NULL(strstr(s, "{\"path\":\"notifications.*\",\"policy\":\"instant\"}"));
+  TEST_ASSERT_NOT_NULL(strstr(s, "\"path\":\"a.b\",\"policy\":\"fixed\",\"period\":5000"));
+  TEST_ASSERT_NOT_NULL(strstr(s, "{\"path\":\"c.d\",\"policy\":\"instant\"}"));
+  free(s);
+}
+
+static void test_alert_request_path(void) {
+  alert_t a = {.state = AL_ALARM};
+  char p[128];
+  TEST_ASSERT_FALSE(sk_build_alert_request(&a, AL_REQ_ACK, p, sizeof p));
+  strcpy(a.ref, "u-1");
+  TEST_ASSERT_TRUE(sk_build_alert_request(&a, AL_REQ_ACK, p, sizeof p));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/u-1/acknowledge", p);
+  TEST_ASSERT_TRUE(sk_build_alert_request(&a, AL_REQ_SILENCE, p, sizeof p));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/u-1/silence", p);
+  TEST_ASSERT_FALSE(sk_build_alert_request(&a, AL_REQ_NONE, p, sizeof p));
 }
 
 int main(void) {
@@ -168,5 +237,12 @@ int main(void) {
   RUN_TEST(test_full_model_interns_only_discovery_prefixes);
   RUN_TEST(test_full_model_prefix_is_a_whole_segment);
   RUN_TEST(test_subscribe_json_shape);
+  RUN_TEST(test_notification_raises_alert);
+  RUN_TEST(test_notification_null_clears);
+  RUN_TEST(test_notification_missing_state_clears);
+  RUN_TEST(test_notification_normal_clears);
+  RUN_TEST(test_notification_not_in_boatdata);
+  RUN_TEST(test_subscribe_has_notifications_and_fixed_policy);
+  RUN_TEST(test_alert_request_path);
   return UNITY_END();
 }
