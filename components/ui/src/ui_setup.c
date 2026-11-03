@@ -178,6 +178,8 @@ static void build_menu(void) {
 static void on_brightness(lv_event_t *e) { u.work.brightness = (uint8_t)lv_slider_get_value(lv_event_get_target(e)); }
 static void on_buzzer(lv_event_t *e) { u.work.buzzer = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED); }
 
+static lv_obj_t *on_off(lv_obj_t *parent, bool on, lv_event_cb_t fn, void *arg);
+
 static void build_display(void) {
   const ui_colors_t *c = ui_theme();
   cfg_units_t *un = &u.work.units;
@@ -216,13 +218,7 @@ static void build_display(void) {
     lv_obj_t *br = row(u.body);
     lv_obj_t *bl = text(br, "Buzzer", c->dim);
     lv_obj_set_width(bl, u.sc == SIZE_WIDE ? 200 : lv_pct(60));
-    lv_obj_t *sw = lv_switch_create(br);
-    lv_obj_set_size(sw, 72, 40);
-    if (u.work.buzzer) lv_obj_add_state(sw, LV_STATE_CHECKED);
-    lv_obj_set_style_bg_color(sw, c->dim, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(sw, c->accent, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_set_style_bg_color(sw, c->fg, LV_PART_KNOB);
-    lv_obj_add_event_cb(sw, on_buzzer, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_t *sw = on_off(br, u.work.buzzer, on_buzzer, NULL);
     part("buzzer", sw);
   }
 }
@@ -350,12 +346,23 @@ static bool in_list(const char ids[][24], uint8_t n, const char *id) {
   return false;
 }
 
-static void on_keep(lv_event_t *e) {
+static void on_keep(lv_event_t *e) {   // the switch flips itself; read what it shows
   uint16_t k = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
-  u.rows[k].keep = !u.rows[k].keep;
-  lv_obj_t *l = lv_obj_get_child(u.rows[k].btn, 0);
-  lv_label_set_text(l, u.rows[k].keep ? "KEEP" : "SKIP");
-  style_button(u.rows[k].btn, u.rows[k].keep);
+  u.rows[k].keep = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+}
+
+// An on/off switch in the palette's colours (also the Buzzer on Display).
+static lv_obj_t *on_off(lv_obj_t *parent, bool on, lv_event_cb_t fn, void *arg) {
+  const ui_colors_t *c = ui_theme();
+  lv_obj_t *sw = lv_switch_create(parent);
+  lv_obj_set_size(sw, 72, 40);
+  if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(sw, c->dim, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(sw, c->accent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);   // on: a filled track, plainly not off
+  lv_obj_set_style_bg_color(sw, c->fg, LV_PART_KNOB);
+  lv_obj_add_event_cb(sw, fn, LV_EVENT_VALUE_CHANGED, arg);
+  return sw;
 }
 
 static void on_confirm(lv_event_t *e) {
@@ -430,8 +437,7 @@ static void build_discovery(void) {
       u.rows[k].keep = r->inst_count ? pinned : !excluded;
       snprintf(u.rows[k].label, sizeof u.rows[k].label, "%s", label);
       lv_obj_t *rr = row(u.body);
-      u.rows[k].btn = button(rr, u.rows[k].keep ? "KEEP" : "SKIP", on_keep, (void *)(uintptr_t)k);
-      style_button(u.rows[k].btn, u.rows[k].keep);
+      u.rows[k].btn = on_off(rr, u.rows[k].keep, on_keep, (void *)(uintptr_t)k);
       snprintf(pn, sizeof pn, "keep_%s_%s", r->role, ids[i]);
       part(pn, u.rows[k].btn);
       char line[48];

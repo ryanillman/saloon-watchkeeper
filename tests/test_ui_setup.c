@@ -246,7 +246,11 @@ static void test_discovery_confirm_writes_pins_and_excludes(void) {
   click("menu_discovery");
   click("run");
   TEST_ASSERT_EQUAL_INT(1, rediscoveries);
-  click("keep_engine_wing");   // keep -> skip
+  lv_obj_t *sw = ui_setup_part("keep_engine_wing");
+  TEST_ASSERT_TRUE(lv_obj_check_type(sw, &lv_switch_class));
+  TEST_ASSERT_TRUE(lv_obj_has_state(sw, LV_STATE_CHECKED));   // on: shown
+  lv_obj_remove_state(sw, LV_STATE_CHECKED);                   // what a touch on the switch does
+  lv_obj_send_event(sw, LV_EVENT_VALUE_CHANGED, NULL);
   click("confirm_engine");
   const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
   TEST_ASSERT_EQUAL_UINT8(2, r->inst_count);
