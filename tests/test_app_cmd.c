@@ -132,6 +132,13 @@ static void test_config_reload(void) {
   TEST_ASSERT_EQUAL_UINT8(1, app_config()->role_count);
 }
 
+static void test_request_access_needs_signalk(void) {
+  TEST_ASSERT_EQUAL_INT(1, run("sk request-access"));   // this test never starts the network
+  TEST_ASSERT_NOT_NULL(strstr(out, "Signal K is not running"));
+  run("status");
+  TEST_ASSERT_NOT_NULL(strstr(out, "access: idle"));
+}
+
 static void test_unknown_command_usage(void) {
   TEST_ASSERT_EQUAL_INT(1, run("frobnicate"));
   TEST_ASSERT_NOT_NULL(strstr(out, "help"));
@@ -153,6 +160,7 @@ int main(void) {
   RUN_TEST(test_config_set_invalid_reports);
   RUN_TEST(test_config_set_display_applies);
   RUN_TEST(test_config_reload);
+  RUN_TEST(test_request_access_needs_signalk);
   RUN_TEST(test_unknown_command_usage);
   return UNITY_END();
 }

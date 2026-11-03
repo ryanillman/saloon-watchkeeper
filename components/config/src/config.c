@@ -126,6 +126,7 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *port = cJSON_GetObjectItem(sk, "port");
   if (cJSON_IsNumber(port) && port->valueint > 0 && port->valueint < 65536) c->sk.port = (uint16_t)port->valueint;
   COPY(c->sk.token, cJSON_GetObjectItem(sk, "token"));
+  COPY(c->sk.request, cJSON_GetObjectItem(sk, "request"));
 
   const cJSON *u = cJSON_GetObjectItem(root, "units");
   unit(u, "temperature", c->units.temperature, sizeof c->units.temperature, (const char *[]){"C", "F", NULL}, rep);
@@ -343,6 +344,8 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   set_str(sk, "host", c->sk.host);
   set_num(sk, "port", c->sk.port);
   set_str(sk, "token", c->sk.token);
+  if (c->sk.request[0]) set_str(sk, "request", c->sk.request);
+  else cJSON_DeleteItemFromObject(sk, "request");
   cJSON *u = object(tree, "units");
   set_str(u, "temperature", c->units.temperature);
   set_str(u, "pressure", c->units.pressure);

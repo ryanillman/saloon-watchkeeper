@@ -52,3 +52,8 @@ void platform_mem(size_t *internal, size_t *psram) {
   *internal = 0;
   *psram = 0;
 }
+
+void platform_mac(uint8_t mac[6]) {
+  static const uint8_t sim[6] = {0x02, 0x00, 0x00, 0x00, 0x51, 0x4d};
+  for (int i = 0; i < 6; i++) mac[i] = sim[i];
+}

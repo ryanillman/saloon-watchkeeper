@@ -45,7 +45,7 @@ typedef struct {
   bool wifi; char ip[16]; int8_t rssi;
   char signalk[96];          // "live 192.168.0.108:3000", "connecting auto", "offline 10.0.0.5:3000"
   bool token;
-  char access[24];           // access request state
+  char access[128];          // access request state and message
   unsigned internal_kb, psram_kb;
   bool sd;
   char origin[10];           // "main", "backup", "defaults"
@@ -57,3 +57,7 @@ bool app_status(app_status_t *out);   // any task except the UI task (runs there
 // config set: cfg_set on the config writer task, then apply on the UI task.
 bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsigned *applied);
 bool app_config_reload(cfg_report_t *rep, unsigned *applied);
+
+// Starts a Signal K access request; false when Signal K is not running. `as` gets the name
+// the request shows in the admin UI ("boat-instruments lcd7b 2a:10").
+bool app_request_access(char *as, size_t n);

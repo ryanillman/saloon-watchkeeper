@@ -84,6 +84,8 @@ Values set over the console travel in plain text over USB. They are masked whene
   - DENIED: shown, nothing saved.
   - EXPIRED: no answer after 30 minutes; polling stops.
 - A request starts only from `sk request-access` or the REQUEST ACCESS button in setup. Nothing starts on its own.
+- Signal K 2.35.1 answers a second request with the same `clientId` with HTTP 400 ("has already requested access") and no link to the first. The panel therefore stores the pending request's `href` in config (`sources.signalk.request`) and keeps polling it after a restart, and clears it when the request completes. A 400 with nothing stored shows: already requested; deny or remove the earlier request in the admin UI, then try again.
+- Responses (2.35.1): POST gives 202 `{"state":"PENDING","href":"/signalk/v1/requests/<id>"}`; the `href` answers the same while pending, then `{"state":"COMPLETED","accessRequest":{"permission":"APPROVED","token":"..."}}` or `"permission":"DENIED"`.
 - An existing token stays in use until a new request is approved.
 - The state shows in `status`, the console log, and the Signal K setup screen.
 

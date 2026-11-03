@@ -7,7 +7,10 @@
 #define CFG_MAX_ROLES 8
 
 typedef struct { char ssid[33]; char password[65]; } cfg_wifi_t;
-typedef struct { char host[64]; uint16_t port; char token[256]; } cfg_sk_t;   // host "auto" = mDNS
+typedef struct {
+  char host[64]; uint16_t port; char token[256];
+  char request[128];   // href of a pending access request, resumed after a restart; "" = none
+} cfg_sk_t;   // host "auto" = mDNS
 typedef struct { char temperature[2], pressure[4], volume[4], speed[5], distance[3]; } cfg_units_t;
 typedef struct { char id[24]; char label[12]; } cfg_instance_t;
 typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<instance>.<slot>"

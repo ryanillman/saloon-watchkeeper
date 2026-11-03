@@ -4,6 +4,7 @@
 #include <string.h>
 #include "alerts.h"
 #include "platform.h"
+#include "sk_access.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
 
@@ -147,6 +148,7 @@ void sk_client_run_once(void) {
   char url[160], rest[160], base[96];
   snprintf(base, sizeof base, "http://%s:%u", host, port);
 
+  sk_access_poll(base, platform_millis());   // an access request needs only HTTP
   set_state(SK_DISCOVERING);
   snprintf(rest, sizeof rest, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
   snprintf(url, sizeof url, "%s", rest);
@@ -172,6 +174,7 @@ void sk_client_run_once(void) {
       // change, so a lost one would never come back: resubscribe to get them resent.
       if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
+      sk_access_poll(base, platform_millis());
       if (platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);
         last_discovery = platform_millis();
