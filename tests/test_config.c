@@ -194,6 +194,28 @@ static void test_save_from_defaults_creates_file(void) {
   TEST_ASSERT_EQUAL_UINT8(4, again.role_count);
 }
 
+static void test_unknown_unit_reported_and_defaulted(void) {
+  write_file("config.json", "{ \"units\": { \"temperature\": \"farenheit\", \"pressure\": \"psi\", \"speed\": \"mph\" } }");
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &c, &r));
+  TEST_ASSERT_EQUAL_UINT8(2, r.count);
+  TEST_ASSERT_EQUAL_STRING("units.temperature", r.issues[0].key_path);
+  TEST_ASSERT_EQUAL_STRING("units.speed", r.issues[1].key_path);
+  TEST_ASSERT_EQUAL_STRING("C", c.units.temperature);   // default kept
+  TEST_ASSERT_EQUAL_STRING("psi", c.units.pressure);    // valid one applied
+  TEST_ASSERT_EQUAL_STRING("kn", c.units.speed);
+}
+
+static void test_long_unit_value_not_truncated_into_a_valid_one(void) {
+  write_file("config.json", "{ \"units\": { \"pressure\": \"barometric\" } }");   // must not become "bar"
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("units.pressure", r.issues[0].key_path);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_minimal_file_loads);
@@ -207,5 +229,7 @@ int main(void) {
   RUN_TEST(test_save_rotates_backup);
   RUN_TEST(test_version_written_and_missing_treated_as_1);
   RUN_TEST(test_save_from_defaults_creates_file);
+  RUN_TEST(test_unknown_unit_reported_and_defaulted);
+  RUN_TEST(test_long_unit_value_not_truncated_into_a_valid_one);
   return UNITY_END();
 }
