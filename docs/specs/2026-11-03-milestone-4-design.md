@@ -14,11 +14,11 @@ Out of scope: on-device setup, the Signal K access request, and discovery confir
 
 ## Verification first
 
-Three facts decide details below. Each is checked before the code that depends on it, and the result is written back into this document.
+Power is built against the default signalk-venus paths listed below. A capture from the boat's Cerbo comes later, during the bench pass; if its paths differ, the slot tables are corrected then.
 
-1. **Cerbo capture.** `tools/sk-capture` saves `vessels/self` from the boat's Signal K server to a fixture. Slot paths, instance ids, and injector scenarios are taken from it, not from memory. It also shows whether signalk-venus publishes a DC system power path.
-2. **Fixed-period subscriptions.** Whether Signal K 2.35 resends unchanged values to a subscription with `policy: "fixed"`. The Power max ages depend on it.
-3. **Notification acknowledge and silence.** Whether 2.35 offers a notifications API for acknowledge and silence, or accepts a v1 PUT to a notification path without a plugin to handle it.
+Two facts decide details below. Each is checked against the local Signal K server before the code that depends on it, and the result is written back into this document.
+1. **Fixed-period subscriptions.** Whether Signal K 2.35 resends unchanged values to a subscription with `policy: "fixed"`. The Power max ages depend on it.
+2. **Notification acknowledge and silence.** Whether 2.35 offers a notifications API for acknowledge and silence, or accepts a v1 PUT to a notification path without a plugin to handle it.
 
 ## Role instance groups
 
@@ -52,7 +52,7 @@ typedef struct {
 
 ### Groups
 
-Paths are the expected signalk-venus layout and are confirmed against the Cerbo capture before the slot tables are written.
+Paths are the default signalk-venus layout. They are checked against a Cerbo capture during the bench pass.
 
 | Group | Prefix | Slots |
 |---|---|---|
@@ -60,26 +60,27 @@ Paths are the expected signalk-venus layout and are confirmed against the Cerbo 
 | solar | `electrical.solar` | voltage, current, panelPower, chargingMode |
 | charger | `electrical.chargers` | voltage, current, chargingMode. The MultiPlus charger and the smart charger appear here |
 | inverter | `electrical.inverters` | AC input state (shore connected), inverterMode |
-| dcdc | `electrical.dcdc` or `electrical.alternators`, per the capture | voltage, current, chargingMode |
+| dcdc | `electrical.dcdc` | voltage, current, chargingMode |
+| alternator | `electrical.alternators` | voltage, current, chargingMode |
 
 `chargingMode` and `inverterMode` are text samples drawn as readouts.
 
 ### Pages
 
 1. **Summary.** `IN → BATTERY → LOAD` across the page on wide boards, 2×2 on square, with a large SoC strip.
-   - **IN:** sum of positive DC-side charge power (voltage × current on the battery side) over solar, charger, and dcdc instances. A charger reporting negative current (a MultiPlus while inverting) adds to load, not to IN. DC-side power is used so IN and BATTERY are measured at the same place; panel watts are shown on Charging.
+   - **IN:** sum of positive DC-side charge power (voltage × current on the battery side) over solar, charger, dcdc, and alternator instances. A charger reporting negative current (a MultiPlus while inverting) adds to load, not to IN. DC-side power is used so IN and BATTERY are measured at the same place; panel watts are shown on Charging.
    - **BATTERY:** net power of the primary bank, signed, positive when charging.
-   - **DC LOAD:** the Cerbo's DC system power when signalk-venus publishes it, else IN − BATTERY. Labelled DC LOAD because AC loads fed straight from shore through the MultiPlus never reach the DC side.
+   - **DC LOAD:** the Cerbo's DC system power (assumed `electrical.venus.dcPower`) when published, else IN − BATTERY. Labelled DC LOAD because AC loads fed straight from shore through the MultiPlus never reach the DC side.
    - **SoC:** the primary bank's state of charge.
 2. **Batteries.** One row per bank: voltage, current, power, SoC strip, time remaining.
-3. **Charging.** One row per solar, charger, and dcdc instance: power, current, mode; panel watts for solar. A shore-connected marker from the inverter group.
+3. **Charging.** One row per solar, charger, dcdc, and alternator instance: power, current, mode; panel watts for solar. A shore-connected marker from the inverter group.
 
 ### Rules (`power_calc.c`, unit-tested)
 
 - **Primary bank:** the first battery instance with a stateOfCharge path, unless config sets `"primary": "<id>"` on the power role.
 - **Strict totals:** if any bound contributor to IN is invalid, IN shows `IN FAIL` and DC LOAD shows `LOAD FAIL`. If the primary bank is invalid, BATTERY, DC LOAD, and SoC flag. A valid 0 (an MPPT at night) is a reading, not a fault.
 - **Time remaining:** signalk-venus sends `null` while a bank is not discharging. On a valid bank with current ≥ 0, the field reads `CHARGING`. It flags only when the bank itself is invalid.
-- **Max age:** if check 2 confirms fixed-period resends, Power paths are subscribed with `policy: "fixed"` and a 15 s max age, so a device that stops reporting flags. If not, Power slots have no max age, and only source loss and `null` flag a field, as for tanks.
+- **Max age:** if check 1 confirms fixed-period resends, Power paths are subscribed with `policy: "fixed"` and a 15 s max age, so a device that stops reporting flags. If not, Power slots have no max age, and only source loss and `null` flag a field, as for tanks.
 - **Known limit:** with several monitored banks, BATTERY covers the primary bank only. Charge into another bank (a start battery) counts as load.
 
 ## Alerts over Signal K
@@ -94,7 +95,7 @@ Paths are the expected signalk-venus layout and are confirmed against the Cerbo 
 
 - The client subscribes to `notifications.*` alongside the bound paths. A delta carrying `{state, method, message}` updates an entry. A `null` value or `normal` state clears it.
 - On disconnect the list is cleared and the top strip shows `SK ALERTS OFFLINE` until the connection is back. The server resends current notifications on subscribe, which rebuilds the list. An empty list is never shown as all clear while alerts cannot be received.
-- Acknowledge and silence are queued by the UI and sent by the Signal K task with the configured token, using the method check 3 finds. Silence falls back to a v1 PUT of the notification with `sound` removed from `method`.
+- Acknowledge and silence are queued by the UI and sent by the Signal K task with the configured token, using the method check 2 finds. Silence falls back to a v1 PUT of the notification with `sound` removed from `method`.
 - The local state changes at once: flashing and buzzer stop. If the request fails, the banner shows `ACK NOT SENT`.
 
 ### On the glass
@@ -116,18 +117,18 @@ Paths are the expected signalk-venus layout and are confirmed against the Cerbo 
 
 - **Host tests:** `role_bind` per group (Engine unchanged, Tanks at depth 2, Power with several groups, prefixed excludes); `power_calc` (sums, negative charger current as load, strict failure, `CHARGING`, primary bank choice); alert transitions (raise, escalate, clear, re-raise after acknowledge, source down); notification parsing including `null` and missing fields; `environment.mode` to palette.
 - **Snapshots:** Tanks; Power Summary, Batteries, and Charging; each live and faulted; an alarm banner over Engine; the alert list. Every size and palette.
-- **Live:** the Cerbo fixture replayed by the injector, plus scenarios `victron-power`, `tanks`, `alarm-coolant` (raise, then clear), and `warn-tank-low`. An ACK from the panel is visible on the server.
+- **Live:** injector scenarios `victron-power`, `tanks`, `alarm-coolant` (raise, then clear), and `warn-tank-low`. An ACK from the panel is visible on the server.
 - **Bench:** each board runs the scenarios. Banner and buzzer are checked on `square4`.
 
 ## Order
 
-1. Verification: Cerbo capture, fixed-period resend, notification acknowledge and silence. Results recorded here.
+1. Verification: fixed-period resend, notification acknowledge and silence. Results recorded here.
 2. Role groups, with Engine unchanged.
 3. Tanks.
 4. Power: `power_calc` and three pages.
 5. Alerts: component, Signal K wiring, banner and list, field colour, buzzer.
 6. Palette and brightness panel, auto palette.
-7. Live and bench pass.
+7. Live and bench pass, including a Cerbo capture to confirm the Power paths.
 
 ## Done when
 
