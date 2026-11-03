@@ -141,5 +141,7 @@ int main(void) {
   RUN_TEST(test_batt_invalid_fails_batt_load_and_soc);
   RUN_TEST(test_primary_choice);
   RUN_TEST(test_ttg_null_while_charging);
+  RUN_TEST(test_dc_system_stands_alone);
+  RUN_TEST(test_no_sources_fails_in);
   return UNITY_END();
 }
