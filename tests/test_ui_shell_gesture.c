@@ -75,6 +75,17 @@ static void test_drag_over_overflowing_child_changes_role(void) {
   TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->role);
 }
 
+static void test_rebuild_picks_up_a_grown_page_count(void) {
+  static ui_role_view_t grow[] = {{"A", 1, page, NULL, NULL}, {"B", 1, page, NULL, NULL}};
+  ui_shell_create(lv_display_get_default(), SIZE_WIDE, PALETTE_DAY, grow, 2, 0);
+  drag(400, 420, 400, 120);
+  TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->page);   // one page: nowhere to go
+  grow[0].page_count = 2;                              // discovery found more
+  ui_shell_rebuild();
+  drag(400, 420, 400, 120);
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -87,6 +98,7 @@ int main(void) {
   lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);   // read only when step() asks
 
   UNITY_BEGIN();
+  RUN_TEST(test_rebuild_picks_up_a_grown_page_count);
   RUN_TEST(test_drag_left_changes_role);
   RUN_TEST(test_drag_up_changes_page);
   RUN_TEST(test_drag_over_overflowing_child_changes_role);

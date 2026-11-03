@@ -175,5 +175,9 @@ void ui_shell_set_status(const char *text, lv_color_t color) {
 }
 
 void ui_shell_rebuild(void) {
-  if (s.content) rebuild();
+  if (!s.content) return;
+  uint8_t pages[UI_MAX_ROLES];   // a rebind can change a role's page count
+  for (uint8_t i = 0; i < s.nav.role_count; i++) pages[i] = s.roles[i].page_count;
+  ui_nav_set_pages(&s.nav, pages);
+  rebuild();
 }

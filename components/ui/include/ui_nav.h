@@ -14,4 +14,6 @@ typedef struct {
 } ui_nav_t;
 
 void ui_nav_init(ui_nav_t *n, uint8_t role_count, const uint8_t *page_counts, uint8_t start_role);
+// Replaces the page counts (a role rebound and has more or fewer pages). The page clamps.
+void ui_nav_set_pages(ui_nav_t *n, const uint8_t *page_counts);
 bool ui_nav_move(ui_nav_t *n, nav_dir_t dir);
