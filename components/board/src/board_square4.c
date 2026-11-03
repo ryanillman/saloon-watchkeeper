@@ -21,7 +21,8 @@
 
 // CH32V003 pins
 #define EXIO_TP_RST  1
-#define EXIO_TP_INT  2   // GT911 INT runs through the helper (V4.0 schematic); left as input
+#define EXIO_TP_INT  2   // GT911 INT runs through the helper (V4.0 schematic)
+#define EXIO_SD_CS   4   // SD D3 (V4.0 schematic)
 #define EXIO_LCD_RST 3
 #define EXIO_SYS_EN  5   // panel and peripheral power
 #define EXIO_BEE_EN  6   // buzzer
@@ -89,18 +90,15 @@ static esp_err_t init(void) {
   };
   ESP_ERROR_CHECK(i2c_new_master_bus(&bc, &i2c));
 
-  // Power off and everything in reset, then power on and release the panel.
-  // EXIO2 (GT911 INT) stays an input throughout.
-  uint8_t outputs = 1u << EXIO_TP_RST | 1u << EXIO_LCD_RST | 1u << EXIO_SYS_EN | 1u << EXIO_BEE_EN;
-  ESP_ERROR_CHECK(ch32v003_init(i2c, outputs, 0));
+  // Same power-up as Waveshare's WS_CH32_IO library: every helper pin an output,
+  // all low, then power, panel reset, and touch reset high. EXIO2 (GT911 INT)
+  // stays low, so the GT911 starts in its normal mode at 0x5D.
+  // EXIO4 (SD D3/CS) is kept high so the card stays in SD mode.
+  ESP_ERROR_CHECK(ch32v003_init(i2c, 0xFF, 0));
   vTaskDelay(pdMS_TO_TICKS(200));
+  ch32v003_set(EXIO_SD_CS, 1);
   ch32v003_set(EXIO_SYS_EN, 1);
   ch32v003_set(EXIO_LCD_RST, 1);
-  vTaskDelay(pdMS_TO_TICKS(200));
-  // Reset the GT911 on its own, once its supply is up. Driving INT through the
-  // helper does not give a clean level, so the controller picks its own address.
-  ch32v003_set(EXIO_TP_RST, 0);
-  vTaskDelay(pdMS_TO_TICKS(20));
   ch32v003_set(EXIO_TP_RST, 1);
   vTaskDelay(pdMS_TO_TICKS(200));
 

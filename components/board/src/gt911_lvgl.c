@@ -1,29 +1,15 @@
 #include "gt911_lvgl.h"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 
 static esp_lcd_touch_handle_t tp;
-static esp_lcd_panel_io_handle_t tp_io;   // TEMP diagnostics
 
 static void read_cb(lv_indev_t *i, lv_indev_data_t *data) {
   (void)i;
   esp_lcd_touch_point_data_t pt;
   uint8_t n = 0;
-  static int last_status = -1;   // TEMP diagnostics: raw GT911 status register 0x814E
-  uint8_t st = 0;
-  esp_err_t se = esp_lcd_panel_io_rx_param(tp_io, 0x814E, &st, 1);
-  if (se || st != last_status) {
-    ESP_LOGI("gt911", "status 0x814E = 0x%02X (%s)", st, esp_err_to_name(se));
-    last_status = st;
-  }
-  esp_err_t rd = esp_lcd_touch_read_data(tp);
+  esp_lcd_touch_read_data(tp);
   esp_err_t gd = esp_lcd_touch_get_data(tp, &pt, &n, 1);
-  static int64_t last;   // TEMP diagnostics
-  if ((rd || n) && esp_timer_get_time() - last > 100000) {
-    last = esp_timer_get_time();
-    ESP_LOGI("gt911", "read=%s get=%s n=%u x=%u y=%u", esp_err_to_name(rd), esp_err_to_name(gd), n, pt.x, pt.y);
-  }
   if (gd == ESP_OK && n > 0) {
     data->point.x = pt.x;
     data->point.y = pt.y;
@@ -47,7 +33,6 @@ lv_indev_t *gt911_lvgl_indev(i2c_master_bus_handle_t bus, uint16_t w, uint16_t h
   }
   ESP_LOGI("gt911", "GT911 at 0x%02X", (unsigned)io_cfg.dev_addr);
   if (esp_lcd_new_panel_io_i2c(bus, &io_cfg, &io) != ESP_OK) return NULL;
-  tp_io = io;
   esp_lcd_touch_config_t cfg = {
     .x_max = w, .y_max = h, .rst_gpio_num = GPIO_NUM_NC, .int_gpio_num = int_gpio,
   };
