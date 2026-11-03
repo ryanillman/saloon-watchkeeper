@@ -1,0 +1,19 @@
+{
+  "description": "Twin diesels warming up and coming to cruise over a minute.",
+  "durationMs": 60000,
+  "intervalMs": 1000,
+  "values": {
+    "propulsion.port.revolutions": { "from": 13.3, "to": 40.0, "wobble": 0.5 },
+    "propulsion.starboard.revolutions": { "from": 13.0, "to": 39.5, "wobble": 0.5 },
+    "propulsion.port.temperature": { "from": 300.0, "to": 355.0 },
+    "propulsion.starboard.temperature": { "from": 301.0, "to": 357.0 },
+    "propulsion.port.oilPressure": { "from": 250000, "to": 380000 },
+    "propulsion.starboard.oilPressure": { "from": 245000, "to": 375000 },
+    "propulsion.port.alternatorVoltage": { "from": 13.2, "to": 14.2 },
+    "propulsion.starboard.alternatorVoltage": { "from": 13.1, "to": 14.1 },
+    "propulsion.port.runTime": { "from": 4410000, "to": 4410060 },
+    "propulsion.starboard.runTime": { "from": 4395600, "to": 4395660 },
+    "propulsion.port.fuel.rate": { "from": 0.0000006, "to": 0.0000033 },
+    "propulsion.starboard.fuel.rate": { "from": 0.0000006, "to": 0.0000032 }
+  }
+}

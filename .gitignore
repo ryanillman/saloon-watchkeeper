@@ -6,3 +6,4 @@ out/
 .superpowers/
 dependencies.lock
 *.log
+tools/sk-inject/.token
