@@ -78,6 +78,15 @@ The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`,
 | Buzzer, RTC, IMU | Not listed |
 | Battery | PH2.0 Li-ion socket with charger. **confirm** the ADC pin for battery voltage |
 
+**Resolved from Waveshare's ESP-IDF demo** (`waveshareteam/ESP32-S3-Touch-LCD-7B`, Apache-2.0, `examples/ESP-IDF/06_LCD`):
+
+- Panel ST7262 (the wiki's datasheet link), no init sequence. 30 MHz PCLK. HSYNC pulse 162, back porch 152, front porch 48. VSYNC pulse 45, back porch 13, front porch 3. PCLK active on the falling edge. 10-line bounce buffer, two framebuffers.
+- The I/O helper at 0x24 uses the same register protocol as the 4" CH32V003 (0x02 mode, 0x03 output, 0x04 input, 0x05 PWM, 0x06 ADC). The demo makes every pin an output and starts them all high. EXIO1 touch reset, EXIO2 backlight enable, EXIO3 LCD reset, EXIO4 SD CS, EXIO5 USB(0)/CAN(1), EXIO6 VCOM enable.
+- Backlight: EXIO2 is on/off. PWM 0x05 dims, inverted, and the demo caps it at 97%.
+- RGB pins are identical to the 800×480 board.
+
+`board_lcd7b.c` is written from these and builds, but has not yet run on hardware.
+
 Waveshare 7B wiki: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7B. Schematic: https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-7B/ESP32-S3-Touch-LCD-7B-Schematic.pdf
 
 ## Shared notes
