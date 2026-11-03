@@ -192,6 +192,30 @@ static void test_queue_overflow_marks_oldest_failed(void) {
   TEST_ASSERT_EQUAL_STRING("q1", id);
 }
 
+static void test_clear_purges_queued_request(void) {
+  char id[64];
+  alert_req_t r;
+  raise("a", AL_ALARM, 100);
+  alerts_request("a", AL_REQ_ACK);
+  alerts_clear("a");
+  raise("a", AL_ALARM, 200);
+  TEST_ASSERT_FALSE(alerts_next_request(id, &r));
+  alerts_request("a", AL_REQ_SILENCE);
+  raise("a", AL_NORMAL, 300);
+  raise("a", AL_ALARM, 400);
+  TEST_ASSERT_FALSE(alerts_next_request(id, &r));
+  TEST_ASSERT_FALSE(get("a").acked);
+}
+
+static void test_eviction_purges_queued_request(void) {
+  char id[64], n[16];
+  alert_req_t r;
+  for (int i = 0; i < ALERTS_MAX; i++) { snprintf(n, sizeof n, "w%d", i); raise(n, AL_WARN, 100 + i); }
+  alerts_request("w0", AL_REQ_ACK);   // w0 is the oldest warn, the eviction victim
+  raise("alarm", AL_ALARM, 500);
+  TEST_ASSERT_FALSE(alerts_next_request(id, &r));
+}
+
 static alerts_snapshot_t snap(void) { alerts_snapshot_t s; alerts_snapshot(&s); return s; }
 
 static void test_buzzer_pattern(void) {
@@ -241,6 +265,8 @@ int main(void) {
   RUN_TEST(test_request_without_ref_marks_failed);
   RUN_TEST(test_request_round_trip);
   RUN_TEST(test_queue_overflow_marks_oldest_failed);
+  RUN_TEST(test_clear_purges_queued_request);
+  RUN_TEST(test_eviction_purges_queued_request);
   RUN_TEST(test_buzzer_pattern);
   return UNITY_END();
 }
