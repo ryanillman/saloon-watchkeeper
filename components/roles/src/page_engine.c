@@ -140,6 +140,7 @@ void engine_refresh(role_binding_t *b, int64_t now) {
       if (k == S_RPM && es.rpm_suspect) ok = false;   // oil pressure says it is running: RPM is wrong
       if (is_dial) ui_dial_set(v.dial, i, x, ok);
       if (!w) continue;
+      role_field_alert(w, b->g[0].ids[i][k]);
       if (k == S_HOURS) ui_readout_set(w, x, ok);
       else ui_strip_set(w, x, ok);
     }

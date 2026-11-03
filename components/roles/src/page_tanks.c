@@ -147,6 +147,7 @@ void tanks_refresh(role_binding_t *b, int64_t now) {
     bool hl = sample(b, i, S_LEVEL, &lv), hv = sample(b, i, S_VOLUME, &vo), hc = sample(b, i, S_CAPACITY, &ca);
     bool ok = hl && lv.kind == BD_NUMBER && lv.valid;
     ui_strip_set(v.strip[j], ok ? units_from_si(Q_RATIO, lv.num, b->units) : 0, ok);
+    role_field_alert(v.strip[j], b->g[0].ids[i][S_LEVEL]);
 
     bool has_vol = seen(b, i, S_VOLUME) || seen(b, i, S_CAPACITY);
     if (!has_vol) {   // no volume on this tank: leave the line empty rather than flag it

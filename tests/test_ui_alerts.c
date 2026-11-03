@@ -1,0 +1,200 @@
+#include <stdio.h>
+#include <string.h>
+#include "alerts.h"
+#include "ui_alerts.h"
+#include "ui_gauge.h"
+#include "unity.h"
+
+static uint8_t buf[800 * 48 * 2];
+static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
+  (void)a; (void)px;
+  lv_display_flush_ready(d);
+}
+
+static lv_obj_t *scr, *strip;
+static int8_t role_value;
+static int8_t role_of(const char *id) { (void)id; return role_value; }
+
+static void raise(const char *id, alert_state_t st, const char *msg) {
+  alert_t a = {0};
+  snprintf(a.id, sizeof a.id, "%s", id);
+  a.state = st;
+  snprintf(a.message, sizeof a.message, "%s", msg);
+  a.audible = true;
+  snprintf(a.ref, sizeof a.ref, "ref-%s", id);
+  alerts_upsert(&a, 1000);
+}
+
+static void tick(int64_t now) {
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  ui_alerts_update(&s, now);
+  lv_refr_now(NULL);
+}
+
+void setUp(void) {
+  alerts_init();
+  alerts_source_up(true);
+  role_value = 0;
+  lv_obj_clean(scr);
+  strip = lv_obj_create(scr);
+  lv_obj_set_size(strip, 800, 40);
+  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of);
+  tick(0);
+}
+void tearDown(void) {}
+
+static void test_alarm_shows_banner_with_go(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());
+  TEST_ASSERT_EQUAL_STRING("Port coolant high", ui_alerts_banner_text());
+  TEST_ASSERT_TRUE(ui_alerts_go_visible());
+}
+
+static void test_go_hidden_without_role(void) {
+  role_value = -1;
+  raise("navigation.anchor.alarm", AL_ALARM, "Anchor dragging");
+  tick(0);
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());
+  TEST_ASSERT_FALSE(ui_alerts_go_visible());
+}
+
+static void test_warn_shows_marker_not_banner(void) {
+  raise("tanks.fuel.0.currentLevel", AL_WARN, "Fuel low");
+  raise("tanks.freshWater.0.currentLevel", AL_WARN, "Fresh water low");
+  tick(0);
+  TEST_ASSERT_FALSE(ui_alerts_banner_visible());
+  TEST_ASSERT_EQUAL_STRING("2", ui_alerts_marker_text());
+}
+
+static void test_marker_hidden_with_no_alerts(void) {
+  tick(0);
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_marker_text());
+}
+
+static void test_offline_text_when_source_down(void) {
+  TEST_ASSERT_EQUAL_STRING("", ui_alerts_offline_text());
+  alerts_source_up(false);
+  tick(0);
+  TEST_ASSERT_EQUAL_STRING("SK ALERTS OFFLINE", ui_alerts_offline_text());
+  TEST_ASSERT_FALSE(ui_alerts_banner_visible());
+}
+
+static void test_ack_button_requests_ack(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_ACK), LV_EVENT_CLICKED, NULL);
+  alert_t a;
+  TEST_ASSERT_TRUE(alerts_get("propulsion.port.temperature", &a));
+  TEST_ASSERT_TRUE(a.acked);
+  TEST_ASSERT_FALSE(a.silenced);
+}
+
+static void test_silence_button_requests_silence(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_SILENCE), LV_EVENT_CLICKED, NULL);
+  alert_t a;
+  TEST_ASSERT_TRUE(alerts_get("propulsion.port.temperature", &a));
+  TEST_ASSERT_TRUE(a.silenced);
+}
+
+static void test_banner_flashes_until_acked(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  lv_color_t on = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  tick(500);
+  lv_color_t off = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  TEST_ASSERT_FALSE(lv_color_eq(on, off));
+  alerts_request("propulsion.port.temperature", AL_REQ_ACK);
+  tick(500);
+  lv_color_t a1 = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  tick(0);
+  lv_color_t a2 = lv_obj_get_style_bg_color(ui_alerts_part(UI_ALERTS_BANNER), 0);
+  TEST_ASSERT_TRUE(lv_color_eq(a1, a2));
+  TEST_ASSERT_TRUE(lv_color_eq(a1, ui_theme()->alarm));
+}
+
+static void test_ack_not_sent_replaces_count(void) {
+  raise("a.one", AL_ALARM, "One");
+  raise("a.two", AL_ALARM, "Two");
+  tick(0);
+  TEST_ASSERT_EQUAL_STRING("+1", ui_alerts_corner_text());
+  alerts_source_up(false);   // the source drops: list clears
+  raise("a.one", AL_ALARM, "One");
+  alerts_request("a.one", AL_REQ_ACK);   // source down: send_failed
+  tick(0);
+  TEST_ASSERT_EQUAL_STRING("ACK NOT SENT", ui_alerts_corner_text());
+}
+
+static bool inside(lv_obj_t *o, lv_obj_t *box) {
+  lv_area_t a, b;
+  lv_obj_get_coords(o, &a);
+  lv_obj_get_coords(box, &b);
+  return a.x1 >= b.x1 && a.x2 <= b.x2 && a.y1 >= b.y1 && a.y2 <= b.y2;
+}
+
+static void test_long_message_keeps_buttons_visible(void) {
+  char msg[97];
+  memset(msg, 'W', 96);
+  msg[96] = 0;
+  for (int i = 8; i < 96; i += 9) msg[i] = ' ';
+  raise("propulsion.port.temperature", AL_ALARM, msg);
+  tick(0);
+  lv_obj_t *banner = ui_alerts_part(UI_ALERTS_BANNER);
+  lv_obj_update_layout(scr);
+  static const ui_alerts_part_t parts[] = {UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO};
+  for (int i = 0; i < 3; i++) {
+    lv_obj_t *p = ui_alerts_part(parts[i]);
+    TEST_ASSERT_FALSE(lv_obj_has_flag(p, LV_OBJ_FLAG_HIDDEN));
+    TEST_ASSERT_TRUE(inside(p, banner));
+  }
+}
+
+static void test_field_alert_colour(void) {
+  lv_obj_t *r = ui_readout_create(scr, "OIL", "bar", 1);
+  ui_readout_set(r, 3.0, true);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->fg, ui_field_value_color(r)));
+  ui_field_set_alert(r, AL_ALARM);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->alarm, ui_field_value_color(r)));
+  ui_field_set_alert(r, AL_WARN);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->warn, ui_field_value_color(r)));
+  ui_field_set_alert(r, AL_NORMAL);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_theme()->fg, ui_field_value_color(r)));
+}
+
+static void test_list_has_a_row_per_alert(void) {
+  raise("a.one", AL_WARN, "One");
+  raise("a.two", AL_ALERT, "Two");
+  tick(0);
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_MARKER), LV_EVENT_CLICKED, NULL);
+  tick(0);
+  TEST_ASSERT_TRUE(ui_alerts_list_visible());
+  TEST_ASSERT_EQUAL(2, ui_alerts_list_rows());
+  lv_obj_send_event(ui_alerts_part(UI_ALERTS_CLOSE), LV_EVENT_CLICKED, NULL);
+  tick(0);
+  TEST_ASSERT_FALSE(ui_alerts_list_visible());
+}
+
+int main(void) {
+  lv_init();
+  lv_display_t *disp = lv_display_create(800, 480);
+  lv_display_set_flush_cb(disp, flush);
+  lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  scr = lv_screen_active();
+  UNITY_BEGIN();
+  RUN_TEST(test_alarm_shows_banner_with_go);
+  RUN_TEST(test_go_hidden_without_role);
+  RUN_TEST(test_warn_shows_marker_not_banner);
+  RUN_TEST(test_marker_hidden_with_no_alerts);
+  RUN_TEST(test_offline_text_when_source_down);
+  RUN_TEST(test_ack_button_requests_ack);
+  RUN_TEST(test_silence_button_requests_silence);
+  RUN_TEST(test_banner_flashes_until_acked);
+  RUN_TEST(test_ack_not_sent_replaces_count);
+  RUN_TEST(test_long_message_keeps_buttons_visible);
+  RUN_TEST(test_field_alert_colour);
+  RUN_TEST(test_list_has_a_row_per_alert);
+  return UNITY_END();
+}

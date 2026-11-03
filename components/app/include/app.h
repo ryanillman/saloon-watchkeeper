@@ -13,5 +13,9 @@ void app_bind(void);
 void app_start_ui(lv_display_t *disp, size_class_t sc);
 void app_start_network(void);   // Signal K client for every bound path
 
+// The buzzer: fn(on) drives it, enabled_by_board is false when the board has none (or no driver).
+// The config's buzzer.enabled also has to be on. Call before app_tick starts.
+void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board);
+
 // UI task, about every 100 ms: rebinds after a discovery, refreshes the page and status.
 void app_tick(void);
