@@ -1,0 +1,20 @@
+menu "Boat instruments board"
+  choice BI_BOARD
+    prompt "Board"
+    default BI_BOARD_SQUARE4
+    config BI_BOARD_SQUARE4
+      bool "Waveshare ESP32-S3-Touch-LCD-4 (480x480)"
+    config BI_BOARD_LCD7
+      bool "Waveshare ESP32-S3-Touch-LCD-7 (800x480)"
+    config BI_BOARD_LCD7B
+      bool "Waveshare ESP32-S3-Touch-LCD-7B (1024x600)"
+  endchoice
+
+  config BI_DIAG_PROBE
+    bool "Boot into the hardware probe (I2C scan, memory report) instead of the UI"
+    default n
+
+  config BI_DIAG_COLORBARS
+    bool "Show color bars for 5 s before the UI"
+    default n
+endmenu
