@@ -66,8 +66,22 @@ static void test_start_role_out_of_range_is_zero(void) {
   TEST_ASSERT_EQUAL_UINT8(0, n.role);
 }
 
+static void test_set_pages_clamps_page(void) {
+  start(0);   // pages: see top of file
+  n.page = 1;
+  uint8_t fewer[4] = {1, 1, 1, 1};
+  ui_nav_set_pages(&n, fewer);
+  TEST_ASSERT_EQUAL_UINT8(0, n.page);
+  uint8_t more[4] = {3, 1, 1, 1};
+  ui_nav_set_pages(&n, more);
+  TEST_ASSERT_EQUAL_UINT8(3, n.page_count[0]);
+  TEST_ASSERT_TRUE(ui_nav_move(&n, NAV_UP));
+  TEST_ASSERT_EQUAL_UINT8(1, n.page);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_set_pages_clamps_page);
   RUN_TEST(test_left_advances_role);
   RUN_TEST(test_right_from_first_wraps_to_last);
   RUN_TEST(test_left_from_last_wraps_to_first);
