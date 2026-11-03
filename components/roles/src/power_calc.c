@@ -32,7 +32,7 @@ power_summary_t power_summarize(const power_src_t *src, size_t n, const power_sr
     r.load_ok = true;
     r.load_w = r.in_w - r.batt_w;
   }
-  if (usable(soc, max_age_ms, now_ms)) { r.soc_ok = true; r.soc = soc->num; }
+  if (r.batt_ok && usable(soc, max_age_ms, now_ms)) { r.soc_ok = true; r.soc = soc->num; }
   return r;
 }
 
@@ -47,6 +47,6 @@ uint8_t power_primary(const char ids[][24], const bool *soc_bound, uint8_t n, co
 
 ttg_mode_t power_time_remaining(const bd_sample_t *ttg, const bd_sample_t *current, int64_t max_age_ms, int64_t now_ms) {
   if (usable(ttg, max_age_ms, now_ms)) return TTG_VALUE;
-  if (usable(current, max_age_ms, now_ms) && current->num > 0) return TTG_CHARGING;
+  if (usable(current, max_age_ms, now_ms) && current->num >= 0) return TTG_CHARGING;
   return TTG_FAIL;
 }
