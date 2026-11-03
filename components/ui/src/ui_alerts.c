@@ -5,6 +5,7 @@
 #include <string.h>
 #include "platform.h"
 #include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -117,7 +118,15 @@ static void on_silence(lv_event_t *e) {
 }
 static void on_go(lv_event_t *e) {
   (void)e;
-  if (u.ban_role >= 0) ui_shell_goto_role((uint8_t)u.ban_role);
+  if (u.ban_role < 0) return;
+  ui_setup_close();   // the alarm's page, not a half-finished setup screen
+  ui_quick_close();
+  ui_shell_goto_role((uint8_t)u.ban_role);
+}
+
+void ui_alerts_to_front(void) {
+  if (u.banner && lv_obj_is_valid(u.banner)) lv_obj_move_foreground(u.banner);
+  if (u.list && lv_obj_is_valid(u.list)) lv_obj_move_foreground(u.list);
 }
 
 static int32_t banner_bh(void) { return 44; }
