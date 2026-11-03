@@ -147,14 +147,21 @@ static palette_t parse_palette(const char *s) {
 
 int main(int argc, char **argv) {
   const char *board_id = "sim800", *snapshot_dir = NULL, *config_dir = "simcfg", *palette = NULL;
+  const char *capture = NULL;
+  int after_s = 10;
+  int page = 0;
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--board") == 0 && i + 1 < argc) board_id = argv[++i];
     else if (strcmp(argv[i], "--palette") == 0 && i + 1 < argc) palette = argv[++i];
     else if (strcmp(argv[i], "--snapshot") == 0 && i + 1 < argc) snapshot_dir = argv[++i];
     else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) config_dir = argv[++i];
+    else if (strcmp(argv[i], "--capture") == 0 && i + 1 < argc) capture = argv[++i];
+    else if (strcmp(argv[i], "--after") == 0 && i + 1 < argc) after_s = atoi(argv[++i]);
+    else if (strcmp(argv[i], "--page") == 0 && i + 1 < argc) page = atoi(argv[++i]);
     else {
       fprintf(stderr, "usage: sim [--board sim480|sim800|sim1024] [--palette day|dusk|night]\n"
-                      "           [--config <dir with config.json>] [--snapshot <dir>]\n");
+                      "           [--config <dir with config.json>] [--snapshot <dir>]\n"
+                      "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n");
       return 2;
     }
   }
@@ -175,6 +182,27 @@ int main(int argc, char **argv) {
     fprintf(stderr, "config: %s (line %d): %s\n", rep.issues[i].key_path, rep.issues[i].line, rep.issues[i].message);
   if (palette) snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[parse_palette(palette)]);
   app_bind();
+
+  if (capture) {   // live data, no window: run for a while, then save the screen
+    size_t px = (size_t)b->width * b->height;
+    snap_fb = calloc(px, 2);
+    snap_w = b->width;
+    lv_display_t *disp = lv_display_create(b->width, b->height);
+    lv_display_set_flush_cb(disp, snap_flush);
+    lv_display_set_buffers(disp, malloc(px * 2), NULL, px * 2, LV_DISPLAY_RENDER_MODE_FULL);
+    app_start_ui(disp, b->size_class);
+    for (int p = 0; p < page; p++) ui_shell_move(NAV_UP);
+    app_start_network();
+    int64_t end = platform_millis() + (int64_t)after_s * 1000;
+    while (platform_millis() < end) {
+      app_tick();
+      lv_timer_handler();
+      usleep(100 * 1000);
+    }
+    lv_obj_invalidate(lv_display_get_screen_active(disp));
+    lv_refr_now(disp);
+    return snapshot_write_png(capture, snap_fb, b->width, b->height) ? 0 : 1;
+  }
 
   lv_display_t *disp = lv_sdl_window_create(b->width, b->height);
   lv_sdl_mouse_create();
