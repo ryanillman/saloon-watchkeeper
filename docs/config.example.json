@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "wifi": { "ssid": "YOUR-WIFI", "password": "YOUR-PASSWORD" },
+  "sources": {
+    "signalk": { "host": "auto", "port": 3000 }
+  },
+  "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm" },
+  "display": { "palette": "day", "brightness": 80, "start_role": "engine" },
+  "roles": [
+    { "role": "engine" },
+    { "role": "power" },
+    { "role": "tanks" },
+    { "role": "anchor" }
+  ]
+}
