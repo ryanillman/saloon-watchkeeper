@@ -11,6 +11,8 @@ bi_test(test_sim_boards sim_boards)
 bi_test(test_boatdata boatdata)
 bi_test(test_config config)
 bi_test(test_units units)
+bi_test(test_sk_parse source_sk_core)
+bi_test(test_sk_client source_sk_core)
 
 add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap
