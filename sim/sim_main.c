@@ -253,6 +253,25 @@ static int run_snapshots(const char *out) {
               snprintf(path, sizeof path, "%s/%s.png", dir, shots[k].name);
               if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
             }
+            static const ui_ap_t aps[] = {{"Boatnet", -48, true}, {"Marina Guest", -71, false}, {"Neighbour", -83, true}};
+            ui_setup_show(SETUP_WIFI);
+            ui_setup_wifi_results(aps, 3);
+            lv_timer_handler();
+            static const char *const extra[] = {"setup-wifi", "setup-wifi-keyboard", "setup-signalk"};
+            for (size_t k = 0; k < 3; k++) {
+              if (k == 1) {
+                lv_obj_send_event(ui_setup_part("ap_Boatnet"), LV_EVENT_CLICKED, NULL);
+                lv_timer_handler();
+              }
+              if (k == 2) {
+                ui_setup_show(SETUP_SIGNALK);
+                lv_timer_handler();
+              }
+              lv_obj_invalidate(lv_display_get_screen_active(disp));
+              lv_refr_now(disp);
+              snprintf(path, sizeof path, "%s/%s.png", dir, extra[k]);
+              if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+            }
             ui_setup_close();
             lv_timer_handler();
           }

@@ -287,8 +287,70 @@ static void setup_rediscover(void) {
   if (a.network) sk_client_rediscover_now();
 }
 
+// Wi-Fi scan: blocking for a few seconds, so it runs on its own short-lived task and the
+// results come back to the UI task.
+static struct {
+  bool busy;
+  net_ap_t found[16];
+  int n;
+} scan;
+
+static void scan_deliver(void *arg) {
+  (void)arg;
+  ui_ap_t aps[16];
+  for (int i = 0; i < scan.n; i++) {
+    snprintf(aps[i].ssid, sizeof aps[i].ssid, "%s", scan.found[i].ssid);
+    aps[i].rssi = scan.found[i].rssi;
+    aps[i].secure = scan.found[i].secure;
+  }
+  ui_setup_wifi_results(aps, scan.n);
+  scan.busy = false;
+}
+
+static void scan_task(void *arg) {
+  (void)arg;
+  scan.n = net_wifi_scan(scan.found, 16);
+  app_post(scan_deliver, NULL, 0);
+}
+
+static void setup_wifi_scan(void) {
+  if (scan.busy) return;
+  scan.busy = true;
+  if (!platform_task(scan_task, NULL, "wifiscan", 4096)) {
+    scan.busy = false;
+    ui_setup_wifi_results(NULL, 0);
+  }
+}
+
+static void setup_wifi_state(char *out, size_t n) {
+  char ip[16];
+  int8_t rssi;
+  if (!a.cfg.wifi.ssid[0]) snprintf(out, n, "Wi-Fi: not set up");
+  else if (net_wifi_info(ip, &rssi)) snprintf(out, n, "Connected to %s, %s, %d dBm", a.cfg.wifi.ssid, ip, rssi);
+  else snprintf(out, n, "Connecting to %s", a.cfg.wifi.ssid);
+}
+
+static void setup_sk_state(char *out, size_t n) {
+  app_status_t s;
+  fill_status_now(&s);
+  snprintf(out, n, "Signal K: %s", s.signalk);
+}
+
+static void setup_request_access(void) {
+  char as[64];
+  app_request_access(as, sizeof as);
+}
+
+static void setup_access_state(char *out, size_t n) {
+  ska_state_t st = sk_access_state(NULL);
+  if (st == SKA_IDLE) snprintf(out, n, "Access request: none");
+  else snprintf(out, n, "Access request: %s (%s)", sk_access_state_name(st), sk_access_message());
+}
+
 static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery,
-                                 .run_discovery = setup_rediscover};
+                                 .run_discovery = setup_rediscover, .wifi_scan = setup_wifi_scan,
+                                 .wifi_state = setup_wifi_state, .sk_state = setup_sk_state,
+                                 .request_access = setup_request_access, .access_state = setup_access_state};
 
 static void open_setup(void) {
   ui_quick_close();

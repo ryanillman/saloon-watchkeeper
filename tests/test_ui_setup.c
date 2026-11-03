@@ -38,8 +38,14 @@ static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
 static int rediscoveries;
 static void on_run_discovery(void) { rediscoveries++; }
 static const char *const implemented[] = {"engine", "power", "tanks", NULL};
+static int scans, access_requests;
+static void on_scan(void) { scans++; }
+static void on_request_access(void) { access_requests++; }
+static void on_line(char *out, size_t n) { snprintf(out, n, "state line"); }
 static ui_setup_cb_t cb = {.save = on_save, .about = on_about, .has_buzzer = true, .has_sd = true, .dims = true,
-                           .discovery = on_discovery, .run_discovery = on_run_discovery, .roles_available = implemented};
+                           .discovery = on_discovery, .run_discovery = on_run_discovery, .roles_available = implemented,
+                           .wifi_scan = on_scan, .wifi_state = on_line, .sk_state = on_line,
+                           .request_access = on_request_access, .access_state = on_line};
 
 static void click(const char *part) {
   lv_obj_t *o = ui_setup_part(part);
@@ -62,6 +68,7 @@ void setUp(void) {
   cfg_defaults(&cfg);
   saves = 0;
   rediscoveries = 0;
+  scans = access_requests = 0;
   cb.has_buzzer = true;
   cb.has_sd = true;
 }
@@ -274,6 +281,104 @@ static void test_auto_clears_pins(void) {
   TEST_ASSERT_EQUAL_UINT8(0, r->exclude_count);
 }
 
+// Types text into the open keyboard and presses its OK key.
+static void type_and_ok(const char *t) {
+  lv_obj_t *ta = ui_setup_part("kb_text");
+  TEST_ASSERT_NOT_NULL(ta);
+  lv_textarea_set_text(ta, t);
+  lv_obj_send_event(ui_setup_part("kb"), LV_EVENT_READY, NULL);
+  lv_timer_handler();
+}
+
+static void test_wifi_scan_lists_sorted(void) {
+  open_setup();
+  click("menu_wifi");
+  click("scan");
+  TEST_ASSERT_EQUAL_INT(1, scans);
+  ui_ap_t aps[] = {{"Far", -80, true}, {"Near", -50, true}};
+  ui_setup_wifi_results(aps, 2);
+  lv_timer_handler();
+  lv_obj_t *near = ui_setup_part("ap_Near"), *far = ui_setup_part("ap_Far");
+  TEST_ASSERT_NOT_NULL(near);
+  TEST_ASSERT_NOT_NULL(far);
+  TEST_ASSERT_TRUE(lv_obj_get_index(near) < lv_obj_get_index(far));   // strongest first
+  TEST_ASSERT_NOT_NULL(ui_setup_part("ap_other"));
+}
+
+static void test_wifi_choose_then_password_saves_wifi_keys(void) {
+  open_setup();
+  click("menu_wifi");
+  click("scan");
+  ui_ap_t aps[] = {{"Boatnet", -50, true}};
+  ui_setup_wifi_results(aps, 1);
+  lv_timer_handler();
+  click("ap_Boatnet");
+  type_and_ok("secret12");
+  TEST_ASSERT_EQUAL_STRING("Boatnet", ui_setup_working()->wifi.ssid);
+  TEST_ASSERT_EQUAL_STRING("secret12", ui_setup_working()->wifi.password);
+  click("save");
+  TEST_ASSERT_EQUAL_STRING("Boatnet", saved.wifi.ssid);
+  TEST_ASSERT_EQUAL_STRING("secret12", saved.wifi.password);
+}
+
+static void test_sk_manual_host_saves(void) {
+  open_setup();
+  click("menu_signalk");
+  click("sk_manual");
+  type_and_ok("10.0.0.5");
+  TEST_ASSERT_EQUAL_STRING("10.0.0.5", ui_setup_working()->sk.host);
+  click("edit_port");
+  type_and_ok("3443");
+  TEST_ASSERT_EQUAL_UINT16(3443, ui_setup_working()->sk.port);
+  click("save");
+  TEST_ASSERT_EQUAL_STRING("10.0.0.5", saved.sk.host);
+  click("menu_signalk");
+  click("sk_auto");
+  TEST_ASSERT_EQUAL_STRING("auto", ui_setup_working()->sk.host);
+}
+
+static void test_request_access_button_calls_cb(void) {
+  open_setup();
+  click("menu_signalk");
+  click("request_access");
+  TEST_ASSERT_EQUAL_INT(1, access_requests);
+  TEST_ASSERT_NOT_NULL(ui_setup_part("access_state"));
+}
+
+// Review Focus 5: on the 4" screen the field being edited stays above the keyboard.
+static void test_keyboard_keeps_field_visible_480(void) {
+  static uint8_t b2[480 * 48 * 2];
+  lv_display_t *d0 = lv_display_get_default();
+  lv_display_t *sq = lv_display_create(480, 480);
+  lv_display_set_flush_cb(sq, flush);
+  lv_display_set_buffers(sq, b2, NULL, sizeof b2, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_default(sq);
+  ui_setup_open(lv_display_get_screen_active(sq), &cfg, SIZE_SQUARE, &cb);
+  click("menu_signalk");
+  click("sk_manual");
+  lv_obj_update_layout(lv_display_get_screen_active(sq));
+  lv_area_t ta, kb;
+  lv_obj_get_coords(ui_setup_part("kb_text"), &ta);
+  lv_obj_get_coords(ui_setup_part("kb"), &kb);
+  TEST_ASSERT_TRUE(ta.y2 < kb.y1);
+  TEST_ASSERT_TRUE(ta.y1 >= 0);
+  ui_setup_close();
+  lv_timer_handler();
+  lv_display_set_default(d0);
+  lv_display_delete(sq);
+}
+
+static void test_discovery_label_edit(void) {
+  open_setup();
+  click("menu_discovery");
+  click("label_engine_port");
+  type_and_ok("MAIN");
+  click("confirm_engine");
+  const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
+  TEST_ASSERT_EQUAL_STRING("port", r->inst[0].id);
+  TEST_ASSERT_EQUAL_STRING("MAIN", r->inst[0].label);
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -300,5 +405,11 @@ int main(void) {
   RUN_TEST(test_discovery_confirm_writes_pins_and_excludes);
   RUN_TEST(test_discovery_missing_shown);
   RUN_TEST(test_auto_clears_pins);
+  RUN_TEST(test_wifi_scan_lists_sorted);
+  RUN_TEST(test_wifi_choose_then_password_saves_wifi_keys);
+  RUN_TEST(test_sk_manual_host_saves);
+  RUN_TEST(test_request_access_button_calls_cb);
+  RUN_TEST(test_keyboard_keeps_field_visible_480);
+  RUN_TEST(test_discovery_label_edit);
   return UNITY_END();
 }
