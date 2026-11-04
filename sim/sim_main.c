@@ -179,7 +179,9 @@ static int run_snapshots(const char *out) {
             fixture_engines();
             if (write_page(disp, dir, "-live", b)) return 1;
             bd_set_invalid(bd_find("propulsion.port.temperature"));   // the port coolant sender fails
+            bd_set_invalid(bd_find("tanks.fuel.0.currentLevel"));     // and so does the fuel tank sender
             if (write_page(disp, dir, "-fault", b)) return 1;
+            fixture_tanks();
             fixture_engines();                                        // starboard shut down
             bd_set_number(bd_find("propulsion.starboard.revolutions"), 0, SK_SOURCE_ID, platform_millis());
             bd_set_number(bd_find("propulsion.starboard.oilPressure"), 0, SK_SOURCE_ID, platform_millis());

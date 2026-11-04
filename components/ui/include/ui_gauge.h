@@ -26,8 +26,13 @@ lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t 
                          const char *const *needle_labels);   // labels may be NULL
 void ui_dial_set(lv_obj_t *dial, uint8_t needle, double value, bool valid);
 void ui_dial_set_off(lv_obj_t *dial, uint8_t needle);   // engine off: dim "OFF", no needle, no cross
-// A line under the digits, such as "FUEL 55%". Empty or NULL hides it.
-void ui_dial_set_footer(lv_obj_t *dial, const char *text);
+// A second scale on the open bottom of a SWEEP_THREE_QUARTER dial, for tank level: empty at the left, full
+// at the right, 10 degrees clear of the main scale at each end. Up to two tanks, one pointer each. Values are
+// fractions 0..1. `tanks` 0 hides the scale. Labels (may be NULL) only name a tank in its fault flag. Bands are
+// fractions too, filling the track (which is narrower than the pointer), and are copied (at most 6).
+void ui_dial_fuel_setup(lv_obj_t *dial, uint8_t tanks, const char *const *labels, const ui_band_t *bands,
+                        uint8_t band_count);
+void ui_dial_fuel_set(lv_obj_t *dial, uint8_t tank, double fraction, bool valid);
 
 lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool vertical);
 void ui_strip_set(lv_obj_t *strip, double value, bool valid);
@@ -52,6 +57,9 @@ bool ui_dial_needle_visible(lv_obj_t *dial, uint8_t needle);
 bool ui_dial_needle_faulted(lv_obj_t *dial, uint8_t needle);
 double ui_dial_needle_fraction(lv_obj_t *dial, uint8_t needle);
 const char *ui_dial_text(lv_obj_t *dial, uint8_t needle);
+bool ui_dial_fuel_visible(lv_obj_t *dial, uint8_t tank);    // the pointer is drawn
+bool ui_dial_fuel_faulted(lv_obj_t *dial, uint8_t tank);    // this tank is flagged FAIL
+double ui_dial_fuel_fraction(lv_obj_t *dial, uint8_t tank);
 double ui_strip_fraction(lv_obj_t *strip);
 const char *ui_strip_text(lv_obj_t *strip);
 // Font chosen for the value. Pinned to the scale, so it does not change with the reading.
