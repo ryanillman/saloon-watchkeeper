@@ -6,6 +6,7 @@
 #include "platform.h"
 #include "sk_access.h"
 #include "sk_parse.h"
+#include "sk_history.h"
 #include "sk_transport.h"
 
 #define MAX_BOUND 256
@@ -169,6 +170,7 @@ void sk_client_run_once(void) {
     set_state(SK_LIVE);
     alerts_source_up(true);
     printf("signalk: live at %s:%u\n", host, port);
+    sk_history_backfill(base, token);   // trends fill in after a boot or a reconnect; never a fault
     int64_t last_discovery = platform_millis();
     for (;;) {
       platform_lock(c.lock);
