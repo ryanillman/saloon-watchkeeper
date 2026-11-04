@@ -167,6 +167,7 @@ sk_hist_result_t sk_history_backfill(const char *base_url, const char *token) {
   hist_note_backfill(id, true);
   size_t internal = 0, psram = 0;
   platform_mem(&internal, &psram);
-  printf("signalk: history %s: %u rows (internal heap free %u)\n", path, (unsigned)rows, (unsigned)internal);
+  printf("signalk: history %s: %u rows (internal heap free %u, lowest since boot %u)\n", path, (unsigned)rows, (unsigned)internal,
+         (unsigned)platform_min_internal());
   return SK_HIST_ASKED;
 }

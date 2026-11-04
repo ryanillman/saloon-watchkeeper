@@ -21,6 +21,18 @@ static char *auth_value(const char *token) {
   return v;
 }
 
+// Response bodies go to PSRAM: a 12 h history reply is ~25 KB and the buffer doubles as it grows, which in internal RAM
+// (where malloc puts anything up to 16 KB) would hold 24 KB at once on a board with about 38 KB free. Falls back to
+// ordinary malloc if PSRAM has no room. The caller frees with free(), which handles either.
+static void *body_alloc(size_t n) {
+  void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return p ? p : malloc(n);
+}
+static void *body_grow(void *old, size_t n) {
+  void *p = heap_caps_realloc(old, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return p ? p : realloc(old, n);
+}
+
 bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   esp_http_client_config_t cfg = {.url = url, .timeout_ms = 10000};
   esp_http_client_handle_t h = esp_http_client_init(&cfg);
@@ -31,12 +43,12 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   if (esp_http_client_open(h, 0) == ESP_OK && esp_http_client_fetch_headers(h) >= 0 &&
       esp_http_client_get_status_code(h) == 200) {
     size_t cap = 8192, n = 0;
-    char *buf = malloc(cap);
+    char *buf = body_alloc(cap);
     int r;
     while (buf && (r = esp_http_client_read(h, buf + n, (int)(cap - n - 1))) > 0) {
       n += (size_t)r;
       if (cap - n < 1024) {
-        char *next = realloc(buf, cap * 2);
+        char *next = body_grow(buf, cap * 2);
         if (!next) break;
         buf = next;
         cap *= 2;
