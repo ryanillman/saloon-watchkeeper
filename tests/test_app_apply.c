@@ -2,6 +2,7 @@
 #include <string.h>
 #include "alerts.h"
 #include "app.h"
+#include "boatdata.h"
 #include "config.h"
 #include "platform.h"
 #include "ui_alerts.h"
@@ -91,6 +92,42 @@ static void test_apply_keeps_alarm_banner(void) {
   alerts_source_up(false);
 }
 
+static bool clock_hidden(void) { return lv_obj_has_flag(ui_shell_clock(), LV_OBJ_FLAG_HIDDEN); }
+
+static void test_clock_hidden_until_a_time_arrives(void) {
+  app_tick();
+  TEST_ASSERT_TRUE(clock_hidden());
+}
+
+static void test_clock_shows_signalk_time_in_the_configured_zone(void) {
+  bd_id_t id = bd_intern("navigation.datetime");
+  bd_set_text(id, "2026-11-04T19:08:24.174Z", 1, platform_millis());
+  app_tick();
+  TEST_ASSERT_FALSE(clock_hidden());
+  TEST_ASSERT_EQUAL_STRING("19:08", lv_label_get_text(ui_shell_clock()));
+  next.utc_offset_min = -330;
+  app_apply_config(&next);
+  app_tick();
+  TEST_ASSERT_EQUAL_STRING("13:38", lv_label_get_text(ui_shell_clock()));
+}
+
+static void test_clock_keeps_running_when_the_time_goes_invalid(void) {
+  bd_id_t id = bd_intern("navigation.datetime");
+  bd_set_text(id, "2026-11-04T19:08:24Z", 1, platform_millis());
+  app_tick();
+  bd_invalidate_source(1);   // Signal K dropped
+  app_tick();
+  TEST_ASSERT_FALSE(clock_hidden());
+  TEST_ASSERT_EQUAL_STRING("19:08", lv_label_get_text(ui_shell_clock()));
+}
+
+static void test_clock_ignores_a_malformed_time(void) {
+  bd_id_t id = bd_intern("navigation.datetime");
+  bd_set_text(id, "not a time", 1, platform_millis());
+  app_tick();
+  TEST_ASSERT_TRUE(clock_hidden());
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -98,6 +135,10 @@ int main(void) {
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   UNITY_BEGIN();
+  RUN_TEST(test_clock_hidden_until_a_time_arrives);
+  RUN_TEST(test_clock_shows_signalk_time_in_the_configured_zone);
+  RUN_TEST(test_clock_keeps_running_when_the_time_goes_invalid);
+  RUN_TEST(test_clock_ignores_a_malformed_time);
   RUN_TEST(test_apply_identical_is_none);
   RUN_TEST(test_apply_palette_only_display);
   RUN_TEST(test_apply_token_reconnects_signalk);
