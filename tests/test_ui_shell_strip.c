@@ -7,8 +7,10 @@
 #include "unity.h"
 
 static uint8_t buf[1024 * 48 * 2];
+static int flushes;
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   (void)a; (void)px;
+  flushes++;
   lv_display_flush_ready(d);
 }
 static int8_t role_of(const char *id) { (void)id; return 0; }
@@ -126,6 +128,22 @@ static void test_clock_shows_text_and_hides_on_null(void) {
   close_shell();
 }
 
+static void test_setting_the_same_clock_and_source_again_redraws_nothing(void) {   // the app does both every tick
+  open_shell(800, 480, SIZE_WIDE, PALETTE_DAY);
+  ui_shell_set_clock("02:14");
+  ui_shell_set_source(UI_SRC_OFFLINE);
+  update(true);
+  lv_refr_now(NULL);
+  int before = flushes;
+  for (int i = 0; i < 5; i++) {
+    ui_shell_set_clock("02:14");
+    ui_shell_set_source(UI_SRC_OFFLINE);
+  }
+  lv_refr_now(NULL);
+  TEST_ASSERT_EQUAL_INT(before, flushes);
+  close_shell();
+}
+
 static void test_live_is_a_bare_dot_and_trouble_adds_text(void) {
   open_shell(800, 480, SIZE_WIDE, PALETTE_DAY);
   ui_shell_set_source(UI_SRC_LIVE);
@@ -190,6 +208,7 @@ int main(void) {
   RUN_TEST(test_marked_strip_clear_on_800);
   RUN_TEST(test_marked_strip_clear_on_1024);
   RUN_TEST(test_clock_shows_text_and_hides_on_null);
+  RUN_TEST(test_setting_the_same_clock_and_source_again_redraws_nothing);
   RUN_TEST(test_live_is_a_bare_dot_and_trouble_adds_text);
   RUN_TEST(test_dot_shape_differs_by_state_not_only_colour);
   RUN_TEST(test_override_text_replaces_status_text_and_keeps_the_dot);

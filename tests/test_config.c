@@ -473,6 +473,31 @@ static void test_cfg_set_creates_missing_string_key(void) {
   TEST_ASSERT_EQUAL_STRING("192.168.0.108", out.sk.host);
 }
 
+static void test_cfg_set_utc_offset_on_a_file_that_lacks_the_key(void) {
+  // The key is new: `config set` creates a missing key as a string. It must still take effect, and be saved as a number.
+  write_file("config.json", "{ \"display\": {\"brightness\": 80}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.utc_offset_min", "-300", &out, &r));
+  TEST_ASSERT_EQUAL_INT16(-300, out.utc_offset_min);
+  cJSON *root = roles_of(read_file("config.json"));
+  cJSON *tz = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "display"), "utc_offset_min");
+  TEST_ASSERT_TRUE(cJSON_IsNumber(tz));
+  TEST_ASSERT_EQUAL_INT(-300, tz->valueint);
+  cJSON_Delete(root);
+}
+
+static void test_cfg_set_rejects_a_utc_offset_that_is_not_a_number(void) {
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 60}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_FALSE(cfg_set(dir, "display.utc_offset_min", "abc", &out, &r));
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("display.utc_offset_min", r.issues[0].key_path);
+}
+
 static void test_cfg_show_masks_secrets(void) {
   write_file("config.json",
              "{ \"wifi\": {\"ssid\": \"B\", \"password\": \"hunter22\"},"
@@ -547,6 +572,8 @@ int main(void) {
   RUN_TEST(test_cfg_set_rejects_bad_number);
   RUN_TEST(test_cfg_set_rejects_invalid_value);
   RUN_TEST(test_cfg_set_creates_missing_string_key);
+  RUN_TEST(test_cfg_set_utc_offset_on_a_file_that_lacks_the_key);
+  RUN_TEST(test_cfg_set_rejects_a_utc_offset_that_is_not_a_number);
   RUN_TEST(test_cfg_show_masks_secrets);
   RUN_TEST(test_power_primary_round_trip);
   RUN_TEST(test_power_banks_round_trip);
