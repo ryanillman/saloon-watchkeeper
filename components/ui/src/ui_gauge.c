@@ -22,6 +22,7 @@ typedef struct {
   bool off[2];                   // engine off: shown dim, not as a fault
   bool vertical;
   uint8_t alert;                 // alert_state_t of the notification on this field
+  bool centered;                 // readout: text centred in the field instead of left-aligned
   bool text_mode;                // readout showing a string (ui_readout_set_text)
   char text[2][24];
   uint8_t fuel_n;                // dial: tank pointers on the second scale; 0 = no second scale
@@ -642,7 +643,9 @@ static void draw_readout(lv_event_t *e) {
   lv_obj_get_coords(o, &a);
   int32_t h = lv_area_get_height(&a);
   const lv_font_t *lf = font_for(h / 4), *vf = font_for(h * 6 / 10);
-  text_at(layer, g->name, lf, c->dim, a.x1 + 4, a.y1 + lv_font_get_line_height(lf) / 2, LV_TEXT_ALIGN_LEFT);
+  lv_text_align_t al = g->centered ? LV_TEXT_ALIGN_CENTER : LV_TEXT_ALIGN_LEFT;
+  int32_t tx = g->centered ? (a.x1 + a.x2) / 2 : a.x1 + 4;
+  text_at(layer, g->name, lf, c->dim, tx, a.y1 + lv_font_get_line_height(lf) / 2, al);
   if (!g->valid[0]) return;
   char v[48];
   if (g->text_mode) snprintf(v, sizeof v, "%s", g->text[0]);
@@ -653,7 +656,7 @@ static void draw_readout(lv_event_t *e) {
   size_t s0 = 0;
   while (s0 < 3 && steps[s0] != vf) s0++;
   for (size_t k = s0; k < 3 && lv_text_get_width(v, strlen(v), vf, 0) + 8 > lv_area_get_width(&a); k++) vf = steps[k + 1];
-  text_at(layer, v, vf, value_color(g), a.x1 + 4, a.y2 - lv_font_get_line_height(vf) / 2, LV_TEXT_ALIGN_LEFT);
+  text_at(layer, v, vf, value_color(g), tx, a.y2 - lv_font_get_line_height(vf) / 2, al);
 }
 
 lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *unit, uint8_t decimals) {
@@ -686,6 +689,13 @@ void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
   g->valid[0] = valid;
   memcpy(g->text[0], next, sizeof next);
   sync_fault(o);
+}
+
+void ui_readout_set_centered(lv_obj_t *o, bool centered) {
+  gauge_t *g = G(o);
+  if (g->centered == centered) return;
+  g->centered = centered;
+  lv_obj_invalidate(o);
 }
 
 void ui_field_set_fault_text(lv_obj_t *o, const char *text) { lv_label_set_text(G(o)->fault_label, text); }
