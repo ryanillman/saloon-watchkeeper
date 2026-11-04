@@ -40,6 +40,7 @@ typedef struct {
   cfg_units_t units;
   char palette[6];          // "auto" | "day" | "dusk" | "night"
   uint8_t brightness;       // 0..100
+  int16_t utc_offset_min;   // display.utc_offset_min: local time minus UTC, -720..840
   char start_role[12];
   bool buzzer;
   cfg_role_t roles[CFG_MAX_ROLES];

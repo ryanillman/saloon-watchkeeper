@@ -178,6 +178,22 @@ static void build_menu(void) {
 }
 
 static void on_brightness(lv_event_t *e) { u.work.brightness = (uint8_t)lv_slider_get_value(lv_event_get_target(e)); }
+static lv_obj_t *tz_label;   // the Display screen's time zone value, valid while that screen is shown
+
+static void show_tz(void) {
+  int m = u.work.utc_offset_min;
+  char buf[16];
+  snprintf(buf, sizeof buf, "UTC%c%02d:%02d", m < 0 ? '-' : '+', abs(m) / 60, abs(m) % 60);
+  if (tz_label) lv_label_set_text(tz_label, buf);
+}
+
+static void on_tz(lv_event_t *e) {
+  int step = (int)(intptr_t)lv_event_get_user_data(e);
+  int m = u.work.utc_offset_min + step;
+  u.work.utc_offset_min = (int16_t)(m < -720 ? -720 : m > 840 ? 840 : m);
+  show_tz();
+}
+
 static void on_buzzer(lv_event_t *e) { u.work.buzzer = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED); }
 
 static lv_obj_t *on_off(lv_obj_t *parent, bool on, lv_event_cb_t fn, void *arg);
@@ -215,6 +231,15 @@ static void build_display(void) {
   } else {
     text(r, "ON (this screen does not dim)", c->fg);
   }
+
+  lv_obj_t *zr = row(u.body);
+  lv_obj_t *zl = text(zr, "Time zone", c->dim);
+  lv_obj_set_width(zl, u.sc == SIZE_WIDE ? 200 : lv_pct(100));
+  part("tz_minus", button(zr, "-", on_tz, (void *)(intptr_t)-30));
+  tz_label = text(zr, "", c->fg);
+  part("tz_value", tz_label);
+  part("tz_plus", button(zr, "+", on_tz, (void *)(intptr_t)30));
+  show_tz();
 
   if (u.cb->has_buzzer) {
     lv_obj_t *br = row(u.body);

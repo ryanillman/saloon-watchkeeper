@@ -488,8 +488,44 @@ static void test_cfg_show_masks_secrets(void) {
   free(s);
 }
 
+static void test_utc_offset_default_is_zero(void) {
+  cfg_t c;
+  cfg_defaults(&c);
+  TEST_ASSERT_EQUAL_INT16(0, c.utc_offset_min);
+}
+
+static void test_utc_offset_loads_and_clamps(void) {
+  cfg_t c;
+  cfg_report_t r;
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": -480} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(-480, c.utc_offset_min);
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 2000} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(840, c.utc_offset_min);
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": -2000} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(-720, c.utc_offset_min);
+}
+
+static void test_utc_offset_saves_and_keeps_unknown_display_keys(void) {
+  cfg_t c;
+  cfg_report_t r;
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 60, \"theme_note\": \"keep\"} }");
+  cfg_load(dir, &c, &r);
+  c.utc_offset_min = 330;
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "theme_note"));
+  cfg_t again;
+  cfg_load(dir, &again, &r);
+  TEST_ASSERT_EQUAL_INT16(330, again.utc_offset_min);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_utc_offset_default_is_zero);
+  RUN_TEST(test_utc_offset_loads_and_clamps);
+  RUN_TEST(test_utc_offset_saves_and_keeps_unknown_display_keys);
   RUN_TEST(test_minimal_file_loads);
   RUN_TEST(test_full_role_fields);
   RUN_TEST(test_missing_main_uses_backup);
