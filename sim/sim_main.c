@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "alerts.h"
 #include "app.h"
+#include "app_cmd.h"
 #include "boatdata.h"
 #include "lvgl.h"
 #include "platform.h"
@@ -16,6 +17,8 @@
 #include "sk_parse.h"
 #include "snapshot.h"
 #include "ui_alerts.h"
+#include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 static uint32_t tick(void) { return (uint32_t)platform_millis(); }
@@ -238,6 +241,42 @@ static int run_snapshots(const char *out) {
             lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
             lv_timer_handler();
           }
+          if ((!strcmp(b->id, "sim800") || !strcmp(b->id, "sim480")) && pal != PALETTE_DUSK) {   // setup
+            lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+            lv_obj_send_event(ui_quick_part(UI_QUICK_SETUP), LV_EVENT_CLICKED, NULL);
+            lv_timer_handler();
+            static const struct { ui_setup_screen_t s; const char *name; } shots[] = {
+              {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"},
+              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}};
+            for (size_t k = 0; k < sizeof shots / sizeof shots[0]; k++) {
+              ui_setup_show(shots[k].s);
+              lv_obj_invalidate(lv_display_get_screen_active(disp));
+              lv_refr_now(disp);
+              snprintf(path, sizeof path, "%s/%s.png", dir, shots[k].name);
+              if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+            }
+            static const ui_ap_t aps[] = {{"Boatnet", -48, true}, {"Marina Guest", -71, false}, {"Neighbour", -83, true}};
+            ui_setup_show(SETUP_WIFI);
+            ui_setup_wifi_results(aps, 3);
+            lv_timer_handler();
+            static const char *const extra[] = {"setup-wifi", "setup-wifi-keyboard", "setup-signalk"};
+            for (size_t k = 0; k < 3; k++) {
+              if (k == 1) {
+                lv_obj_send_event(ui_setup_part("ap_Boatnet"), LV_EVENT_CLICKED, NULL);
+                lv_timer_handler();
+              }
+              if (k == 2) {
+                ui_setup_show(SETUP_SIGNALK);
+                lv_timer_handler();
+              }
+              lv_obj_invalidate(lv_display_get_screen_active(disp));
+              lv_refr_now(disp);
+              snprintf(path, sizeof path, "%s/%s.png", dir, extra[k]);
+              if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+            }
+            ui_setup_close();
+            lv_timer_handler();
+          }
         }
       }
     }
@@ -255,6 +294,31 @@ static void tick_cb(lv_timer_t *t) {
   app_tick();
 }
 
+// --console: the same commands as the boards' serial prompt, typed into this terminal.
+static void line_out(const char *line) { printf("%s\n", line); }
+static void console_loop(void *arg) {
+  (void)arg;
+  char line[512];
+  printf("bi> ");
+  fflush(stdout);
+  while (fgets(line, sizeof line, stdin)) {
+    char *argv[16];
+    int argc = 0;
+    for (char *p = line; *p && argc < 16;) {   // words, or "quoted words"
+      while (*p == ' ' || *p == '\t' || *p == '\n') p++;
+      if (!*p) break;
+      char end = *p == '"' ? '"' : ' ';
+      if (end == '"') p++;
+      argv[argc++] = p;
+      while (*p && *p != end && *p != '\n') p++;
+      if (*p) *p++ = 0;
+    }
+    if (argc) app_cmd_run(argc, argv, line_out);
+    printf("bi> ");
+    fflush(stdout);
+  }
+}
+
 static palette_t parse_palette(const char *s) {
   if (strcmp(s, "dusk") == 0) return PALETTE_DUSK;
   if (strcmp(s, "night") == 0) return PALETTE_NIGHT;
@@ -266,6 +330,7 @@ int main(int argc, char **argv) {
   const char *capture = NULL;
   int after_s = 10;
   int page = 0;
+  bool console = false;
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--board") == 0 && i + 1 < argc) board_id = argv[++i];
     else if (strcmp(argv[i], "--palette") == 0 && i + 1 < argc) palette = argv[++i];
@@ -274,10 +339,12 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[i], "--capture") == 0 && i + 1 < argc) capture = argv[++i];
     else if (strcmp(argv[i], "--after") == 0 && i + 1 < argc) after_s = atoi(argv[++i]);
     else if (strcmp(argv[i], "--page") == 0 && i + 1 < argc) page = atoi(argv[++i]);
+    else if (strcmp(argv[i], "--console") == 0) console = true;
     else {
       fprintf(stderr, "usage: sim [--board sim480|sim800|sim1024] [--palette day|dusk|night]\n"
                       "           [--config <dir with config.json>] [--snapshot <dir>]\n"
-                      "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n");
+                      "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n"
+                      "           [--console]   serial commands on this terminal\n");
       return 2;
     }
   }
@@ -298,6 +365,7 @@ int main(int argc, char **argv) {
   for (uint8_t i = 0; i < rep.count; i++)
     fprintf(stderr, "config: %s (line %d): %s\n", rep.issues[i].key_path, rep.issues[i].line, rep.issues[i].message);
   if (palette) snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[parse_palette(palette)]);
+  app_set_info(board_id, "sim");
   app_bind();
 
   if (capture) {   // live data, no window: run for a while, then save the screen
@@ -310,6 +378,7 @@ int main(int argc, char **argv) {
     app_start_ui(disp, b->size_class);
     for (int p = 0; p < page; p++) ui_shell_move(NAV_UP);
     app_start_network();
+    if (console) platform_task(console_loop, NULL, "console", 0);
     int64_t end = platform_millis() + (int64_t)after_s * 1000;
     while (platform_millis() < end) {
       app_tick();
@@ -327,6 +396,7 @@ int main(int argc, char **argv) {
   lv_indev_set_group(lv_sdl_keyboard_create(), lv_group_get_default());
   app_start_ui(disp, b->size_class);
   app_start_network();
+  if (console) platform_task(console_loop, NULL, "console", 0);
   lv_timer_create(tick_cb, 100, NULL);
 
   for (;;) {

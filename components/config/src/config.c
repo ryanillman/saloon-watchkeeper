@@ -4,12 +4,21 @@
 #include <string.h>
 #include <unistd.h>
 #include "cJSON.h"
+#include "platform.h"
 
 static const char *KNOWN_ROLES[] = {"engine", "power", "tanks", "anchor", "wind", "nav"};
 static const char *DEFAULT_ROLES[] = {"engine", "power", "tanks", "anchor"};
 
 // The JSON tree last loaded or saved. Saves edit it in place so unknown keys survive.
+// The UI, config writer, and console tasks all reach it: every access holds `lock`.
 static cJSON *tree;
+static void *lock;
+
+static void take(void) {
+  if (!lock) lock = platform_lock_create();   // first use is cfg_load at boot, before other tasks
+  platform_lock(lock);
+}
+static void give(void) { platform_unlock(lock); }
 
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #define COPY(dst, json) copy_str((dst), sizeof(dst), (json))
@@ -117,6 +126,7 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *port = cJSON_GetObjectItem(sk, "port");
   if (cJSON_IsNumber(port) && port->valueint > 0 && port->valueint < 65536) c->sk.port = (uint16_t)port->valueint;
   COPY(c->sk.token, cJSON_GetObjectItem(sk, "token"));
+  COPY(c->sk.request, cJSON_GetObjectItem(sk, "request"));
 
   const cJSON *u = cJSON_GetObjectItem(root, "units");
   unit(u, "temperature", c->units.temperature, sizeof c->units.temperature, (const char *[]){"C", "F", NULL}, rep);
@@ -146,7 +156,10 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
       parse_role(it, r);
       char key[24];
       snprintf(key, sizeof key, "roles[%d].role", i++);
-      if (known_role(r->role)) c->role_count++;
+      if (known_role(r->role)) {
+        r->src_entry = (uint8_t)i;   // i was already advanced: 1-based
+        c->role_count++;
+      }
       else {
         issue(rep, key, 0, "unknown role; skipped");
         memset(r, 0, sizeof *r);
@@ -202,7 +215,16 @@ static bool try_load(const char *path, const char *name, cfg_t *out, cfg_report_
   return true;
 }
 
+static cfg_origin_t load_locked(const char *dir, cfg_t *out, cfg_report_t *rep);
+
 cfg_origin_t cfg_load(const char *dir, cfg_t *out, cfg_report_t *rep) {
+  take();
+  cfg_origin_t o = load_locked(dir, out, rep);
+  give();
+  return o;
+}
+
+static cfg_origin_t load_locked(const char *dir, cfg_t *out, cfg_report_t *rep) {
   char path[160];
   memset(rep, 0, sizeof *rep);
   snprintf(path, sizeof path, "%s/config.json", dir);
@@ -268,28 +290,51 @@ static void write_role(cJSON *o, const cfg_role_t *r) {
   }
 }
 
+// Rebuilds the roles array: each known role updates the entry it came from (matched by
+// src_entry and name, else by name), so its own unknown keys stay. Entries the firmware did
+// not load (role names it does not know) are kept unchanged after the known roles. Known
+// entries no role claims were removed by the user and are dropped.
 static void write_roles(cJSON *root, const cfg_t *c) {
-  cJSON *a = cJSON_GetObjectItem(root, "roles");
-  if (!cJSON_IsArray(a)) {
-    cJSON_DeleteItemFromObject(root, "roles");
-    a = cJSON_AddArrayToObject(root, "roles");
+  cJSON *old = cJSON_DetachItemFromObject(root, "roles");
+  if (!cJSON_IsArray(old)) {
+    cJSON_Delete(old);
+    old = cJSON_CreateArray();
   }
+  int n_old = cJSON_GetArraySize(old);
+  bool claimed[64] = {0};
+  cJSON *a = cJSON_AddArrayToObject(root, "roles");
   for (uint8_t i = 0; i < c->role_count; i++) {
-    cJSON *o = cJSON_GetArrayItem(a, i);
-    const cJSON *name = cJSON_GetObjectItem(o, "role");
-    bool same = cJSON_IsObject(o) && cJSON_IsString(name) && strcmp(name->valuestring, c->roles[i].role) == 0;
-    if (!same) {   // a different role now sits here; start this entry fresh
-      cJSON *fresh = cJSON_CreateObject();
-      if (o) cJSON_ReplaceItemInArray(a, i, fresh);
-      else cJSON_AddItemToArray(a, fresh);
-      o = fresh;
+    const cfg_role_t *r = &c->roles[i];
+    int from = -1;
+    int k = (int)r->src_entry - 1;
+    if (k >= 0 && k < n_old && k < 64 && !claimed[k]) {
+      const cJSON *nm = cJSON_GetObjectItem(cJSON_GetArrayItem(old, k), "role");
+      if (cJSON_IsString(nm) && strcmp(nm->valuestring, r->role) == 0) from = k;
     }
-    write_role(o, &c->roles[i]);
+    for (k = 0; from < 0 && k < n_old && k < 64; k++) {
+      const cJSON *nm = cJSON_GetObjectItem(cJSON_GetArrayItem(old, k), "role");
+      if (!claimed[k] && cJSON_IsString(nm) && strcmp(nm->valuestring, r->role) == 0) from = k;
+    }
+    cJSON *o;
+    if (from >= 0) {
+      claimed[from] = true;
+      o = cJSON_Duplicate(cJSON_GetArrayItem(old, from), 1);
+    } else {
+      o = cJSON_CreateObject();
+    }
+    write_role(o, r);
+    cJSON_AddItemToArray(a, o);
   }
-  while (cJSON_GetArraySize(a) > c->role_count) cJSON_DeleteItemFromArray(a, c->role_count);
+  for (int k = 0; k < n_old; k++) {
+    cJSON *it = cJSON_GetArrayItem(old, k);
+    const cJSON *nm = cJSON_GetObjectItem(it, "role");
+    bool known = cJSON_IsString(nm) && known_role(nm->valuestring);
+    if (!(k < 64 && claimed[k]) && !known) cJSON_AddItemToArray(a, cJSON_Duplicate(it, 1));
+  }
+  cJSON_Delete(old);
 }
 
-bool cfg_save(const char *dir, const cfg_t *c) {
+static bool save_locked(const char *dir, const cfg_t *c) {
   if (!tree) tree = cJSON_CreateObject();
   set_num(tree, "version", CFG_VERSION);
   cJSON *w = object(tree, "wifi");
@@ -299,6 +344,8 @@ bool cfg_save(const char *dir, const cfg_t *c) {
   set_str(sk, "host", c->sk.host);
   set_num(sk, "port", c->sk.port);
   set_str(sk, "token", c->sk.token);
+  if (c->sk.request[0]) set_str(sk, "request", c->sk.request);
+  else cJSON_DeleteItemFromObject(sk, "request");
   cJSON *u = object(tree, "units");
   set_str(u, "temperature", c->units.temperature);
   set_str(u, "pressure", c->units.pressure);
@@ -333,4 +380,108 @@ bool cfg_save(const char *dir, const cfg_t *c) {
   remove(bak);
   rename(main_, bak);
   return rename(tmp, main_) == 0;
+}
+
+
+bool cfg_save(const char *dir, const cfg_t *c) {
+  take();
+  bool ok = save_locked(dir, c);
+  give();
+  return ok;
+}
+
+// ---- key-path edits ----
+
+// Sets path (dot-separated) in root to text, keeping an existing key's type.
+// Returns false with an issue in *err when the text does not fit that type.
+static bool set_path(cJSON *root, const char *path, const char *text, cfg_report_t *err) {
+  char buf[96];
+  snprintf(buf, sizeof buf, "%s", path);
+  cJSON *o = root;
+  char *seg = buf, *dot;
+  while ((dot = strchr(seg, '.')) != NULL) {
+    *dot = 0;
+    if (!*seg) break;
+    o = object(o, seg);
+    seg = dot + 1;
+  }
+  if (!*seg) {
+    issue(err, path, 0, "not a key path");
+    return false;
+  }
+  cJSON *cur = cJSON_GetObjectItem(o, seg);
+  if (cJSON_IsNumber(cur)) {
+    char *end;
+    double v = strtod(text, &end);
+    if (end == text || *end) {
+      issue(err, path, 0, "not a number");
+      return false;
+    }
+    set_num(o, seg, v);
+  } else if (cJSON_IsBool(cur)) {
+    bool v;
+    if (!strcmp(text, "true")) v = true;
+    else if (!strcmp(text, "false")) v = false;
+    else {
+      issue(err, path, 0, "not true or false");
+      return false;
+    }
+    cJSON_DeleteItemFromObject(o, seg);
+    cJSON_AddBoolToObject(o, seg, v);
+  } else if (cur && !cJSON_IsString(cur)) {
+    issue(err, path, 0, "not a plain value; edit config.json by hand");
+    return false;
+  } else {
+    set_str(o, seg, text);
+  }
+  return true;
+}
+
+bool cfg_set(const char *dir, const char *path, const char *text, cfg_t *out, cfg_report_t *err) {
+  memset(err, 0, sizeof *err);
+  take();
+  cJSON *edit = tree ? cJSON_Duplicate(tree, 1) : cJSON_CreateObject();
+  bool ok = edit && set_path(edit, path, text, err);
+  if (ok) {
+    cfg_report_t rep = {0};
+    cfg_defaults(out);
+    parse(edit, out, &rep);
+    size_t pl = strlen(path);
+    for (uint8_t i = 0; i < rep.count; i++)   // only issues about the key being set count
+      if (!strncmp(rep.issues[i].key_path, path, pl)) {
+        err->issues[err->count++] = rep.issues[i];
+        ok = false;
+      }
+  }
+  if (ok) {
+    cJSON_Delete(tree);
+    tree = edit;
+    edit = NULL;
+    ok = save_locked(dir, out);
+    if (!ok) issue(err, path, 0, "could not write config.json");
+  }
+  cJSON_Delete(edit);
+  give();
+  return ok;
+}
+
+static void mask(cJSON *o, const char *key) {
+  cJSON *v = cJSON_GetObjectItem(o, key);
+  if (!cJSON_IsString(v) || !v->valuestring[0]) return;
+  char m[32];
+  snprintf(m, sizeof m, "set (%u chars)", (unsigned)strlen(v->valuestring));
+  set_str(o, key, m);
+}
+
+char *cfg_show(const char *dir) {
+  (void)dir;
+  take();
+  cJSON *copy = tree ? cJSON_Duplicate(tree, 1) : NULL;
+  give();
+  if (!copy) return NULL;
+  mask(cJSON_GetObjectItem(copy, "wifi"), "password");
+  mask(cJSON_GetObjectItem(cJSON_GetObjectItem(copy, "sources"), "signalk"), "token");
+  char *s = cJSON_Print(copy);
+  cJSON_Delete(copy);
+  return s;
 }

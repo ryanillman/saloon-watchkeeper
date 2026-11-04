@@ -4,6 +4,7 @@
 #include <string.h>
 #include "alerts.h"
 #include "platform.h"
+#include "sk_access.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
 
@@ -14,6 +15,8 @@ PLATFORM_EXT_BSS static struct {
   sk_sub_t bound[MAX_BOUND];
   size_t n_bound;
   bool resubscribe;
+  bool reconnect;   // new host, port, or token: close and connect again
+  bool rediscover;  // setup asked to read the tree again now
   sk_state_t state;
   int attempt;
   uint32_t discoveries;
@@ -121,18 +124,39 @@ void sk_client_set_rediscover_ms(int32_t ms) {
   platform_unlock(c.lock);
 }
 
+void sk_client_rediscover_now(void) {
+  if (!c.lock) return;
+  platform_lock(c.lock);
+  c.rediscover = true;
+  platform_unlock(c.lock);
+}
+
+void sk_client_reconfigure(const cfg_sk_t *cfg) {
+  if (!c.lock) c.lock = platform_lock_create();
+  platform_lock(c.lock);
+  c.cfg = *cfg;
+  c.reconnect = true;
+  c.attempt = 0;
+  platform_unlock(c.lock);
+}
+
 void sk_client_run_once(void) {
+  platform_lock(c.lock);
+  cfg_sk_t cfg = c.cfg;   // a reconfigure from the UI task may replace it while this cycle runs
+  c.reconnect = false;
+  platform_unlock(c.lock);
   char host[64];
-  unsigned port = c.cfg.port;
-  snprintf(host, sizeof host, "%s", c.cfg.host);
+  unsigned port = cfg.port;
+  snprintf(host, sizeof host, "%s", cfg.host);
   if (strcmp(host, "auto") == 0 && !sk_resolve_auto(host, sizeof host, &port)) {
     set_state(SK_BACKOFF);
     return;
   }
-  const char *token = c.cfg.token[0] ? c.cfg.token : NULL;
+  const char *token = cfg.token[0] ? cfg.token : NULL;
   char url[160], rest[160], base[96];
   snprintf(base, sizeof base, "http://%s:%u", host, port);
 
+  sk_access_poll(base, platform_millis());   // an access request needs only HTTP
   set_state(SK_DISCOVERING);
   snprintf(rest, sizeof rest, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
   snprintf(url, sizeof url, "%s", rest);
@@ -148,16 +172,19 @@ void sk_client_run_once(void) {
     int64_t last_discovery = platform_millis();
     for (;;) {
       platform_lock(c.lock);
-      bool again = c.resubscribe;
+      bool again = c.resubscribe, reconnect = c.reconnect, now_please = c.rediscover;
+      c.rediscover = false;
       int32_t every = c.rediscover_ms;
       platform_unlock(c.lock);
+      if (reconnect) break;   // closes below; the next cycle uses the new settings
       if (again && !subscribe(true)) break;
       if (!sk_ws_poll(200)) break;
       // Deltas were lost while this task was blocked. Notifications are sent only on
       // change, so a lost one would never come back: resubscribe to get them resent.
       if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
-      if (platform_millis() - last_discovery >= every) {   // engines that power up later
+      sk_access_poll(base, platform_millis());
+      if (now_please || platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);
         last_discovery = platform_millis();
       }

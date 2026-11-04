@@ -19,6 +19,10 @@ void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_ale
                       ui_alert_page_fn page_of);
 void ui_alerts_update(const alerts_snapshot_t *s, int64_t now_ms);   // UI task, every tick
 
+// Puts the banner and the alert list back on top after another overlay was created
+// (setup): an alarm is never drawn underneath anything.
+void ui_alerts_to_front(void);
+
 // Queries, for tests.
 bool ui_alerts_banner_visible(void);
 const char *ui_alerts_banner_text(void);

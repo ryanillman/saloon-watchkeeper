@@ -94,6 +94,7 @@ void alerts_upsert(const alert_t *in, int64_t now_ms) {
   e->a.audible = in->audible;
   e->s_ack = in->acked;
   e->s_sil = in->silenced;
+  if (e->s_ack) e->a.send_failed = false;   // the server has it acknowledged: every display knows
   merge(e);
   UNLOCK();
 }
@@ -161,6 +162,11 @@ void alerts_request(const char *id, alert_req_t req) {
   int i = find(id);
   if (i < 0) { UNLOCK(); return; }
   entry_t *e = &list[i];
+  // Already done, here or on another display: the server would refuse it, so send nothing.
+  if ((req == AL_REQ_ACK && e->a.acked) || (req == AL_REQ_SILENCE && e->a.silenced)) {
+    UNLOCK();
+    return;
+  }
   if (req == AL_REQ_ACK) e->l_ack = true;
   else e->l_sil = true;
   merge(e);

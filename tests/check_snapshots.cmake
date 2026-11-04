@@ -5,7 +5,10 @@ execute_process(COMMAND ${SIM} --snapshot ${OUT} RESULT_VARIABLE rc)
 if(NOT rc EQUAL 0)
   message(FATAL_ERROR "sim --snapshot exited with ${rc}")
 endif()
-foreach(f sim480/day/engine-p0-live.png sim1024/night/anchor-p0.png sim800/dusk/engine-p1-live.png
+foreach(f sim480/day/setup-wifi-keyboard.png sim800/night/setup-wifi.png sim800/day/setup-signalk.png
+        sim480/day/setup-roles.png sim800/day/setup-discovery.png
+        sim480/day/setup-menu.png sim800/day/setup-display.png sim800/night/setup-about.png sim480/night/setup-display.png
+        sim480/day/engine-p0-live.png sim1024/night/anchor-p0.png sim800/dusk/engine-p1-live.png
         sim800/day/engine-p0-fault.png sim480/day/engine-p0-fault.png sim1024/day/engine-p1-fault.png
         sim800/day/engine-p0-off.png sim480/day/engine-p1-off.png
         sim480/day/tanks-p0-live.png sim480/day/tanks-p1-live.png sim800/night/tanks-p0-live.png

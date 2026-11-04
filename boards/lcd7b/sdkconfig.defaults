@@ -1,3 +1,6 @@
-# Waveshare ESP32-S3-Touch-LCD-7B (1024x600). Logs on native USB (EXIO5 stays low).
+# Waveshare ESP32-S3-Touch-LCD-7B (1024x600). The console (logs and commands) is on the
+# UART Type-C port; native USB carries a second copy of the logs when it is plugged in.
+# Existing build directories need `idf.py -B build/lcd7b fullclean` to pick this up.
 CONFIG_BI_BOARD_LCD7B=y
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y

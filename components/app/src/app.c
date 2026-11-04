@@ -4,12 +4,15 @@
 #include <string.h>
 #include "alerts.h"
 #include "boatdata.h"
+#include "net.h"
 #include "platform.h"
 #include "role.h"
+#include "sk_access.h"
 #include "sk_client.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
 #include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -38,7 +41,11 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   bool dirty;
   int64_t dirty_ms;
   palette_t auto_last;   // the last palette environment.mode asked for; day until one arrives
+  cfg_origin_t origin;
 } a;
+
+static char info_board[16] = "?", info_version[32] = "?";
+static void fill_status_now(app_status_t *s);
 
 #define SAVE_DELAY_MS 2000
 
@@ -50,6 +57,11 @@ static struct {
   cfg_t *cfg;     // pending copy, heap (18 KB: PSRAM on the boards, not internal RAM)
   char dir[128];
   bool pending, started;
+  // A console `config set`, run here after any queued save so a stale copy can't overwrite it.
+  bool set_pending, set_done, set_ok;
+  char set_path[96], set_text[256];
+  cfg_report_t set_err;
+  cfg_t *set_out;   // heap, like the others
 } w;
 static cfg_t *w_work;   // the worker's own copy, heap for the same reason
 
@@ -67,20 +79,34 @@ static void config_writer(void *arg) {
     }
     platform_unlock(w.lock);
     if (take && !cfg_save(dir, w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
-    platform_sleep_ms(100);
+    platform_lock(w.lock);
+    bool set = w.set_pending;
+    w.set_pending = false;
+    memcpy(dir, w.dir, sizeof dir);
+    platform_unlock(w.lock);
+    if (set) {
+      bool ok = cfg_set(dir, w.set_path, w.set_text, w.set_out, &w.set_err);
+      platform_lock(w.lock);
+      w.set_ok = ok;
+      w.set_done = true;
+      platform_unlock(w.lock);
+    }
+    platform_sleep_ms(take || set ? 10 : 100);
   }
 }
 
 static void start_writer(void) {
   if (w.started) return;
   w.lock = platform_lock_create();
-  w.cfg = malloc(sizeof *w.cfg);   // two buffers over the 16 KB internal-alloc limit go to PSRAM
+  w.cfg = malloc(sizeof *w.cfg);   // buffers over the 16 KB internal-alloc limit go to PSRAM
   w_work = malloc(sizeof *w_work);
-  if (!w.lock || !w.cfg || !w_work) {
+  w.set_out = malloc(sizeof *w.set_out);
+  if (!w.lock || !w.cfg || !w_work || !w.set_out) {
     fprintf(stderr, "config: no memory for the writer; changes will not be saved\n");
     free(w.cfg);
     free(w_work);
-    w.cfg = w_work = NULL;
+    free(w.set_out);
+    w.cfg = w_work = w.set_out = NULL;
     return;
   }
   w.started = platform_task(config_writer, NULL, "config", 6144);
@@ -105,8 +131,9 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   if (!roles) roles = calloc(CFG_MAX_ROLES, sizeof *roles);
   else memset(roles, 0, CFG_MAX_ROLES * sizeof *roles);
   a.roles = roles;
-  if (dir) cfg_load(dir, &a.cfg, report);
+  if (dir) a.origin = cfg_load(dir, &a.cfg, report);
   else {
+    a.origin = CFG_FROM_DEFAULTS;
     cfg_defaults(&a.cfg);
     memset(report, 0, sizeof *report);
   }
@@ -238,11 +265,125 @@ static void on_brightness(uint8_t percent) {
   mark_dirty();
 }
 
-static const ui_quick_cb_t quick_cb = {on_palette, on_brightness};
+// Setup: SAVE applies the edited copy and saves it (when there is an SD card).
+static void setup_save(const cfg_t *edited) {
+  app_apply_config(edited);
+  mark_dirty();
+}
+
+static void setup_about(char *out, size_t n) {
+  app_status_t s;
+  fill_status_now(&s);
+  snprintf(out, n,
+           "Firmware: %s\nBoard: %s\nIP: %s\nSD card: %s\nConfig: %s\nMemory free: internal %u KB, PSRAM %u KB",
+           s.firmware, s.board, s.wifi ? s.ip : "not connected", s.sd ? "mounted" : "none", s.origin, s.internal_kb,
+           s.psram_kb);
+}
+
+static uint8_t setup_discovery(ui_disc_role_t *out, uint8_t max) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < a.count && n < max; i++) {
+    if (!a.roles[i].def) continue;
+    memset(&out[n], 0, sizeof out[n]);
+    snprintf(out[n].role, sizeof out[n].role, "%s", a.cfg.roles[i].role);
+    out[n].count = role_discover(a.roles[i].def, out[n].ids, 16);
+    n++;
+  }
+  return n;
+}
+
+static void setup_rediscover(void) {
+  if (a.network) sk_client_rediscover_now();
+}
+
+// Wi-Fi scan: blocking for a few seconds, so it runs on its own short-lived task and the
+// results come back to the UI task.
+static struct {
+  bool busy;
+  net_ap_t found[16];
+  int n;
+} scan;
+
+static void scan_deliver(void *arg) {
+  (void)arg;
+  ui_ap_t aps[16];
+  for (int i = 0; i < scan.n; i++) {
+    snprintf(aps[i].ssid, sizeof aps[i].ssid, "%s", scan.found[i].ssid);
+    aps[i].rssi = scan.found[i].rssi;
+    aps[i].secure = scan.found[i].secure;
+  }
+  ui_setup_wifi_results(aps, scan.n);
+  scan.busy = false;
+}
+
+static void scan_task(void *arg) {
+  (void)arg;
+  scan.n = net_wifi_scan(scan.found, 16);
+  app_post(scan_deliver, NULL, 0);
+}
+
+static void setup_wifi_scan(void) {
+  if (scan.busy) return;
+  scan.busy = true;
+  if (!platform_task(scan_task, NULL, "wifiscan", 4096)) {
+    scan.busy = false;
+    ui_setup_wifi_results(NULL, 0);
+  }
+}
+
+static void setup_wifi_state(char *out, size_t n) {
+  char ip[16];
+  int8_t rssi;
+  if (!a.cfg.wifi.ssid[0]) snprintf(out, n, "Wi-Fi: not set up");
+  else if (net_wifi_info(ip, &rssi)) snprintf(out, n, "Connected to %s, %s, %d dBm", a.cfg.wifi.ssid, ip, rssi);
+  else snprintf(out, n, "Connecting to %s", a.cfg.wifi.ssid);
+}
+
+static void setup_sk_state(char *out, size_t n) {
+  app_status_t s;
+  fill_status_now(&s);
+  snprintf(out, n, "Signal K: %s", s.signalk);
+}
+
+static void setup_request_access(void) {
+  char as[64];
+  app_request_access(as, sizeof as);
+}
+
+static void setup_access_state(char *out, size_t n) {
+  ska_state_t st = sk_access_state(NULL);
+  if (st == SKA_IDLE) snprintf(out, n, "Access request: none");
+  else snprintf(out, n, "Access request: %s (%s)", sk_access_state_name(st), sk_access_message());
+}
+
+static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery,
+                                 .run_discovery = setup_rediscover, .wifi_scan = setup_wifi_scan,
+                                 .wifi_state = setup_wifi_state, .sk_state = setup_sk_state,
+                                 .request_access = setup_request_access, .access_state = setup_access_state};
+
+static void open_setup(void) {
+  ui_quick_close();
+  setup_cb.has_buzzer = a.buzzer_ok;
+  setup_cb.has_sd = a.dir[0] != 0;
+  setup_cb.dims = a.dims;
+  setup_cb.roles_available = role_names();
+  ui_setup_open(a.screen, &a.cfg, a.sc, &setup_cb);
+}
+
+static void on_buzzer(bool on) {
+  a.cfg.buzzer = on;   // alerts_buzzer_on reads it on the next tick
+  mark_dirty();
+}
+static bool buzzer_state(void) { return a.cfg.buzzer; }
+
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL};   // buzzer_state set per board
 
 static void toggle_quick(void) {
   if (ui_quick_is_open()) ui_quick_close();
-  else ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
+  else {
+    quick_cb.buzzer_state = a.buzzer_ok ? buzzer_state : NULL;   // no switch on a board without a buzzer
+    ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
+  }
 }
 
 // Alert id (a notification path) to the configured role that shows that data, or -1.
@@ -299,6 +440,50 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   apply_backlight();
 }
 
+// ---- Signal K access request ----
+
+static char access_as[64];
+
+// Signal K task. Saving goes through the config writer; without an SD card the token
+// still takes effect for this session.
+static void session_token(void *arg) {
+  cfg_t next = a.cfg;
+  snprintf(next.sk.token, sizeof next.sk.token, "%s", (const char *)arg);
+  app_apply_config(&next);
+}
+
+static void on_access_token(const char *token) {
+  cfg_report_t err;
+  unsigned bits;
+  if (app_config_set("sources.signalk.token", token, &err, &bits)) printf("signalk: access approved; token saved\n");
+  else if (app_post(session_token, (void *)token, 2000)) printf("signalk: access approved; token in use until restart (not saved: %s)\n", err.issues[0].message);
+}
+
+static void on_access_href(const char *href) {
+  cfg_report_t err;
+  unsigned bits;
+  app_config_set("sources.signalk.request", href, &err, &bits);   // no SD card: not resumable after a restart
+}
+
+static void start_access(void) {
+  uint8_t mac[6];
+  char id[37];
+  platform_mac(mac);
+  sk_access_client_id_from_mac(mac, id);
+  snprintf(access_as, sizeof access_as, "boat-instruments %s %02x:%02x", info_board, mac[4], mac[5]);
+  sk_access_set_identity(id, access_as);
+  sk_access_on_token(on_access_token);
+  sk_access_on_href(on_access_href);
+  if (a.cfg.sk.request[0]) sk_access_resume(a.cfg.sk.request, platform_millis());
+}
+
+bool app_request_access(char *as, size_t n) {
+  if (!a.network) return false;
+  snprintf(as, n, "%s", access_as);
+  sk_access_start();
+  return true;
+}
+
 void app_start_network(void) {
   // Discovery keeps only the groups the configured roles read.
   static const char *prefixes[CFG_MAX_ROLES * ROLE_MAX_GROUPS + 1];
@@ -326,6 +511,7 @@ void app_start_network(void) {
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
   size_t n = bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
+  start_access();
   sk_client_start();
   a.network = true;
 }
@@ -344,11 +530,117 @@ static bool instances_changed(void) {
   return false;
 }
 
+const cfg_t *app_config(void) { return &a.cfg; }
+const char *app_config_dir(void) { return a.dir; }
+
+static bool same_roles(const cfg_t *x, const cfg_t *y) {
+  if (x->role_count != y->role_count || strcmp(x->start_role, y->start_role)) return false;
+  for (uint8_t i = 0; i < x->role_count; i++) {
+    cfg_role_t p = x->roles[i], q = y->roles[i];
+    p.src_entry = q.src_entry = 0;   // where it sits in the file is not a change to show
+    if (memcmp(&p, &q, sizeof p)) return false;
+  }
+  return true;
+}
+
+unsigned app_apply_config(const cfg_t *next) {
+  unsigned did = APPLY_NONE;
+  bool units = memcmp(&a.cfg.units, &next->units, sizeof a.cfg.units) != 0;
+  bool display = units || strcmp(a.cfg.palette, next->palette) || a.cfg.brightness != next->brightness ||
+                 a.cfg.buzzer != next->buzzer;
+  bool sk = strcmp(a.cfg.sk.host, next->sk.host) || a.cfg.sk.port != next->sk.port ||
+            strcmp(a.cfg.sk.token, next->sk.token);   // a stored access-request href is not a reason to reconnect
+  bool roles = !same_roles(&a.cfg, next);
+  bool wifi = memcmp(&a.cfg.wifi, &next->wifi, sizeof a.cfg.wifi) != 0;
+  bool was_auto = !strcmp(a.cfg.palette, "auto");
+  uint8_t old_count = a.count;
+  a.cfg = *next;
+  if (display) {
+    did |= APPLY_DISPLAY;
+    apply_backlight();
+    apply_palette();
+    if (was_auto != !strcmp(a.cfg.palette, "auto")) rebind_subs();   // environment.mode follows auto
+  }
+  if (sk) {
+    did |= APPLY_SIGNALK;
+    if (a.network) sk_client_reconfigure(&a.cfg.sk);
+  }
+  if (roles) {
+    did |= APPLY_ROLES;
+    app_bind();
+    rebind_subs();
+  }
+  if (a.ui && (roles || units)) {   // units change every drawn value; roles change the pages
+    if (a.count != old_count) ui_shell_set_roles(a.count);
+    else ui_shell_rebuild();
+  }
+  if (wifi) {
+    did |= APPLY_WIFI;
+    net_wifi_restart(&a.cfg.wifi);
+  }
+  return did;
+}
+
+// ---- requests from other tasks ----
+
+static struct {
+  void *lock;
+  struct { app_req_fn fn; void *arg; volatile bool *done; } q[8];
+  uint8_t n;
+} post;
+
+bool app_post(app_req_fn fn, void *arg, uint32_t wait_ms) {
+  if (!post.lock) post.lock = platform_lock_create();   // first use is app_init's task, before others post
+  volatile bool done = false;
+  platform_lock(post.lock);
+  bool room = post.n < sizeof post.q / sizeof post.q[0];
+  if (room) post.q[post.n++] = (typeof(post.q[0])){fn, arg, wait_ms ? &done : NULL};
+  platform_unlock(post.lock);
+  if (!room || !wait_ms) return room;
+  // Callers pass pointers into their own stack frame, so a request must never run after its
+  // caller has returned. On timeout a still-queued request is withdrawn; one already running
+  // is waited for (it is on the UI task and about to finish).
+  for (int64_t t0 = platform_millis(); !done; platform_sleep_ms(5)) {
+    if (platform_millis() - t0 < wait_ms) continue;
+    platform_lock(post.lock);
+    for (uint8_t i = 0; i < post.n; i++)
+      if (post.q[i].done == &done) {
+        memmove(&post.q[i], &post.q[i + 1], (size_t)(post.n - i - 1) * sizeof post.q[0]);
+        post.n--;
+        platform_unlock(post.lock);
+        return false;
+      }
+    platform_unlock(post.lock);   // not queued: running now, or just finished
+  }
+  return true;
+}
+
+static void run_posted(void) {
+  if (!post.lock) return;
+  for (;;) {
+    platform_lock(post.lock);
+    if (!post.n) {
+      platform_unlock(post.lock);
+      return;
+    }
+    typeof(post.q[0]) r = post.q[0];
+    memmove(&post.q[0], &post.q[1], (size_t)(post.n - 1) * sizeof post.q[0]);
+    post.n--;
+    platform_unlock(post.lock);
+    r.fn(r.arg);
+    platform_lock(post.lock);
+    if (r.done) *r.done = true;   // its waiter is still there: a waiter only leaves once withdrawn or done
+    platform_unlock(post.lock);
+  }
+}
+
 void app_tick(void) {
+  run_posted();
   if (a.network) {
     uint32_t d = sk_client_discovery_count();
     if (d != a.discoveries) {   // the server told us what this boat has
       a.discoveries = d;
+      ui_setup_discovery_changed();
       bd_id_t fuel[8];
       size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
       bool fuel_new = fuel_n != a.fuel_levels;
@@ -373,6 +665,7 @@ void app_tick(void) {
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   ui_shell_refresh();
+  ui_setup_tick();
 
   PLATFORM_EXT_BSS static alerts_snapshot_t snap;   // 2 KB: off the UI task stack
   int64_t now = platform_millis();
@@ -393,4 +686,120 @@ void app_tick(void) {
       platform_unlock(w.lock);
     }
   }
+}
+
+// ---- console support ----
+
+void app_set_info(const char *board, const char *version) {
+  snprintf(info_board, sizeof info_board, "%s", board);
+  snprintf(info_version, sizeof info_version, "%s", version);
+}
+
+static void fill_status(void *arg) { fill_status_now(arg); }
+
+static void fill_status_now(app_status_t *s) {   // UI task
+  memset(s, 0, sizeof *s);
+  snprintf(s->firmware, sizeof s->firmware, "%s", info_version);
+  snprintf(s->board, sizeof s->board, "%s", info_board);
+  s->wifi = net_wifi_info(s->ip, &s->rssi);
+  const char *st = "offline";
+  if (a.network) {
+    switch (sk_client_state()) {
+      case SK_LIVE: st = "live"; break;
+      case SK_DISCOVERING:
+      case SK_CONNECTING: st = "connecting"; break;
+      default: break;
+    }
+  }
+  if (!strcmp(a.cfg.sk.host, "auto")) snprintf(s->signalk, sizeof s->signalk, "%s auto", st);
+  else snprintf(s->signalk, sizeof s->signalk, "%s %s:%u", st, a.cfg.sk.host, (unsigned)a.cfg.sk.port);
+  s->token = a.cfg.sk.token[0] != 0;
+  ska_state_t ast = sk_access_state(NULL);
+  if (ast == SKA_IDLE) snprintf(s->access, sizeof s->access, "idle");
+  else snprintf(s->access, sizeof s->access, "%s (%s)", sk_access_state_name(ast), sk_access_message());
+  size_t in, ps;
+  platform_mem(&in, &ps);
+  s->internal_kb = (unsigned)(in / 1024);
+  s->psram_kb = (unsigned)(ps / 1024);
+  s->sd = a.dir[0] != 0;
+  snprintf(s->origin, sizeof s->origin, "%s",
+           a.origin == CFG_FROM_MAIN ? "main" : a.origin == CFG_FROM_BACKUP ? "backup" : "defaults");
+  PLATFORM_EXT_BSS static alerts_snapshot_t snap;
+  alerts_snapshot(&snap);
+  s->alerts = snap.count;
+  static const char *names[] = {"normal", "alert", "warn", "alarm", "emergency"};
+  snprintf(s->worst, sizeof s->worst, "%s", snap.count ? names[snap.a[0].state] : "none");
+}
+
+bool app_status(app_status_t *out) { return app_post(fill_status, out, 2000); }
+
+typedef struct { const cfg_t *next; unsigned applied; bool save; } apply_req_t;
+
+static void apply_and_save(void *arg) {   // UI task
+  apply_req_t *r = arg;
+  r->applied = app_apply_config(r->next);
+  if (r->save) mark_dirty();   // the file ends with these values even if an older queued copy is written first
+}
+
+static void refuse(cfg_report_t *err, const char *key, const char *msg) {
+  memset(err, 0, sizeof *err);
+  err->count = 1;
+  snprintf(err->issues[0].key_path, sizeof err->issues[0].key_path, "%s", key);
+  snprintf(err->issues[0].message, sizeof err->issues[0].message, "%s", msg);
+}
+
+bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsigned *applied) {
+  *applied = APPLY_NONE;
+  if (!a.dir[0] || !w.started) {
+    refuse(err, path, "no SD card: nothing can be saved");
+    return false;
+  }
+  platform_lock(w.lock);
+  snprintf(w.set_path, sizeof w.set_path, "%s", path);
+  snprintf(w.set_text, sizeof w.set_text, "%s", text);
+  memcpy(w.dir, a.dir, sizeof w.dir);   // the writer's directory came only from queued saves
+  w.set_done = false;
+  w.set_pending = true;
+  platform_unlock(w.lock);
+  bool done = false;
+  for (int64_t t0 = platform_millis(); !done && platform_millis() - t0 < 5000; platform_sleep_ms(10)) {
+    platform_lock(w.lock);
+    done = w.set_done;
+    platform_unlock(w.lock);
+  }
+  if (!done) {
+    refuse(err, path, "the SD card did not answer");
+    return false;
+  }
+  if (!w.set_ok) {
+    *err = w.set_err;
+    return false;
+  }
+  apply_req_t r = {w.set_out, 0, true};
+  if (!app_post(apply_and_save, &r, 2000)) {
+    refuse(err, path, "saved; the display did not take it yet (it applies on restart)");
+    return false;
+  }
+  *applied = r.applied;
+  return true;
+}
+
+bool app_config_reload(cfg_report_t *rep, unsigned *applied) {
+  *applied = APPLY_NONE;
+  if (!a.dir[0]) {
+    refuse(rep, "config.json", "no SD card");
+    return false;
+  }
+  cfg_t *next = malloc(sizeof *next);
+  if (!next) {
+    refuse(rep, "config.json", "no memory");
+    return false;
+  }
+  cfg_origin_t origin = cfg_load(a.dir, next, rep);
+  apply_req_t r = {next, 0, false};   // a reload never writes: the file may be the broken one
+  bool ok = app_post(apply_and_save, &r, 2000);
+  if (ok) a.origin = origin;
+  *applied = r.applied;
+  free(next);
+  return ok;
 }

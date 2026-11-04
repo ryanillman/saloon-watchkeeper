@@ -38,6 +38,15 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   return true;
 }
 
+bool sk_http_request(const char *method, const char *url, const char *token, const char *body,
+                     int *status, char **resp, size_t *resp_len) {
+  (void)method; (void)url; (void)token; (void)body;
+  *status = 0;
+  *resp = NULL;
+  *resp_len = 0;
+  return false;
+}
+
 bool sk_ws_connect(const char *url, const char *token, sk_msg_cb c, void *ctx) {
   (void)token;
   snprintf(last_ws_url, sizeof last_ws_url, "%s", url);

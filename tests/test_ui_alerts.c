@@ -432,6 +432,24 @@ static void test_list_row_ack_guarded(void) {
   TEST_ASSERT_TRUE(a.acked);
 }
 
+// An acknowledged alarm normally leaves the banner. One whose ACK never reached the server stays,
+// steady, and there is nothing left to tap: no ACK, no SILENCE.
+static void test_ack_and_silence_hidden_once_acked(void) {
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  tick(0);
+  tick(2000);
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_ACK), LV_OBJ_FLAG_HIDDEN));
+  alerts_source_up(false);   // the ACK cannot be sent
+  raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
+  alerts_request("propulsion.port.temperature", AL_REQ_ACK);
+  tick(2100);
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_ACK), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_SILENCE), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_alerts_part(UI_ALERTS_GO), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_TRUE(ui_alerts_banner_visible());   // still up, steady, saying ACK NOT SENT
+  TEST_ASSERT_EQUAL_STRING("ACK NOT SENT", ui_alerts_corner_text());
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(800, 480);
@@ -463,5 +481,6 @@ int main(void) {
   RUN_TEST(test_state_change_rearms_tap_guard);
   RUN_TEST(test_go_opens_the_alarms_page);
   RUN_TEST(test_list_row_ack_guarded);
+  RUN_TEST(test_ack_and_silence_hidden_once_acked);
   return UNITY_END();
 }

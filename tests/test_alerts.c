@@ -249,6 +249,45 @@ static void test_buzzer_pattern(void) {
   TEST_ASSERT_TRUE(alerts_buzzer_on(&s, true, 300));
 }
 
+// An ACK on an alarm another display already acknowledged must not be sent (the server
+// refuses it) and must not show ACK NOT SENT.
+static void test_ack_on_acked_alarm_sends_nothing(void) {
+  raise_ex("a", AL_ALARM, true, true, "uuid", 0);   // the server says acknowledged
+  alerts_request("a", AL_REQ_ACK);
+  char id[64];
+  alert_req_t req;
+  TEST_ASSERT_FALSE(alerts_next_request(id, &req));
+  TEST_ASSERT_FALSE(get("a").send_failed);
+  raise("b", AL_ALARM, 0);
+  alerts_request("b", AL_REQ_ACK);
+  TEST_ASSERT_TRUE(alerts_next_request(id, &req));
+  alerts_request("b", AL_REQ_ACK);   // tapped again: already acknowledged here
+  TEST_ASSERT_FALSE(alerts_next_request(id, &req));
+}
+
+static void test_silence_on_silenced_alarm_sends_nothing(void) {
+  raise("a", AL_ALARM, 0);
+  alerts_request("a", AL_REQ_SILENCE);
+  char id[64];
+  alert_req_t req;
+  TEST_ASSERT_TRUE(alerts_next_request(id, &req));
+  alerts_request("a", AL_REQ_SILENCE);
+  TEST_ASSERT_FALSE(alerts_next_request(id, &req));
+}
+
+// The server reports the alarm acknowledged: every display knows, so nothing is "not sent".
+static void test_source_ack_clears_send_failed(void) {
+  raise("a", AL_ALARM, 0);
+  alerts_request("a", AL_REQ_ACK);
+  char id[64];
+  alert_req_t req;
+  alerts_next_request(id, &req);
+  alerts_request_result("a", false);
+  TEST_ASSERT_TRUE(get("a").send_failed);
+  raise_ex("a", AL_ALARM, true, true, "uuid", 0);
+  TEST_ASSERT_FALSE(get("a").send_failed);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_upsert_and_clear);
@@ -268,5 +307,8 @@ int main(void) {
   RUN_TEST(test_clear_purges_queued_request);
   RUN_TEST(test_eviction_purges_queued_request);
   RUN_TEST(test_buzzer_pattern);
+  RUN_TEST(test_ack_on_acked_alarm_sends_nothing);
+  RUN_TEST(test_silence_on_silenced_alarm_sends_nothing);
+  RUN_TEST(test_source_ack_clears_send_failed);
   return UNITY_END();
 }
