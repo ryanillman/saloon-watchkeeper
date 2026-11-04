@@ -13,3 +13,6 @@ void tank_label(const char *inst_id, uint8_t of_type, char *out, size_t n);
 // Litres-as-m3 for the tank: reported volume, else level x capacity. false = flag.
 bool tank_volume(const bd_sample_t *level, const bd_sample_t *volume, const bd_sample_t *capacity, double *m3);
 uint8_t tank_pages(uint8_t tanks, size_class_t sc);   // wide: 1; square: ceil(tanks / 4), at least 1
+// Page of the tanks role that shows this path. Wide is always 0. Unknown paths are 0.
+struct role_binding;
+uint8_t tanks_page_for(const struct role_binding *b, size_class_t sc, const char *path);

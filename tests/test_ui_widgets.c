@@ -151,6 +151,23 @@ static void test_strip_off_is_not_a_fault(void) {
   TEST_ASSERT_EQUAL_STRING("OFF", ui_strip_text(s));
 }
 
+static void test_strip_value_font_stays_across_a_digit_boundary(void) {
+  // 40..120 °C. At this size "82 °C" would fit in 48 pt and "120 °C" would not,
+  // so a font chosen from the live text would jump. The pinned font must not.
+  ui_gauge_spec_t cool = {.label = "COOLANT", .unit = "°C", .lo = 40, .hi = 120, .decimals = 0};
+  lv_obj_t *s = ui_strip_create(scr, &cool, false);
+  lv_obj_set_size(s, 230, 80);
+  ui_strip_set(s, 99, true);
+  render();
+  const lv_font_t *at_99 = ui_strip_value_font(s);
+  ui_strip_set(s, 100, true);
+  render();
+  TEST_ASSERT_EQUAL_PTR(at_99, ui_strip_value_font(s));
+  ui_strip_set(s, 40, true);
+  render();
+  TEST_ASSERT_EQUAL_PTR(&lv_font_montserrat_28, ui_strip_value_font(s));
+}
+
 static void test_unchanged_value_does_not_redraw(void) {
   ui_gauge_spec_t oil = {.label = "OIL", .unit = "bar", .lo = 0, .hi = 6, .decimals = 1};
   lv_obj_t *s = ui_strip_create(scr, &oil, false);
@@ -190,6 +207,7 @@ int main(void) {
   RUN_TEST(test_dial_off_is_not_a_fault);
   RUN_TEST(test_dial_one_off_one_running);
   RUN_TEST(test_strip_off_is_not_a_fault);
+  RUN_TEST(test_strip_value_font_stays_across_a_digit_boundary);
   RUN_TEST(test_readout_text_shows_string_and_flags_when_invalid);
   RUN_TEST(test_fault_text_override);
   RUN_TEST(test_unchanged_value_does_not_redraw);

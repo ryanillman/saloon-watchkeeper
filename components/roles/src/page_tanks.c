@@ -69,6 +69,19 @@ uint8_t tank_pages(uint8_t tanks, size_class_t sc) {
 
 uint8_t tanks_pages(const role_binding_t *b, size_class_t sc) { return tank_pages(b->g[0].inst_count, sc); }
 
+uint8_t tanks_page_for(const role_binding_t *b, size_class_t sc, const char *path) {
+  if (!b || !path) return 0;
+  if (strncmp(path, "notifications.", 14) == 0) path += 14;
+  if (strncmp(path, "tanks.", 6) != 0) return 0;
+  const char *rest = path + 6;
+  uint8_t per = sc == SIZE_WIDE ? ROLE_MAX_INST : PER_SQUARE_PAGE;
+  for (uint8_t i = 0; i < b->g[0].inst_count; i++) {
+    size_t n = strlen(b->g[0].inst_id[i]);
+    if (n && strncmp(rest, b->g[0].inst_id[i], n) == 0 && rest[n] == '.') return (uint8_t)(i / per);
+  }
+  return 0;
+}
+
 static lv_color_t kind_color(tank_kind_t k) {
   switch (k) {
     case TANK_FRESH: return lv_color_hex(0x3B8BEB);

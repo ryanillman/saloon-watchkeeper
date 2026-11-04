@@ -45,6 +45,7 @@ PLATFORM_EXT_BSS static struct {
   lv_obj_t *screen, *strip;
   size_class_t sc;
   ui_alert_role_fn role_of;
+  ui_alert_page_fn page_of;
   lv_obj_t *banner, *msg, *corner, *ack, *silence, *go;
   lv_obj_t *marker, *marker_label, *acked_marker, *acked_label, *offline;
   lv_obj_t *list, *list_rows, *close;
@@ -117,7 +118,10 @@ static void on_silence(lv_event_t *e) {
 }
 static void on_go(lv_event_t *e) {
   (void)e;
-  if (u.ban_role >= 0) ui_shell_goto_role((uint8_t)u.ban_role);
+  if (u.ban_role >= 0) {
+    uint8_t page = u.page_of && u.ban_id[0] ? u.page_of(u.ban_id) : 0;
+    ui_shell_goto((uint8_t)u.ban_role, page);
+  }
 }
 
 static int32_t banner_bh(void) { return 44; }
@@ -451,12 +455,14 @@ static void update_list(const alerts_snapshot_t *s, int64_t now_ms) {
 
 // ---- public ----
 
-void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_alert_role_fn role_of) {
+void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_alert_role_fn role_of,
+                      ui_alert_page_fn page_of) {
   memset(&u, 0, sizeof u);
   u.screen = screen;
   u.strip = strip;
   u.sc = sc;
   u.role_of = role_of;
+  u.page_of = page_of;
   u.ban_role = -1;
   u.bkey.role = -1;
   lv_obj_update_layout(screen);

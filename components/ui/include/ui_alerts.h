@@ -10,10 +10,13 @@
 
 // Role index for GO: maps an alert id to a configured role, or -1.
 typedef int8_t (*ui_alert_role_fn)(const char *alert_id);
+// Page within that role. NULL means page 0. Called when GO is tapped.
+typedef uint8_t (*ui_alert_page_fn)(const char *alert_id);
 
 // Builds the banner, marker, offline text and list on `screen`; the marker and
 // offline text go in `strip`, left of its status text. Call after ui_shell_create.
-void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_alert_role_fn role_of);
+void ui_alerts_attach(lv_obj_t *screen, lv_obj_t *strip, size_class_t sc, ui_alert_role_fn role_of,
+                      ui_alert_page_fn page_of);
 void ui_alerts_update(const alerts_snapshot_t *s, int64_t now_ms);   // UI task, every tick
 
 // Queries, for tests.

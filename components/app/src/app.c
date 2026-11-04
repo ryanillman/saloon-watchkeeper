@@ -26,6 +26,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   bool network;
   size_class_t sc;
   uint32_t discoveries;
+  size_t fuel_levels;   // tanks.fuel.*.currentLevel known last time subscriptions were sent
   void (*buzzer)(bool on);
   bool buzzer_ok, buzzer_state;
   char dir[128];   // config directory; empty = no SD card, nothing is saved
@@ -149,6 +150,14 @@ static size_t bound_ids(sk_sub_t *out, size_t max) {
           if (b->g[g].ids[j][k] != BD_NONE && n < max)
             out[n++] = (sk_sub_t){b->g[g].ids[j][k], b->def->groups[g].slots[k].resend_ms};
   }
+  // Fuel percent on the RPM dial. Skip ids a tanks role already subscribed.
+  bd_id_t fuel[8];
+  size_t nf = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
+  for (size_t f = 0; f < nf && n < max; f++) {
+    bool seen = false;
+    for (size_t j = 0; j < n; j++) seen = seen || out[j].id == fuel[f];
+    if (!seen) out[n++] = (sk_sub_t){fuel[f], 0};
+  }
   if (!strcmp(a.cfg.palette, "auto") && n < max) {   // the auto palette follows environment.mode
     bd_id_t mode = bd_intern("environment.mode");
     if (mode != BD_NONE) out[n++] = (sk_sub_t){mode, 0};
@@ -250,6 +259,19 @@ static int8_t alert_role(const char *id) {
   return -1;
 }
 
+// Page inside the role that shows this alarm, not the role's first page.
+static uint8_t alert_page(const char *id) {
+  int8_t role = alert_role(id);
+  if (role < 0) return 0;
+  const role_def_t *d = a.roles[role].def;
+  if (!d || !d->page_for) return 0;
+  uint8_t page = d->page_for(&a.roles[role].binding, a.sc, id);
+  uint8_t n = a.views[role].page_count;
+  if (n == 0) return 0;
+  if (page >= n) page = (uint8_t)(n - 1);
+  return page;
+}
+
 void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board) {
   a.buzzer = fn;
   a.buzzer_ok = enabled_by_board && fn;
@@ -273,7 +295,7 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.screen = lv_display_get_screen_active(disp);
   a.ui = true;
   ui_shell_set_strip_tap(toggle_quick);
-  ui_alerts_attach(a.screen, ui_shell_strip(), sc, alert_role);
+  ui_alerts_attach(a.screen, ui_shell_strip(), sc, alert_role, alert_page);
   apply_backlight();
 }
 
@@ -290,6 +312,15 @@ void app_start_network(void) {
       if (!dup) prefixes[n_prefix++] = d->groups[g].prefix;
     }
   }
+  // The engine dial shows fuel-tank percent even when the tanks role is not configured.
+  bool engine = false, tanks = false;
+  for (uint8_t i = 0; i < a.count; i++) {
+    if (!a.roles[i].def) continue;
+    if (!strcmp(a.roles[i].def->name, "engine")) engine = true;
+    if (!strcmp(a.roles[i].def->name, "tanks")) tanks = true;
+  }
+  if (engine && !tanks && n_prefix < sizeof prefixes / sizeof prefixes[0] - 1)
+    prefixes[n_prefix++] = "tanks.fuel";
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
@@ -318,11 +349,18 @@ void app_tick(void) {
     uint32_t d = sk_client_discovery_count();
     if (d != a.discoveries) {   // the server told us what this boat has
       a.discoveries = d;
-      if (instances_changed()) {   // rebuild only when there is something new to show
+      bd_id_t fuel[8];
+      size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
+      bool fuel_new = fuel_n != a.fuel_levels;
+      a.fuel_levels = fuel_n;
+      bool inst = instances_changed();
+      if (inst) {   // rebuild only when there is something new to show
         app_bind();
+        ui_shell_rebuild();
+      }
+      if (inst || fuel_new) {   // fuel tanks are not an engine instance, but the dial reads them
         PLATFORM_EXT_BSS static sk_sub_t ids[256];
         sk_client_rebind(ids, bound_ids(ids, 256));
-        ui_shell_rebuild();
       }
     }
     const ui_colors_t *c = ui_theme();

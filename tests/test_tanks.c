@@ -74,6 +74,24 @@ static void test_pages_square_and_wide(void) {
   TEST_ASSERT_EQUAL_UINT8(1, tank_pages(0, SIZE_SQUARE));
 }
 
+static void test_fuel_alarm_page_is_not_the_first_on_a_square(void) {
+  const char *paths[] = {
+    "tanks.blackWater.0.currentLevel", "tanks.freshWater.0.currentLevel", "tanks.freshWater.1.currentLevel",
+    "tanks.freshWater.2.currentLevel", "tanks.fuel.0.currentLevel",        "tanks.wasteWater.0.currentLevel",
+  };
+  for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++) bd_set_number(bd_intern(paths[i]), 0.5, 1, 1);
+  role_binding_t *b = malloc(sizeof *b);
+  role_bind(role_find("tanks"), &rc, &cfg.units, b);
+  TEST_ASSERT_EQUAL_UINT8(6, b->g[0].inst_count);
+  TEST_ASSERT_EQUAL_STRING("fuel.0", b->g[0].inst_id[4]);
+  TEST_ASSERT_EQUAL_UINT8(0, tanks_page_for(b, SIZE_SQUARE, "tanks.freshWater.2.currentLevel"));
+  TEST_ASSERT_EQUAL_UINT8(1, tanks_page_for(b, SIZE_SQUARE, "tanks.fuel.0.currentLevel"));
+  TEST_ASSERT_EQUAL_UINT8(1, tanks_page_for(b, SIZE_SQUARE, "tanks.wasteWater.0.currentLevel"));
+  TEST_ASSERT_EQUAL_UINT8(0, tanks_page_for(b, SIZE_WIDE, "tanks.fuel.0.currentLevel"));
+  TEST_ASSERT_EQUAL_UINT8(0, tanks_page_for(b, SIZE_SQUARE, "tanks.liveWell.0.currentLevel"));
+  free(b);
+}
+
 static void test_bind_discovers_two_level_ids(void) {
   bd_intern("tanks.freshWater.0.currentLevel");
   bd_intern("tanks.fuel.0.currentLevel");
@@ -98,6 +116,7 @@ int main(void) {
   RUN_TEST(test_volume_flags_when_level_invalid);
   RUN_TEST(test_volume_flags_with_no_capacity);
   RUN_TEST(test_pages_square_and_wide);
+  RUN_TEST(test_fuel_alarm_page_is_not_the_first_on_a_square);
   RUN_TEST(test_bind_discovers_two_level_ids);
   return UNITY_END();
 }
