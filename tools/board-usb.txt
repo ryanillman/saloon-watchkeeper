@@ -1,0 +1,9 @@
+# USB serial of a bench unit, then the board id (a directory in boards/).
+# Matched against udev ID_SERIAL_SHORT or ID_SERIAL, case-insensitive.
+# Read one with: udevadm info -q property -n /dev/ttyACM0
+#
+# Espressif USB-JTAG serial is the chip id. The 7B line is the CH340 on its UART port.
+
+14:C1:9F:2B:5F:F8 square4
+44:BD:8D:F7:39:44 lcd7
+5B91017076 lcd7b
