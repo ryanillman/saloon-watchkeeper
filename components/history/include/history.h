@@ -30,3 +30,9 @@ size_t hist_read(bd_id_t id, size_t minutes, float *out);
 // Newest valid value minus the oldest valid value in the last `minutes` minutes (that is minutes + 1
 // slots: the current minute and `minutes` before it). False with fewer than two valid values.
 bool hist_change(bd_id_t id, size_t minutes, float *delta);
+
+// Backfill bookkeeping, so each connection asks the server for every tracked path once, including paths
+// tracked after it connected. A new path starts unfilled.
+size_t hist_unfilled(bd_id_t *out, size_t max);       // tracked paths still to be backfilled
+void hist_note_backfill(bd_id_t id, bool answered);   // answered: done. Unanswered: tried again, and given up on the second try
+void hist_forget_backfill(void);                      // a new connection: every path is to be asked again

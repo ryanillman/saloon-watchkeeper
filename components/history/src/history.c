@@ -9,6 +9,8 @@ typedef struct {
   bd_id_t id;
   float v[HIST_MINUTES];                 // indexed by minute % HIST_MINUTES
   uint8_t live[(HIST_MINUTES + 7) / 8];  // 1 = stored by hist_tick, which backfill never overwrites
+  bool filled;                           // this connection's backfill is done (or given up on)
+  uint8_t tries;                         // unanswered backfill requests this connection
 } slot_t;
 
 // 16 paths x 2.9 KB: PSRAM on the boards.
@@ -150,4 +152,28 @@ bool hist_change(bd_id_t id, size_t minutes, float *delta) {
   if (valid < 2) return false;
   *delta = last - first;
   return true;
+}
+
+#define BACKFILL_TRIES 2
+
+size_t hist_unfilled(bd_id_t *out, size_t max) {
+  LOCK();
+  size_t n = 0;
+  for (uint8_t i = 0; i < h.n && n < max; i++)
+    if (!h.s[i].filled) out[n++] = h.s[i].id;
+  UNLOCK();
+  return n;
+}
+
+void hist_note_backfill(bd_id_t id, bool answered) {
+  LOCK();
+  slot_t *p = find(id);
+  if (p && (answered || ++p->tries >= BACKFILL_TRIES)) p->filled = true;
+  UNLOCK();
+}
+
+void hist_forget_backfill(void) {
+  LOCK();
+  for (uint8_t i = 0; i < h.n; i++) h.s[i].filled = false, h.s[i].tries = 0;
+  UNLOCK();
 }
