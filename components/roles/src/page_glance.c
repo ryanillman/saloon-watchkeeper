@@ -305,7 +305,6 @@ static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
 }
 
 static void update_tile(tile_w_t *w, int64_t now_ms) {
-  const ui_colors_t *c = ui_theme();
   const glance_source_t *s = &g.src[w->source];
   glance_tile_t t = {0};
   s->b->def->tile(s->b, now_ms, &t);
@@ -315,8 +314,10 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
     lv_obj_set_style_text_color(w->word, col, 0);
   }
   set_text(w->title, t.title ? t.title : "");
-  set_text(w->word, t.word);
-  lv_obj_align(w->word, LV_ALIGN_TOP_RIGHT, -12, g.sc == SIZE_WIDE ? 10 : 8);
+  if (strcmp(lv_label_get_text(w->word), t.word) != 0) {
+    lv_label_set_text(w->word, t.word);
+    lv_obj_align(w->word, LV_ALIGN_TOP_RIGHT, -12, g.sc == SIZE_WIDE ? 10 : 8);   // its width changed
+  }
   if (w->headline) {
     bool missing = t.state == GT_NO_DATA && !t.headline[0];
     bool big = g.sc == SIZE_WIDE && strlen(t.headline) <= 5;
@@ -333,7 +334,6 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
     show(w->headline, !missing);
     show(w->unit, !missing && t.unit[0]);
     for (int i = 0; i < 2; i++) show(w->fault[i], missing);
-    lv_obj_set_style_text_color(w->headline, c->fg, 0);
   }
   for (uint8_t i = 0; i < 3 && w->bar[i]; i++) {
     bool on = i < t.bar_count;

@@ -10,8 +10,10 @@
 #include "unity.h"
 
 static uint8_t buf[800 * 48 * 2];
+static int flushes;
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   (void)a; (void)px;
+  flushes++;
   lv_display_flush_ready(d);
 }
 static uint32_t ms;
@@ -201,6 +203,17 @@ static void test_trend_plots_history_after_a_backfill_and_refresh(void) {
   TEST_ASSERT_EQUAL_UINT16(0, glance_trend_points(0));   // the engine tile has no trend
 }
 
+static void test_an_idle_refresh_redraws_nothing(void) {   // the panel's bus is the scarce thing: no needless invalidation
+  build(800, 440, SIZE_WIDE);
+  lv_refr_now(NULL);
+  role_find("glance")->refresh(&bind_glance, NOW);
+  lv_refr_now(NULL);
+  int before = flushes;
+  for (int i = 0; i < 5; i++) role_find("glance")->refresh(&bind_glance, NOW);   // nothing changed
+  lv_refr_now(NULL);
+  TEST_ASSERT_EQUAL_INT(before, flushes);
+}
+
 // ---- tap ----
 
 static const ui_role_view_t *views_ptr;
@@ -289,6 +302,7 @@ int main(void) {
   RUN_TEST(test_no_data_tile_shows_the_fault_style_and_no_number);
   RUN_TEST(test_refresh_follows_the_data_without_rebuilding);
   RUN_TEST(test_trend_plots_history_after_a_backfill_and_refresh);
+  RUN_TEST(test_an_idle_refresh_redraws_nothing);
   RUN_TEST(test_tapping_a_tile_opens_that_role);
   RUN_TEST(test_pick_keeps_everything_when_it_fits);
   RUN_TEST(test_pick_drops_the_lowest_priority_quiet_tile);

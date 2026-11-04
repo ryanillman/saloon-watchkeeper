@@ -192,7 +192,22 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *br = cJSON_GetObjectItem(d, "brightness");
   if (cJSON_IsNumber(br)) c->brightness = br->valueint < 0 ? 0 : br->valueint > 100 ? 100 : (uint8_t)br->valueint;
   const cJSON *tz = cJSON_GetObjectItem(d, "utc_offset_min");
-  if (cJSON_IsNumber(tz)) c->utc_offset_min = tz->valuedouble < -720 ? -720 : tz->valuedouble > 840 ? 840 : (int16_t)tz->valueint;
+  double minutes = 0;
+  bool have_tz = false;
+  if (cJSON_IsNumber(tz)) {
+    minutes = tz->valuedouble;
+    have_tz = true;
+  } else if (cJSON_IsString(tz)) {   // `config set` creates a key the file lacks as text; the next save writes a number
+    char *end;
+    long v = strtol(tz->valuestring, &end, 10);
+    if (*tz->valuestring && !*end) {
+      minutes = (double)v;
+      have_tz = true;
+    } else {
+      issue(rep, "display.utc_offset_min", 0, "must be a whole number of minutes");
+    }
+  }
+  if (have_tz) c->utc_offset_min = minutes < -720 ? -720 : minutes > 840 ? 840 : (int16_t)minutes;
   COPY(c->start_role, cJSON_GetObjectItem(d, "start_role"));
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
 

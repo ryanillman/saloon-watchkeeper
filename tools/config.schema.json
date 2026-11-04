@@ -41,6 +41,7 @@
       "properties": {
         "palette": { "enum": ["auto", "day", "dusk", "night"], "default": "auto" },
         "brightness": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 },
+        "utc_offset_min": { "type": "integer", "minimum": -720, "maximum": 840, "default": 0, "description": "Local time minus UTC, in minutes. The clock in the top strip shows navigation.datetime plus this." },
         "start_role": { "$ref": "#/$defs/roleName" }
       }
     },
@@ -85,6 +86,6 @@
     }
   },
   "$defs": {
-    "roleName": { "enum": ["engine", "power", "tanks", "anchor", "wind", "nav"] }
+    "roleName": { "enum": ["glance", "engine", "power", "tanks", "anchor", "wind", "nav"] }
   }
 }

@@ -263,14 +263,16 @@ void ui_shell_set_source(ui_src_t st) {
   draw_source();
 }
 
-void ui_shell_set_clock(const char *hhmm) {
+void ui_shell_set_clock(const char *hhmm) {   // the app calls this every tick: touch nothing that has not changed
   if (!s.clock) return;
+  bool hidden = lv_obj_has_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
   if (!hhmm) {
-    lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+    if (!hidden) lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
     return;
   }
-  if (strcmp(lv_label_get_text(s.clock), hhmm) != 0) lv_label_set_text(s.clock, hhmm);
-  lv_obj_remove_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+  if (!hidden && strcmp(lv_label_get_text(s.clock), hhmm) == 0) return;
+  lv_label_set_text(s.clock, hhmm);
+  if (hidden) lv_obj_remove_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
   place_clock();
 }
 
