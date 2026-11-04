@@ -44,6 +44,8 @@ void platform_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 void platform_reboot(void) { esp_restart(); }
 
+size_t platform_min_internal(void) { return heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL); }
+
 void platform_mem(size_t *internal, size_t *psram) {
   *internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   *psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
