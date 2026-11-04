@@ -10,7 +10,12 @@
 // Row timestamps are not read: the rows are taken as one per minute, the last one being now.
 size_t sk_history_parse(const char *json, size_t len, size_t path_index, float *out, size_t max);
 
-// Asks for 12 hours at one-minute resolution, one path at a time, for every path the history
-// store tracks, and backfills each. Stops at the first request that gets no response at all.
+// What one sk_history_backfill call did.
+typedef enum { SK_HIST_IDLE, SK_HIST_ASKED, SK_HIST_NO_ANSWER } sk_hist_result_t;
+
+// Asks for 12 hours at one-minute resolution for ONE tracked path that has not been backfilled this
+// connection (hist_unfilled), so the caller can keep serving the live stream between requests, and fills it
+// in. IDLE: nothing to ask. ASKED: the server answered (whatever the body held; the path is done). NO_ANSWER:
+// no response at all; the path is tried once more, so the caller should wait before calling again.
 // base_url is "http://host:port".
-void sk_history_backfill(const char *base_url, const char *token);
+sk_hist_result_t sk_history_backfill(const char *base_url, const char *token);

@@ -28,6 +28,7 @@ static int post_status = 200;
 static int live_hook;   // 1: queue an ack on the first poll; 2: also check send_failed while live
 static int fail_seen = -1;
 static int sends;
+static int track_at_poll;   // hist_track a new path during this poll (0: never)
 static int rebind_at_poll;   // sk_client_rebind during this poll (0: never)
 static char sent_log[8][512];
 static int overflow_at_poll;   // sk_ws_take_overflow reports a drop after this poll (0: never)
@@ -78,6 +79,7 @@ bool sk_ws_send(const char *text) {
 bool sk_ws_poll(int timeout_ms) {
   (void)timeout_ms;
   polls++;
+  if (track_at_poll && polls == track_at_poll) hist_track(bd_intern("environment.depth.belowTransducer"));
   if (rebind_at_poll && polls == rebind_at_poll) {
     sk_sub_t one = {bd_intern("propulsion.port.revolutions"), 0};
     sk_client_rebind(&one, 1);
@@ -137,6 +139,7 @@ void setUp(void) {
   live_hook = 0;
   sends = 0;
   rebind_at_poll = 0;
+  track_at_poll = 0;
   overflow_at_poll = 0;
   overflow_taken = false;
   sk_parse_reset();
@@ -169,6 +172,32 @@ static void test_history_backfilled_once_on_going_live(void) {
 static void test_history_not_asked_when_nothing_is_tracked(void) {
   sk_client_run_once();
   TEST_ASSERT_EQUAL_INT(0, history_gets);
+}
+
+static void test_history_path_tracked_while_live_is_backfilled_then(void) {   // the UI task binds roles after the connect
+  hist_track(rpm);
+  history_body = "{\"data\":[[\"t\",1]]}";
+  track_at_poll = 2;
+  live_polls = 5;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(2, history_gets);
+  TEST_ASSERT_NOT_NULL(strstr(history_url, "paths=environment.depth.belowTransducer"));
+}
+
+static void test_history_is_asked_again_after_a_reconnect(void) {
+  hist_track(rpm);
+  history_body = "{\"data\":[[\"t\",1]]}";
+  sk_client_run_once();
+  sk_client_run_once();   // the connection dropped and came back: there may be a gap
+  TEST_ASSERT_EQUAL_INT(2, history_gets);
+}
+
+static void test_history_no_answer_is_not_retried_within_the_wait(void) {
+  hist_track(rpm);
+  history_body = NULL;   // no response
+  live_polls = 6;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, history_gets);   // asked once at going live; the retry waits 30 s
 }
 
 static void test_history_error_page_does_not_disturb_the_connection(void) {
@@ -300,6 +329,9 @@ int main(void) {
   RUN_TEST(test_backoff_sequence);
   RUN_TEST(test_history_backfilled_once_on_going_live);
   RUN_TEST(test_history_not_asked_when_nothing_is_tracked);
+  RUN_TEST(test_history_path_tracked_while_live_is_backfilled_then);
+  RUN_TEST(test_history_is_asked_again_after_a_reconnect);
+  RUN_TEST(test_history_no_answer_is_not_retried_within_the_wait);
   RUN_TEST(test_history_error_page_does_not_disturb_the_connection);
   RUN_TEST(test_failed_connect_asks_for_no_history);
   RUN_TEST(test_cycle_subscribes_to_bound_paths);

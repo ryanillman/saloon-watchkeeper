@@ -142,6 +142,40 @@ static void test_paths_are_independent(void) {
   TEST_ASSERT_EQUAL_FLOAT(51, b[1]);
 }
 
+static void test_new_paths_start_unfilled_and_answers_fill_them(void) {
+  hist_track(id);
+  hist_track(id2);
+  bd_id_t out[4];
+  TEST_ASSERT_EQUAL_UINT(2, hist_unfilled(out, 4));
+  TEST_ASSERT_EQUAL_UINT16(id, out[0]);
+  hist_note_backfill(id, true);
+  TEST_ASSERT_EQUAL_UINT(1, hist_unfilled(out, 4));
+  TEST_ASSERT_EQUAL_UINT16(id2, out[0]);
+  bd_id_t third = bd_intern("a.third");
+  hist_track(third);   // tracked later, while connected
+  TEST_ASSERT_EQUAL_UINT(2, hist_unfilled(out, 4));
+}
+
+static void test_an_unanswered_path_is_tried_twice_then_given_up(void) {
+  hist_track(id);
+  bd_id_t out[2];
+  hist_note_backfill(id, false);
+  TEST_ASSERT_EQUAL_UINT(1, hist_unfilled(out, 2));
+  hist_note_backfill(id, false);
+  TEST_ASSERT_EQUAL_UINT(0, hist_unfilled(out, 2));
+}
+
+static void test_forgetting_makes_every_path_unfilled_again(void) {
+  hist_track(id);
+  hist_track(id2);
+  hist_note_backfill(id, true);
+  hist_note_backfill(id2, false);
+  hist_note_backfill(id2, false);
+  hist_forget_backfill();
+  bd_id_t out[4];
+  TEST_ASSERT_EQUAL_UINT(2, hist_unfilled(out, 4));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_track_is_idempotent_and_bounded);
@@ -154,5 +188,8 @@ int main(void) {
   RUN_TEST(test_backfill_null_entries_stay_gaps_and_old_data_is_dropped);
   RUN_TEST(test_read_right_after_boot_returns_only_what_exists);
   RUN_TEST(test_paths_are_independent);
+  RUN_TEST(test_new_paths_start_unfilled_and_answers_fill_them);
+  RUN_TEST(test_an_unanswered_path_is_tried_twice_then_given_up);
+  RUN_TEST(test_forgetting_makes_every_path_unfilled_again);
   return UNITY_END();
 }
