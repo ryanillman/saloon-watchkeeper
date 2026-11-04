@@ -9,6 +9,7 @@
 #include <strings.h>
 #include "platform.h"
 #include "power_page.h"
+#include "power_topo.h"
 #include "ui_flow.h"
 
 #define MAX_SRC 12   // 4 solar + 4 charger + 2 dcdc + 2 alternator
@@ -22,6 +23,10 @@ typedef struct { lv_obj_t *icon, *val, *flow; } node_t;
 static struct {
   node_t src[N_COUNT];
   node_t batt, load;
+  node_t nav;                  // multi-bank, wide: the nav bank, fed from the house battery
+  lv_obj_t *nav_flow;
+  lv_obj_t *nav_strip;         // multi-bank, square: one text line under the diagram
+  bool multi;                  // banks configured
   lv_obj_t *to_load, *to_batt, *from_batt, *bus;
   int32_t W, H;
   size_class_t sc;
@@ -96,6 +101,12 @@ static void relayout(uint8_t mask) {
     ui_flow_set_route(v.to_load, jx, jy, lx, ly_icon, AXIS_H, AXIS_H, 1);
     ui_flow_set_route(v.from_batt, b_out_x, b_out_y, lcx - rw / 2 - 8, ly_val, AXIS_H, AXIS_H, -1);
     ui_flow_set_route(v.to_batt, jx, jy, bx, by_top, AXIS_V, AXIS_V, 1);
+    if (v.nav.icon) {   // under the load, level with the battery; the arrow leaves the house battery
+      put(v.nav.icon, lcx - isz / 2, bi_y, isz, isz);
+      put(v.nav.val, lcx - rw / 2, H - pad - rh, rw, rh);
+      int32_t ay = bi_y + isz * 3 / 4;
+      ui_flow_set_route(v.nav_flow, b_out_x, ay, lcx - isz / 2 - 8, ay, AXIS_H, AXIS_H, 1);
+    }
   } else {
     int32_t cell = (W - 2 * pad) / (m ? m : 1);
     int32_t si = mini(isz, cell * 6 / 10);
@@ -137,6 +148,15 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   v.W = lv_obj_get_width(area);
   v.H = lv_obj_get_height(area);
   v.sc = sc;
+  power_topo_t topo;
+  power_topo_resolve(b, &topo);
+  v.multi = topo.active;
+  bool nav = topo.active && topo.bank_cfg[BANK_NAV];
+  int32_t strip_h = 0;
+  if (nav && sc != SIZE_WIDE) {   // no room for a fourth node: one text line under the diagram
+    strip_h = 28;
+    v.H -= strip_h;
+  }
   uint8_t idx[ROLE_MAX_INST], primary;
   uint8_t n = power_banks(b, idx, &primary);
   role_gauge_spec(b, G_BATTERY, n ? idx[primary] : 0, B_SOC, &v.spec, v.bands, v.label);
@@ -148,6 +168,7 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   v.to_load = ui_flow_create(area);
   v.to_batt = ui_flow_create(area);
   v.from_batt = ui_flow_create(area);
+  if (nav && sc == SIZE_WIDE) v.nav_flow = ui_flow_create(area);
   v.bus = lv_obj_create(area);
   lv_obj_remove_style_all(v.bus);
   lv_obj_remove_flag(v.bus, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -156,11 +177,20 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   lv_obj_set_style_bg_opa(v.bus, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(v.bus, ui_theme()->accent, 0);
 
+  // With banks, the engine node is the converter that carries charge from the start bank to the house.
   static const ui_icon_t ICONS[N_COUNT] = {ICON_SOLAR, ICON_SHORE, ICON_ENGINE, ICON_ENGINE};
   static const char *const NAMES[N_COUNT] = {"SOLAR", "SHORE", "ENGINE", "IN"};
+  static const char START_LINK[] = "START" LV_SYMBOL_RIGHT "HOUSE";
   for (int k = 0; k < N_COUNT; k++) {
-    v.src[k].icon = ui_icon_create(area, ICONS[k]);
-    v.src[k].val = ui_readout_create(area, NAMES[k], v.unit, 0);
+    bool link = v.multi && k == N_ENGINE;
+    v.src[k].icon = ui_icon_create(area, link ? ICON_CONVERTER : ICONS[k]);
+    v.src[k].val = ui_readout_create(area, link ? START_LINK : NAMES[k], v.unit, 0);
+  }
+  if (nav && sc == SIZE_WIDE) {
+    v.nav.icon = ui_icon_create(area, ICON_BATTERY);
+    v.nav.val = ui_readout_create(area, "NAV LOAD", v.unit, 0);
+    ui_field_set_fault_text(v.nav.val, "NAV FAIL");
+    ui_readout_set_centered(v.nav.val, true);
   }
   v.batt.icon = ui_icon_create(area, ICON_BATTERY);
   v.batt.val = ui_readout_create(area, "BATTERY", units_label(Q_RATIO, b->units), 0);
@@ -172,6 +202,15 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   ui_readout_set_centered(v.load.val, true);
   if (sc != SIZE_WIDE)
     for (int k = 0; k < N_COUNT; k++) ui_readout_set_centered(v.src[k].val, true);   // under their icons
+  if (strip_h) {
+    v.nav_strip = lv_label_create(area);
+    lv_obj_set_style_text_font(v.nav_strip, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(v.nav_strip, ui_theme()->dim, 0);
+    lv_obj_set_style_text_align(v.nav_strip, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(v.nav_strip, v.W);
+    lv_obj_set_pos(v.nav_strip, 0, v.H + 2);
+    lv_label_set_text(v.nav_strip, "NAV");
+  }
   relayout(1u << N_ANY);
 }
 
@@ -212,16 +251,36 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
   power_src_t src[MAX_SRC];
   size_t n = 0, from[N_COUNT] = {0}, to[N_COUNT] = {0};
   uint8_t present = 0;
-  for (size_t c = 0; c < sizeof SRC / sizeof SRC[0]; c++) {
-    uint8_t g = SRC[c].g, nd = SRC[c].node;
-    if (!(present & (1u << nd))) from[nd] = n;
-    for (uint8_t i = 0; i < b->g[g].inst_count && n < MAX_SRC; i++)
-      if (power_real(b, g, i)) {
-        power_src_of(b, g, i, C_VOLTS, C_AMPS, -1, st[n], &src[n]);   // V x I: watts into the battery
+  power_topo_t topo;
+  power_topo_resolve(b, &topo);
+  if (topo.active) {
+    // Multi-bank: the house bus is fed by the links to the house bank, not by every source on the boat.
+    // SOLAR: solar links. SHORE: charger links (its main output). ENGINE: converters drawing from START.
+    for (uint8_t nd = N_SOLAR; nd <= N_ENGINE; nd++) {
+      from[nd] = n;
+      for (uint8_t k = 0; k < topo.link_count && n < MAX_SRC; k++) {
+        const power_link_t *l = &topo.link[k];
+        bool match = nd == N_SOLAR ? l->g == G_SOLAR : nd == N_SHORE ? l->g == G_CHARGER : (l->g == G_DCDC && l->from == BANK_START);
+        if (!match || l->to != BANK_HOUSE || l->output > 0) continue;
+        src[n] = (power_src_t){0};   // an unbound source stays in as an unusable reading and fails the node
+        if (l->bound) power_src_of(b, l->g, l->i, C_VOLTS, C_AMPS, -1, st[n], &src[n]);
         n++;
         present |= 1u << nd;
       }
-    to[nd] = n;
+      to[nd] = n;
+    }
+  } else {
+    for (size_t c = 0; c < sizeof SRC / sizeof SRC[0]; c++) {
+      uint8_t g = SRC[c].g, nd = SRC[c].node;
+      if (!(present & (1u << nd))) from[nd] = n;
+      for (uint8_t i = 0; i < b->g[g].inst_count && n < MAX_SRC; i++)
+        if (power_real(b, g, i)) {
+          power_src_of(b, g, i, C_VOLTS, C_AMPS, -1, st[n], &src[n]);   // V x I: watts into the battery
+          n++;
+          present |= 1u << nd;
+        }
+      to[nd] = n;
+    }
   }
   bool on_shore = shore(b);
   if (on_shore) present |= 1u << N_SHORE;
@@ -239,6 +298,14 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
   }
   bool have_dc = power_sample(b, G_SYSTEM, 0, Y_DCPOWER, &dc);
   power_summary_t r = power_summarize(src, n, banks ? &batt : NULL, have_soc ? &soc : NULL, have_dc ? &dc : NULL, 0, now);
+  power_banks_view_t bv = {0};
+  if (topo.active) {   // bank figures replace the single-bank ones; the Cerbo's dcPower is not used
+    power_banks_compute(b, &topo, now, &bv);
+    r = (power_summary_t){.in_ok = bv.fig.house_in.ok, .in_w = bv.fig.house_in.w,
+                          .batt_ok = bv.fig.house_batt.ok, .batt_w = bv.fig.house_batt.w,
+                          .load_ok = bv.fig.house_load.ok, .load_w = bv.fig.house_load.w,
+                          .soc_ok = bv.house_soc_ok, .soc = bv.house_soc};
+  }
   power_flows_t f = power_flows(&r);
 
   // Each source node, from its own instances. Watts are the positive charge power, as in IN.
@@ -259,6 +326,7 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
   if (f.to_load_ok && f.to_load > ref) ref = f.to_load;
   if (f.batt_ok && f.to_batt > ref) ref = f.to_batt;
   if (f.batt_ok && f.from_batt > ref) ref = f.from_batt;
+  if (topo.active && bv.fig.nav_feed.ok && bv.fig.nav_feed.w > ref) ref = bv.fig.nav_feed.w;
 
   for (int k = 0; k < N_COUNT; k++) {
     node_t *nd = &v.src[k];
@@ -279,9 +347,29 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
   double pct = units_from_si(Q_RATIO, r.soc, b->units);
   ui_readout_set(v.batt.val, pct, r.soc_ok);
   ui_icon_set_fill(v.batt.icon, r.soc, r.soc_ok, soc_color(pct));
-  if (banks) role_field_alert(v.batt.val, b->g[G_BATTERY].ids[idx[primary]][B_SOC]);
+  if (banks && !(topo.active && !topo.bank_bound[BANK_HOUSE]))
+    role_field_alert(v.batt.val, b->g[G_BATTERY].ids[idx[primary]][B_SOC]);
 
   set_flow(v.to_load, f.to_load_ok, f.to_load, ref, b, "to load");
   set_flow(v.to_batt, f.batt_ok, f.to_batt, ref, b, "to battery");
   set_flow(v.from_batt, f.batt_ok, f.from_batt, ref, b, "from battery");
+
+  if (topo.active) {   // the START link's battery fills to START's charge; NAV shows its load and charge
+    ui_icon_set_fill(v.src[N_ENGINE].icon, bv.start_soc, bv.start_soc_ok, soc_color(units_from_si(Q_RATIO, bv.start_soc, b->units)));
+    const power_fig_t *nl = &bv.fig.nav_load;
+    if (v.nav.icon) {
+      ui_readout_set(v.nav.val, units_from_si(Q_POWER, nl->w, b->units), nl->ok);
+      ui_icon_set_active(v.nav.icon, nl->ok && nl->w >= 0.5);
+      ui_icon_set_fill(v.nav.icon, bv.nav_soc, bv.nav_soc_ok, soc_color(units_from_si(Q_RATIO, bv.nav_soc, b->units)));
+      set_flow(v.nav_flow, bv.fig.nav_feed.ok, bv.fig.nav_feed.w, ref, b, "to nav");
+    }
+    if (v.nav_strip) {
+      char soc_t[16] = "SOC FAIL", load_t[24] = "LOAD FAIL", t[64];
+      if (bv.nav_soc_ok) snprintf(soc_t, sizeof soc_t, "%.0f %%", units_from_si(Q_RATIO, bv.nav_soc, b->units));
+      if (nl->ok) snprintf(load_t, sizeof load_t, "%.0f %s", units_from_si(Q_POWER, nl->w, b->units), v.unit);
+      snprintf(t, sizeof t, "NAV  %s  %s", soc_t, load_t);
+      lv_label_set_text(v.nav_strip, t);
+      lv_obj_set_style_text_color(v.nav_strip, bv.nav_soc_ok && nl->ok ? ui_theme()->dim : ui_theme()->fault_label, 0);
+    }
+  }
 }

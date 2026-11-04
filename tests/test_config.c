@@ -231,6 +231,120 @@ static void test_power_primary_round_trip(void) {
   TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
 }
 
+// ---- multi-bank power: banks and links ----
+
+static const char *BANKS_OK =
+  "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", \"x-note\": \"keep\",\n"
+  "  \"banks\": [ {\"id\":\"279\",\"name\":\"HOUSE\",\"kind\":\"house\"},\n"
+  "               {\"id\":\"280\",\"name\":\"START\",\"kind\":\"start\"},\n"
+  "               {\"id\":\"281\",\"name\":\"NAV\",\"kind\":\"nav\"} ],\n"
+  "  \"links\": [ {\"src\":\"charger:276\",\"output\":0,\"to\":\"house\"},\n"
+  "               {\"src\":\"charger:276\",\"output\":1,\"to\":\"start\"},\n"
+  "               {\"src\":\"alternator:0\",\"to\":\"start\"},\n"
+  "               {\"src\":\"solar:288\",\"to\":\"house\"},\n"
+  "               {\"src\":\"dcdc:1\",\"from\":\"start\",\"to\":\"house\"},\n"
+  "               {\"src\":\"dcdc:2\",\"from\":\"house\",\"to\":\"nav\"} ] } ] }\n";
+
+static void test_power_banks_round_trip(void) {
+  write_file("config.json", BANKS_OK);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  const cfg_role_t *p = &c.roles[0];
+  TEST_ASSERT_EQUAL_UINT8(3, p->bank_count);
+  TEST_ASSERT_EQUAL_UINT8(6, p->link_count);
+  TEST_ASSERT_EQUAL_STRING("280", p->bank[1].id);
+  TEST_ASSERT_EQUAL_STRING("START", p->bank[1].name);
+  TEST_ASSERT_EQUAL_STRING("nav", p->bank[2].kind);
+  TEST_ASSERT_EQUAL_STRING("charger:276", p->link[1].src);
+  TEST_ASSERT_EQUAL_UINT8(1, p->link[1].output);
+  TEST_ASSERT_EQUAL_STRING("start", p->link[4].from);
+  TEST_ASSERT_EQUAL_STRING("house", p->link[4].to);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_t d;
+  cfg_load(dir, &d, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_UINT8(3, d.roles[0].bank_count);
+  TEST_ASSERT_EQUAL_UINT8(6, d.roles[0].link_count);
+  TEST_ASSERT_EQUAL_STRING("dcdc:2", d.roles[0].link[5].src);
+  TEST_ASSERT_EQUAL_STRING("house", d.roles[0].link[5].from);
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
+}
+
+// A bad topology is reported once and dropped; the rest of the role (primary) still loads.
+static void expect_banks_rejected(const char *banks_and_links) {
+  char text[2048];
+  snprintf(text, sizeof text, "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", %s } ] }", banks_and_links);
+  write_file("config.json", text);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("roles.power.banks", r.issues[0].key_path);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].bank_count);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].link_count);
+  TEST_ASSERT_EQUAL_STRING("279", c.roles[0].primary);
+}
+
+static void test_power_banks_two_house_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"}, {\"id\":\"2\",\"kind\":\"house\"} ]");
+}
+static void test_power_banks_no_house_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"start\"} ]");
+}
+static void test_power_banks_unknown_kind_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"}, {\"id\":\"2\",\"kind\":\"galley\"} ]");
+}
+static void test_power_banks_link_to_missing_kind_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
+                        " \"links\": [ {\"src\":\"solar:2\",\"to\":\"nav\"} ]");
+}
+static void test_power_dcdc_without_from_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
+                        " \"links\": [ {\"src\":\"dcdc:1\",\"to\":\"house\"} ]");
+}
+static void test_power_non_dcdc_with_from_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
+                        " \"links\": [ {\"src\":\"solar:2\",\"from\":\"house\",\"to\":\"house\"} ]");
+}
+static void test_power_link_bad_src_rejected(void) {
+  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
+                        " \"links\": [ {\"src\":\"toaster:2\",\"to\":\"house\"} ]");
+}
+
+static void test_power_banks_without_links_is_valid(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ] } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_UINT8(1, c.roles[0].bank_count);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].link_count);
+}
+
+// A rejected topology is not loaded, but a save from the setup screen must not delete the user's text.
+static void test_rejected_banks_survive_a_save(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [ {\"id\":\"1\",\"kind\":\"galley\"} ] } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "galley"));
+}
+
+static void test_no_banks_key_changes_nothing(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\" } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].bank_count);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NULL(strstr(read_file("config.json"), "banks"));
+}
+
 // ---- milestone 5a: unknown roles survive, key-path edits ----
 
 static const char *WITH_UNKNOWN =
@@ -398,5 +512,16 @@ int main(void) {
   RUN_TEST(test_cfg_set_creates_missing_string_key);
   RUN_TEST(test_cfg_show_masks_secrets);
   RUN_TEST(test_power_primary_round_trip);
+  RUN_TEST(test_power_banks_round_trip);
+  RUN_TEST(test_power_banks_two_house_rejected);
+  RUN_TEST(test_power_banks_no_house_rejected);
+  RUN_TEST(test_power_banks_unknown_kind_rejected);
+  RUN_TEST(test_power_banks_link_to_missing_kind_rejected);
+  RUN_TEST(test_power_dcdc_without_from_rejected);
+  RUN_TEST(test_power_non_dcdc_with_from_rejected);
+  RUN_TEST(test_power_link_bad_src_rejected);
+  RUN_TEST(test_power_banks_without_links_is_valid);
+  RUN_TEST(test_rejected_banks_survive_a_save);
+  RUN_TEST(test_no_banks_key_changes_nothing);
   return UNITY_END();
 }

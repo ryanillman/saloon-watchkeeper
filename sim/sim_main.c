@@ -104,6 +104,51 @@ static void fixture_power(void) {
   bd_set_invalid(bd_intern("electrical.batteries.279.capacity.timeRemaining"));   // charging: Venus sends null
 }
 
+// The three-bank boat of docs/specs/2026-11-04-multi-bank-power-design.md, on top of fixture_power():
+// house 279 (from fixture_power), start 280, nav 281, the two converters, and the start-bank alternator.
+static void fixture_banks(void) {
+  fixture_power();
+  const struct { const char *path; double v; } d[] = {
+    {"electrical.batteries.279.current", 12.0},
+    {"electrical.batteries.280.voltage", 12.8}, {"electrical.batteries.280.current", 0.5},
+    {"electrical.batteries.280.capacity.stateOfCharge", 0.96},
+    {"electrical.batteries.281.voltage", 13.1}, {"electrical.batteries.281.current", 1.0},
+    {"electrical.batteries.281.capacity.stateOfCharge", 0.90},
+    {"electrical.dcdc.1.voltage", 13.6}, {"electrical.dcdc.1.current", 8.0},
+    {"electrical.dcdc.2.voltage", 13.4}, {"electrical.dcdc.2.current", 4.0},
+    {"electrical.dcdc.2.input.voltage", 13.3}, {"electrical.dcdc.2.input.current", 4.4},
+    {"electrical.alternators.0.current", 0.0},
+  };
+  int64_t now = platform_millis();
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
+  bd_set_text(bd_intern("electrical.dcdc.1.chargingMode"), "bulk", SK_SOURCE_ID, now);
+  bd_set_text(bd_intern("electrical.dcdc.2.chargingMode"), "float", SK_SOURCE_ID, now);
+  bd_set_invalid(bd_intern("electrical.batteries.280.capacity.timeRemaining"));
+  bd_set_invalid(bd_intern("electrical.batteries.281.capacity.timeRemaining"));
+}
+
+static void set_banks(cfg_role_t *r) {
+  static const struct { const char *id, *name, *kind; } banks[] = {
+    {"279", "HOUSE", "house"}, {"280", "START", "start"}, {"281", "NAV", "nav"}};
+  static const struct { const char *src; uint8_t output; const char *from, *to; } links[] = {
+    {"charger:276", 0, "", "house"}, {"charger:276", 1, "", "start"}, {"alternator:0", 0, "", "start"},
+    {"solar:288", 0, "", "house"}, {"dcdc:1", 0, "start", "house"}, {"dcdc:2", 0, "house", "nav"}};
+  r->bank_count = r->link_count = 0;
+  for (size_t i = 0; i < sizeof banks / sizeof banks[0]; i++) {
+    cfg_bank_t *k = &r->bank[r->bank_count++];
+    snprintf(k->id, sizeof k->id, "%s", banks[i].id);
+    snprintf(k->name, sizeof k->name, "%s", banks[i].name);
+    snprintf(k->kind, sizeof k->kind, "%s", banks[i].kind);
+  }
+  for (size_t i = 0; i < sizeof links / sizeof links[0]; i++) {
+    cfg_link_t *l = &r->link[r->link_count++];
+    snprintf(l->src, sizeof l->src, "%s", links[i].src);
+    l->output = links[i].output;
+    snprintf(l->from, sizeof l->from, "%s", links[i].from);
+    snprintf(l->to, sizeof l->to, "%s", links[i].to);
+  }
+}
+
 static void alert_raise(const char *id, alert_state_t st, const char *msg) {
   alert_t al = {0};
   snprintf(al.id, sizeof al.id, "%s", id);
@@ -277,6 +322,26 @@ static int run_snapshots(const char *out) {
             ui_setup_close();
             lv_timer_handler();
           }
+        }
+      }
+      // Power with banks configured: Summary (START link, NAV), Banks, Batteries, Charging. The fault render has
+      // the charger's current and the nav shunt's current invalid: HOUSE IN and NAV LOAD fail, the rest stay live.
+      for (uint8_t r = 0; r < cfg->role_count; r++) {
+        if (strcmp(cfg->roles[r].role, "power")) continue;
+        fixture_banks();
+        set_banks(&cfg->roles[r]);
+        snprintf(cfg->start_role, sizeof cfg->start_role, "power");
+        app_bind();
+        app_start_ui(disp, b->size_class);
+        const ui_nav_t *n = ui_shell_nav();
+        uint8_t pages = n->page_count[n->role];
+        for (uint8_t p = 0; p < pages; p++) {
+          fixture_banks();
+          if (write_page(disp, dir, "-banks-live", b)) return 1;
+          bd_set_invalid(bd_find("electrical.chargers.276.current"));
+          bd_set_invalid(bd_find("electrical.batteries.281.current"));
+          if (write_page(disp, dir, "-banks-fault", b)) return 1;
+          ui_shell_move(NAV_UP);
         }
       }
     }

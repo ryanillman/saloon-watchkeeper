@@ -1,6 +1,7 @@
 #pragma once
 // /config.json on the SD card: the device's source of truth.
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define CFG_VERSION 1
@@ -15,10 +16,19 @@ typedef struct { char temperature[2], pressure[4], volume[4], speed[5], distance
 typedef struct { char id[24]; char label[12]; } cfg_instance_t;
 typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<instance>.<slot>"
 typedef struct { char slot[24]; bool has_min, has_max; double min, max; } cfg_override_t;
+// Power topology (spec 2026-11-04-multi-bank-power-design.md). A bank is a battery instance with a
+// kind; a link says which source feeds which bank kind, and for a DC-DC which kind it draws from.
+typedef struct { char id[24]; char name[12]; char kind[6]; } cfg_bank_t;   // kind "house" | "start" | "nav"
+typedef struct { char src[28]; uint8_t output; char from[6]; char to[6]; } cfg_link_t;   // src "group:instance"
+#define CFG_MAX_BANKS 3
+#define CFG_MAX_LINKS 8
+
 typedef struct {
   char role[12];
   uint8_t src_entry;  // 1-based entry in the file's roles array this came from; 0 = new
   char primary[24];   // power: instance id of the primary battery bank; empty = automatic
+  cfg_bank_t bank[CFG_MAX_BANKS]; uint8_t bank_count;   // power: 0 = single-bank mode
+  cfg_link_t link[CFG_MAX_LINKS]; uint8_t link_count;
   cfg_instance_t inst[8]; uint8_t inst_count;
   cfg_bind_t bind[8]; uint8_t bind_count;
   cfg_override_t ovr[8]; uint8_t ovr_count;
@@ -49,6 +59,12 @@ cfg_origin_t cfg_load(const char *dir, cfg_t *out, cfg_report_t *report);
 bool cfg_save(const char *dir, const cfg_t *cfg);
 
 void cfg_defaults(cfg_t *out);
+
+// Checks a power role's banks and links. True when there are no banks, or the topology is valid:
+// known and unique kinds, exactly one "house", every link's `to` (and a DC-DC's `from`) naming a
+// configured kind, `src` as "charger|solar|dcdc|alternator:<instance>", and `from` only on a dcdc.
+// On false, `why` says what is wrong.
+bool cfg_power_topology_check(const cfg_role_t *r, char *why, size_t why_n);
 
 // Edits dir/config.json at a key path ("sources.signalk.token"). An existing key keeps its
 // type (string; a number must parse; a bool takes true/false); a missing key is created as a

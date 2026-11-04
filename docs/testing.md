@@ -44,6 +44,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | `tanks` after 20 s | Five tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
 | `victron-power` | Power Summary is a flow diagram: SOLAR, SHORE and ENGINE nodes (only those bound; SHORE also when the inverter reports shore power) feed a bus dot, which feeds the battery and the DC LOAD; the battery icon fills to the SOC, which is the `BATTERY` readout (from `capacity.stateOfCharge`). Arrows carry chevrons that slide from source to destination, faster and heavier for larger flows, labelled `161 W to battery` (wide) or `161 W` (square). A flow of 0 W is a dim static stub. DC LOAD = IN - BATTERY. After 30 s the battery discharges: the `from battery` arrow animates and `to battery` goes to a 0 W stub; Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `SOLAR FAIL` and `LOAD FAIL`, those arrows disappear, the other nodes, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. Check the arrows move smoothly on the boards (they redraw 16 steps per cycle). The paths are the signalk-venus defaults and may change after the Cerbo capture |
+| `three-bank` | Needs a power role with `banks` and `links` (below). Summary is the house view: SOLAR is solar 288, SHORE is the charger's main output, ENGINE is the start-to-house converter (dcdc 1), and DC LOAD is house IN, minus the house battery, minus what the nav converter (dcdc 2) draws; the Cerbo's `dcPower` is not used. At 20 s: BATTERY 82 %, IN about 255 W, 161 W into the house battery, 58 W to nav, so DC LOAD is about 35 W. After 30 s the nav bank discharges and the nav converter draws more from house (about 94 W in) while the house battery's own current falls to 4 A. The nav draw never counts as house load. After 50 s the charger current is null: `SHORE FAIL` and `LOAD FAIL`, the other nodes and BATTERY stay live. Back at 70 s. ENGINE reads `START > HOUSE` with a battery-and-arrow icon filled to START's SoC (96 %), and its watts are dcdc 1's output (109 W). Wide: a NAV battery bottom right (filled to 90 %) reads NAV LOAD, with an arrow from the house battery labelled `59 W to nav`. Square: a text line `NAV 90 %  40 W` under the diagram. Page 2 is the Banks page: START, HOUSE, NAV with an arrow labelled with each converter's watts between them, each bank's sources under it (`FLOAT CHARGER`, `ALTERNATOR 0 W`; `CHARGER 82 W`, `SOLAR 48 W`). Batteries lists HOUSE, START, NAV with their sources; Charging groups its rows by destination (`TO HOUSE`, `START > HOUSE`, `TO START`, `HOUSE > NAV`). After 50 s the charger current is null: `SHORE FAIL`, `LOAD FAIL` on the Summary, `CHARGER FAIL` in HOUSE's source line on the Banks page; NAV stays live. Snapshots: `power-p<n>-banks-live` and `-banks-fault` in every size and palette (the fault render also fails the nav shunt's current: `NAV FAIL`). Every path is unverified until a Cerbo capture |
 | `alarm-coolant` at 10 s | Red banner under the strip, flashing 1 Hz: `Port coolant high`, ACK, SILENCE, and GO (GO opens Engine page 1, the detail page). The port coolant value turns red. Buzzer on boards that have one (Square 4.0). The notification appears in `GET /signalk/v2/api/notifications` |
 | `alarm-fuel-low` | Clears any previous fuel alarm immediately, then at 8 s a red banner `Fuel low`, with GO. Six tanks: the extra fresh-water tank puts fuel on the second square page. GO opens that page (FUEL and GREY), not the first tanks page (BLACK and the three FRESH tanks). A wide screen has one tanks page, so GO opens that. The fuel strip is low and red. The alarm stays up through the end of the 80 s run |
 | `alarm-coolant`, tap ACK | The banner goes away and a bell with `1` appears in the top strip, left of the status text; the server shows the notification acknowledged. Tap the bell for the list, where the alarm stays with its ACK hidden. Tap SILENCE first and the buzzer stops, the server shows silenced. If the ACK did not reach the server the banner stays, steady, with `ACK NOT SENT` |
@@ -52,6 +53,25 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | Server stopped with an alarm showing | Banner gone, `SK ALERTS OFFLINE` in the strip, `SK OFFLINE` status, buzzer silent |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
+
+### Multi-bank power config
+
+For `three-bank`, give the simulator a `config.json` whose power role is:
+
+```json
+{ "role": "power",
+  "banks": [ {"id": "279", "name": "HOUSE", "kind": "house"},
+             {"id": "280", "name": "START", "kind": "start"},
+             {"id": "281", "name": "NAV",   "kind": "nav"} ],
+  "links": [ {"src": "charger:276", "output": 0, "to": "house"},
+             {"src": "charger:276", "output": 1, "to": "start"},
+             {"src": "alternator:0", "to": "start"},
+             {"src": "solar:288", "to": "house"},
+             {"src": "dcdc:1", "from": "start", "to": "house"},
+             {"src": "dcdc:2", "from": "house", "to": "nav"} ] }
+```
+
+Run `./build/sim/sim --board sim800 --config <dir> --capture out.png --after 20`. A topology that does not validate is reported on the setup screen and the role runs single-bank. Design: `docs/specs/2026-11-04-multi-bank-power-design.md`.
 
 ### Milestone 4 live results
 
