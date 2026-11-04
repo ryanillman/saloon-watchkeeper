@@ -25,6 +25,7 @@ static const role_group_t groups[] = {
 void engine_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b);
 void engine_refresh(role_binding_t *b, int64_t now_ms);
 uint8_t engine_page_for(const role_binding_t *b, size_class_t sc, const char *path);
+void engine_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out);
 
 const role_def_t role_engine = {
   .name = "engine",
@@ -35,4 +36,5 @@ const role_def_t role_engine = {
   .page_for = engine_page_for,
   .build_page = engine_build_page,
   .refresh = engine_refresh,
+  .tile = engine_tile,
 };

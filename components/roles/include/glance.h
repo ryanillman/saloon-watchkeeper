@@ -18,7 +18,7 @@ typedef struct {
   char headline[16];       // the big value, display units, no unit; empty when there is none to show
   char unit[8];
   char context[2][40];     // the first is kept on every board; the second only on the larger ones
-  bd_id_t trend;           // BD_NONE = no trend line
+  bd_id_t trend;           // BD_NONE = no trend line. With bars it is only tracked in the history store, not drawn
   uint8_t bar_count;       // > 0: bars instead of a headline (Tanks)
   char bar_label[3];       // one letter each: W, F, S
   uint8_t bar_pct[3];
@@ -32,3 +32,6 @@ gt_state_t glance_worst(const gt_state_t *s, size_t n);   // GT_OFF when n == 0
 gt_state_t glance_path_state(bd_id_t id, int32_t max_age_ms, int64_t now_ms);
 
 const char *glance_state_word(gt_state_t s);   // "OFF", "OK", "ALERT", "WARN", "NO DATA", "ALARM"
+
+// Sets the tile's state and its default word.
+void glance_tile_state(glance_tile_t *t, gt_state_t s);

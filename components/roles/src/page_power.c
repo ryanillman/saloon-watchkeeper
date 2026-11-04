@@ -411,3 +411,40 @@ void power_refresh(role_binding_t *b, int64_t now) {
   else if (built_page == batteries_page(b)) batteries_refresh(b, now);
   else if (built_page > batteries_page(b)) charging_refresh(b, now);
 }
+
+// The Glance tile: the house (primary) bank's state of charge, with the worst state over every bank's
+// charge and voltage. The house charge missing is NO DATA, whatever the other banks say.
+void power_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
+  (void)now_ms;
+  out->title = "POWER";
+  uint8_t idx[ROLE_MAX_INST], primary;
+  uint8_t n = power_banks(b, idx, &primary);
+  if (n == 0) {
+    glance_tile_state(out, GT_NO_DATA);
+    return;
+  }
+  uint8_t house = idx[primary];
+  gt_state_t st[2 * ROLE_MAX_INST + 1];
+  size_t ns = 0;
+  for (uint8_t j = 0; j < n; j++) {
+    static const uint8_t watched[] = {B_SOC, B_VOLTS};
+    for (size_t w = 0; w < sizeof watched; w++) {
+      bd_id_t id = b->g[G_BATTERY].ids[idx[j]][watched[w]];
+      if (id != BD_NONE) st[ns++] = glance_path_state(id, 0, now_ms);   // the slots have no max age (role_power.c)
+    }
+  }
+  double soc, x;
+  bool have_soc = num(b, G_BATTERY, house, B_SOC, &soc);
+  if (!have_soc) st[ns++] = GT_NO_DATA;
+  glance_tile_state(out, glance_worst(st, ns));
+  out->trend = b->g[G_BATTERY].ids[house][B_SOC];
+  if (have_soc) {
+    snprintf(out->headline, sizeof out->headline, "%.0f", soc);
+    snprintf(out->unit, sizeof out->unit, "%s", units_label(Q_RATIO, b->units));
+  }
+  double volts, amps;
+  bool hv = num(b, G_BATTERY, house, B_VOLTS, &volts), ha = num(b, G_BATTERY, house, B_AMPS, &amps);
+  if (hv && ha) snprintf(out->context[0], sizeof out->context[0], "%.1f V  %.1f A", volts, amps);
+  else if (hv) snprintf(out->context[0], sizeof out->context[0], "%.1f V", volts);
+  if (num(b, G_BATTERY, house, B_TIME, &x) && x > 0) snprintf(out->context[1], sizeof out->context[1], "%.0f h left", x);
+}

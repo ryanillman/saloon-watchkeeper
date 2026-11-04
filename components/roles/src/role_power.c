@@ -67,6 +67,7 @@ static const role_group_t groups[] = {
 void power_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b);
 void power_refresh(role_binding_t *b, int64_t now_ms);
 uint8_t power_pages(const role_binding_t *b, size_class_t sc);
+void power_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out);
 
 const role_def_t role_power = {
   .name = "power",
@@ -77,4 +78,5 @@ const role_def_t role_power = {
   .pages = power_pages,
   .build_page = power_build_page,
   .refresh = power_refresh,
+  .tile = power_tile,
 };
