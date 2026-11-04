@@ -655,12 +655,11 @@ void app_tick(void) {
         sk_client_rebind(ids, bound_ids(ids, 256));
       }
     }
-    const ui_colors_t *c = ui_theme();
     switch (sk_client_state()) {
-      case SK_LIVE: ui_shell_set_status("SK LIVE", c->fg); break;
+      case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); break;
       case SK_DISCOVERING:
-      case SK_CONNECTING: ui_shell_set_status("SK CONNECTING", c->warn); break;
-      default: ui_shell_set_status("SK OFFLINE", c->alarm); break;
+      case SK_CONNECTING: ui_shell_set_source(UI_SRC_CONNECTING); break;
+      default: ui_shell_set_source(UI_SRC_OFFLINE); break;
     }
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does

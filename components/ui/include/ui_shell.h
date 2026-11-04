@@ -33,8 +33,14 @@ void ui_shell_set_roles(uint8_t role_count);
 // Calls the visible role's refresh. The app calls this about 10 times a second.
 void ui_shell_refresh(void);
 
-// Source status at the right of the top strip, e.g. "SK LIVE".
-void ui_shell_set_status(const char *text, lv_color_t color);
+// The Signal K source, at the right of the top strip. Live is a bare filled dot; connecting
+// (hollow ring) and offline (ring with a cross) also show "SK CONNECTING" / "SK OFFLINE".
+// The shape differs by state, so the night palette's single red does not hide it.
+typedef enum { UI_SRC_LIVE, UI_SRC_CONNECTING, UI_SRC_OFFLINE } ui_src_t;
+void ui_shell_set_source(ui_src_t st);
+
+// The clock, left of the page dots. NULL hides it. The text is copied.
+void ui_shell_set_clock(const char *hhmm);
 
 // Current position, for snapshot file names.
 const ui_nav_t *ui_shell_nav(void);
@@ -44,8 +50,11 @@ void ui_shell_goto(uint8_t role, uint8_t page);
 
 // The top strip and its status text, for the alert marker.
 lv_obj_t *ui_shell_strip(void);
-lv_obj_t *ui_shell_status(void);
+lv_obj_t *ui_shell_status(void);   // "SK OFFLINE" etc.; empty while live
 lv_obj_t *ui_shell_dots(void);
+lv_obj_t *ui_shell_name(void);
+lv_obj_t *ui_shell_clock(void);
+lv_obj_t *ui_shell_source_dot(void);
 
 // A tap on the left part of the top strip (the role name) calls `fn`; NULL clears it.
 // The alert marker on the right keeps its own tap. The object is invisible, for tests.
