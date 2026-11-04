@@ -6,8 +6,8 @@
 #include "cJSON.h"
 #include "platform.h"
 
-static const char *KNOWN_ROLES[] = {"engine", "power", "tanks", "anchor", "wind", "nav"};
-static const char *DEFAULT_ROLES[] = {"engine", "power", "tanks", "anchor"};
+static const char *KNOWN_ROLES[] = {"glance", "engine", "power", "tanks", "anchor", "wind", "nav"};
+static const char *DEFAULT_ROLES[] = {"glance", "engine", "power", "tanks", "anchor"};
 
 // The JSON tree last loaded or saved. Saves edit it in place so unknown keys survive.
 // The UI, config writer, and console tasks all reach it: every access holds `lock`.

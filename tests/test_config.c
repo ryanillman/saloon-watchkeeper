@@ -100,9 +100,10 @@ static void test_both_missing_uses_defaults(void) {
   cfg_t c;
   cfg_report_t r;
   TEST_ASSERT_EQUAL(CFG_FROM_DEFAULTS, cfg_load(dir, &c, &r));
-  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);
-  TEST_ASSERT_EQUAL_STRING("engine", c.roles[0].role);
-  TEST_ASSERT_EQUAL_STRING("anchor", c.roles[3].role);
+  TEST_ASSERT_EQUAL_UINT8(5, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("glance", c.roles[0].role);   // the glance page comes first
+  TEST_ASSERT_EQUAL_STRING("engine", c.roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("anchor", c.roles[4].role);
 }
 
 static void test_parse_error_reports_line_and_falls_back(void) {
@@ -140,7 +141,7 @@ static void test_no_valid_roles_uses_default_roles(void) {
   cfg_t c;
   cfg_report_t r;
   cfg_load(dir, &c, &r);
-  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);   // never a blank display
+  TEST_ASSERT_EQUAL_UINT8(5, c.role_count);   // never a blank display
 }
 
 static void test_unknown_keys_survive_save(void) {
@@ -192,7 +193,7 @@ static void test_save_from_defaults_creates_file(void) {
   TEST_ASSERT_TRUE(cfg_save(dir, &c));
   cfg_t again;
   TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &again, &r));
-  TEST_ASSERT_EQUAL_UINT8(4, again.role_count);
+  TEST_ASSERT_EQUAL_UINT8(5, again.role_count);
 }
 
 static void test_unknown_unit_reported_and_defaulted(void) {

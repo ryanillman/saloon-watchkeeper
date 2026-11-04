@@ -6,6 +6,7 @@ typedef enum { PALETTE_DAY, PALETTE_DUSK, PALETTE_NIGHT } palette_t;
 
 typedef struct {
   lv_color_t bg, fg, dim, accent, strip_bg, warn, alarm, fault_cross, fault_label;
+  lv_color_t ok;   // a healthy state (the Glance tile edge); night has no green, so it is the dim red there
 } ui_colors_t;
 
 const ui_colors_t *ui_theme_colors(palette_t p);

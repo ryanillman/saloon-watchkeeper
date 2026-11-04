@@ -2,6 +2,7 @@
 // talking to a real Signal K server. --snapshot renders every page to PNG.
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #include "platform.h"
 #include "sim_boards.h"
 #include "sk_parse.h"
+#include "history.h"
 #include "snapshot.h"
 #include "ui_alerts.h"
 #include "ui_quick.h"
@@ -149,6 +151,21 @@ static void set_banks(cfg_role_t *r) {
   }
 }
 
+// Twelve hours of history for the Glance trends: the house charge falling, the water level slowly dropping.
+static void fixture_history(void) {
+  static float v[HIST_MINUTES];
+  const struct { const char *path; float from, to; } d[] = {
+    {"electrical.batteries.279.capacity.stateOfCharge", 0.97f, 0.82f},
+    {"tanks.freshWater.0.currentLevel", 0.80f, 0.72f},
+  };
+  for (size_t k = 0; k < sizeof d / sizeof d[0]; k++) {
+    bd_id_t id = bd_find(d[k].path);
+    if (id == BD_NONE) continue;
+    for (int i = 0; i < HIST_MINUTES; i++) v[i] = d[k].from + (d[k].to - d[k].from) * (float)i / (HIST_MINUTES - 1) + 0.004f * sinf((float)i / 25.0f);
+    hist_backfill(id, v, HIST_MINUTES);
+  }
+}
+
 static void alert_raise(const char *id, alert_state_t st, const char *msg) {
   alert_t al = {0};
   snprintf(al.id, sizeof al.id, "%s", id);
@@ -169,6 +186,8 @@ static void alerts_show(void) {
 static const char *palette_names[] = {"day", "dusk", "night"};
 
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
+  ui_shell_set_clock("02:14");
+  ui_shell_set_source(UI_SRC_LIVE);
   ui_shell_refresh();
   lv_obj_invalidate(lv_display_get_screen_active(disp));
   lv_refr_now(disp);
@@ -214,6 +233,7 @@ static int run_snapshots(const char *out) {
       fixture_tanks();
       fixture_power();
       app_bind();
+      fixture_history();
       char path[640];
       for (uint8_t r = 0; r < cfg->role_count; r++) {
         snprintf(cfg->start_role, sizeof cfg->start_role, "%s", cfg->roles[r].role);
@@ -221,7 +241,7 @@ static int run_snapshots(const char *out) {
         const ui_nav_t *n = ui_shell_nav();
         uint8_t pages = n->page_count[n->role];
         bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks"),
-             power = !strcmp(cfg->roles[r].role, "power");
+             power = !strcmp(cfg->roles[r].role, "power"), glance = !strcmp(cfg->roles[r].role, "glance");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -248,6 +268,16 @@ static int run_snapshots(const char *out) {
               alerts_clear("propulsion.port.temperature");
               alerts_show();
             }
+          } else if (glance) {
+            fixture_engines();
+            fixture_tanks();
+            fixture_power();
+            if (write_page(disp, dir, "-live", b)) return 1;
+            bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));   // the house charge goes
+            bd_set_invalid(bd_find("propulsion.port.temperature"));                         // and the port coolant sender
+            bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));                     // and a water tank sender
+            if (write_page(disp, dir, "-fault", b)) return 1;
+            fixture_power();
           } else if (tanks) {
             fixture_tanks();
             if (write_page(disp, dir, "-live", b)) return 1;
