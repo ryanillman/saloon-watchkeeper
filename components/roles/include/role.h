@@ -4,6 +4,7 @@
 #include "alerts.h"
 #include "boatdata.h"
 #include "config.h"
+#include "glance.h"
 #include "lvgl.h"
 #include "ui_gauge.h"
 #include "ui_theme.h"
@@ -48,6 +49,8 @@ typedef struct {
   uint8_t (*page_for)(const struct role_binding *b, size_class_t sc, const char *path);
   void (*build_page)(lv_obj_t *area, uint8_t page, size_class_t sc, struct role_binding *b);
   void (*refresh)(struct role_binding *b, int64_t now_ms);   // updates the widgets build_page made
+  // The role's Glance tile, from the data now. NULL = no tile. `out` is zeroed first by the caller; set title and state.
+  void (*tile)(const struct role_binding *b, int64_t now_ms, glance_tile_t *out);
 } role_def_t;
 
 typedef struct {
