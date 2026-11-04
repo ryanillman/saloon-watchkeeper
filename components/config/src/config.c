@@ -56,6 +56,7 @@ void cfg_defaults(cfg_t *c) {
   strcpy(c->units.distance, "nm");
   strcpy(c->palette, "auto");
   c->brightness = 80;
+  c->utc_offset_min = 0;
   default_roles(c);
   strcpy(c->start_role, c->roles[0].role);
 }
@@ -190,6 +191,8 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   COPY(c->palette, cJSON_GetObjectItem(d, "palette"));
   const cJSON *br = cJSON_GetObjectItem(d, "brightness");
   if (cJSON_IsNumber(br)) c->brightness = br->valueint < 0 ? 0 : br->valueint > 100 ? 100 : (uint8_t)br->valueint;
+  const cJSON *tz = cJSON_GetObjectItem(d, "utc_offset_min");
+  if (cJSON_IsNumber(tz)) c->utc_offset_min = tz->valuedouble < -720 ? -720 : tz->valuedouble > 840 ? 840 : (int16_t)tz->valueint;
   COPY(c->start_role, cJSON_GetObjectItem(d, "start_role"));
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
 
@@ -441,6 +444,7 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   cJSON *d = object(tree, "display");
   set_str(d, "palette", c->palette);
   set_num(d, "brightness", c->brightness);
+  set_num(d, "utc_offset_min", c->utc_offset_min);
   set_str(d, "start_role", c->start_role);
   cJSON *bz = object(tree, "buzzer");
   cJSON_DeleteItemFromObject(bz, "enabled");
