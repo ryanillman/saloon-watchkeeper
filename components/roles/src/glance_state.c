@@ -1,5 +1,6 @@
 #include "glance.h"
 #include <math.h>
+#include <stdio.h>
 #include "alerts.h"
 
 gt_state_t glance_worst(const gt_state_t *s, size_t n) {
@@ -45,4 +46,9 @@ const char *glance_state_word(gt_state_t s) {
     case GT_NO_DATA: return "NO DATA";
     default: return "ALARM";
   }
+}
+
+void glance_tile_state(glance_tile_t *t, gt_state_t s) {
+  t->state = s;
+  snprintf(t->word, sizeof t->word, "%s", glance_state_word(s));
 }
