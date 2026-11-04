@@ -197,7 +197,7 @@ static size_t bound_ids(sk_sub_t *out, size_t max) {
     if (mode != BD_NONE) out[n++] = (sk_sub_t){mode, 0};
   }
   bd_id_t when = bd_intern("navigation.datetime");   // the strip's clock; it runs on its own between updates
-  if (when != BD_NONE && n < max) out[n++] = (sk_sub_t){when, 15000};
+  if (when != BD_NONE && n < max) out[n++] = (sk_sub_t){when, 0};   // on change (about 1 Hz from a GPS): none while the GPS is off
   return n;
 }
 
@@ -655,15 +655,16 @@ static void run_posted(void) {
   }
 }
 
-// The strip clock: the newest valid navigation.datetime feeds it; it then runs on the monotonic timer,
-// so losing Signal K does not blank it. No valid time yet (or too old with the source down): not drawn.
+// The strip clock: navigation.datetime values are offered to it (ui_clock_offer shows one only when a second value
+// agrees with the elapsed time, so a stale value Signal K resends is never shown); it then runs on the monotonic
+// timer, so losing Signal K does not blank it. No valid time yet (or too old with the source down): not drawn.
 static void update_clock(int64_t now) {
   bd_id_t id = bd_find("navigation.datetime");
   bd_sample_t smp;
   int64_t epoch;
   if (id != BD_NONE && bd_get(id, &smp) && smp.valid && smp.kind == BD_TEXT && smp.rx_ms != a.clock_rx_ms) {
     a.clock_rx_ms = smp.rx_ms;
-    if (ui_clock_parse_iso(smp.text, &epoch)) ui_clock_feed(epoch, smp.rx_ms);
+    if (ui_clock_parse_iso(smp.text, &epoch)) ui_clock_offer(epoch, smp.rx_ms);   // shown once a second value agrees
   }
   char hhmm[6];
   bool up = a.network && sk_client_state() == SK_LIVE;

@@ -342,10 +342,14 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
     show(w->bar_pct[i], on);
     if (!on) continue;
     char ch[2] = {t.bar_label[i], 0}, pct[8];
-    snprintf(pct, sizeof pct, "%u%%", t.bar_pct[i]);
+    bool unknown = t.bar_pct[i] == GT_PCT_UNKNOWN;
+    snprintf(pct, sizeof pct, unknown ? "FAIL" : "%u%%", t.bar_pct[i]);
     set_text(w->bar_label[i], ch);
     set_text(w->bar_pct[i], pct);
-    if (lv_bar_get_value(w->bar[i]) != t.bar_pct[i]) lv_bar_set_value(w->bar[i], t.bar_pct[i], LV_ANIM_OFF);
+    if (unknown != (w->last.bar_pct[i] == GT_PCT_UNKNOWN))   // the fault colour only while it is a fault
+      lv_obj_set_style_text_color(w->bar_pct[i], unknown ? ui_theme()->fault_label : ui_theme()->fg, 0);
+    uint8_t fill = unknown ? 0 : t.bar_pct[i];   // an unknown level draws no fill at all
+    if (lv_bar_get_value(w->bar[i]) != fill) lv_bar_set_value(w->bar[i], fill, LV_ANIM_OFF);
   }
   set_text(w->ctx[0], t.context[0]);
   if (w->ctx[1]) set_text(w->ctx[1], t.context[1]);
@@ -439,5 +443,7 @@ lv_obj_t *glance_part(uint8_t tile, glance_part_t part) {
   }
   return NULL;
 }
+
+lv_obj_t *glance_bar_pct(uint8_t tile, uint8_t bar) { return tile < g.shown && bar < 3 ? g.t[tile].bar_pct[bar] : NULL; }
 
 uint16_t glance_trend_points(uint8_t tile) { return tile < g.shown ? g.t[tile].points : 0; }

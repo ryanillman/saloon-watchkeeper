@@ -11,6 +11,9 @@
 // neighbour can never hide it.
 typedef enum { GT_OFF, GT_OK, GT_ALERT, GT_WARN, GT_NO_DATA, GT_ALARM } gt_state_t;
 
+// bar_pct for a bar whose level is not known (a sender missing): drawn as FAIL, never as a number.
+#define GT_PCT_UNKNOWN 255
+
 typedef struct {
   const char *title;       // "ENGINE"
   gt_state_t state;
@@ -30,6 +33,10 @@ gt_state_t glance_worst(const gt_state_t *s, size_t n);   // GT_OFF when n == 0
 // the value is valid and fresh, the meta.zones entry holding the value (lower bound inclusive, upper
 // exclusive). Missing, invalid or older than max_age_ms (0 = no limit) data is GT_NO_DATA.
 gt_state_t glance_path_state(bd_id_t id, int32_t max_age_ms, int64_t now_ms);
+
+// The Signal K alert on a path alone, ignoring the data: GT_OK when there is none. For a role whose data is
+// not read while it is idle (a stopped engine) but whose alarms still count.
+gt_state_t glance_alert_state(bd_id_t id);
 
 const char *glance_state_word(gt_state_t s);   // "OFF", "OK", "ALERT", "WARN", "NO DATA", "ALARM"
 
