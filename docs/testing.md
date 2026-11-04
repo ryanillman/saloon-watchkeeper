@@ -20,10 +20,10 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
    python3 -I tools/sk-inject/inject.py access
    ```
    Approve **boat-instruments test injector** with read/write in the admin UI (Security → Access Requests). The token goes to `tools/sk-inject/.token`, which is git-ignored.
-2. Play a scenario:
+2. Play a scenario (`tools/scenario.sh` with no name lists them; a unique prefix is enough):
    ```sh
-   python3 -I tools/sk-inject/inject.py tools/sk-inject/scenarios/two-engines.json
-   python3 -I tools/sk-inject/inject.py tools/sk-inject/scenarios/coolant-null.json
+   tools/scenario.sh two-engines
+   tools/scenario.sh coolant-null
    ```
 3. Watch it:
    ```sh
@@ -44,7 +44,8 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | `tanks` after 20 s | Five tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
 | `victron-power` | Power Summary: IN grows with the solar ramp, `SHORE` marker, BATTERY and SOC live (from `capacity.stateOfCharge`), DC LOAD = IN - BATTERY. After 30 s the battery discharges and Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `IN FAIL` and DC LOAD `LOAD FAIL`, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. The paths are the signalk-venus defaults and may change after the Cerbo capture |
-| `alarm-coolant` at 10 s | Red banner under the strip, flashing 1 Hz: `Port coolant high`, ACK, SILENCE, and GO (GO opens Engine page 1). The port coolant value turns red. Buzzer on boards that have one (Square 4.0). The notification appears in `GET /signalk/v2/api/notifications` |
+| `alarm-coolant` at 10 s | Red banner under the strip, flashing 1 Hz: `Port coolant high`, ACK, SILENCE, and GO (GO opens Engine page 1, the detail page). The port coolant value turns red. Buzzer on boards that have one (Square 4.0). The notification appears in `GET /signalk/v2/api/notifications` |
+| `alarm-fuel-low` | Clears any previous fuel alarm immediately, then at 8 s a red banner `Fuel low`, with GO. Six tanks: the extra fresh-water tank puts fuel on the second square page. GO opens that page (FUEL and GREY), not the first tanks page (BLACK and the three FRESH tanks). A wide screen has one tanks page, so GO opens that. The fuel strip is low and red. The alarm stays up through the end of the 80 s run |
 | `alarm-coolant`, tap ACK | The banner goes away and a bell with `1` appears in the top strip, left of the status text; the server shows the notification acknowledged. Tap the bell for the list, where the alarm stays with its ACK hidden. Tap SILENCE first and the buzzer stops, the server shows silenced. If the ACK did not reach the server the banner stays, steady, with `ACK NOT SENT` |
 | `alarm-coolant` at 40 s | Banner (or bell, if acknowledged) disappears and the coolant value returns to white |
 | `warn-tank-low` at 10 s | No banner. Amber `1` marker left of the status text; tap it for the list (`WARN`, `Fresh water low`, age, ACK). The fresh water tank value is amber |
@@ -91,7 +92,7 @@ It saves `GET /signalk/v1/api/vessels/self` as pretty JSON (port 3000 by default
 
 ## Repeating the Signal K checks
 
-Milestone 4 recorded two server behaviours in `docs/specs/2026-11-03-milestone-4-design.md` (Verification first). Repeat them after a Signal K upgrade, or against the boat's server.
+Milestone 4 recorded two server behaviours in the milestone 4 design notes (kept locally, not in the repo). Repeat them after a Signal K upgrade, or against the boat's server.
 
 1. **Fixed-period resend.** Write `electrical.batteries.279.voltage` once with the injector's token. Open `ws://localhost:3000/signalk/v1/stream?subscribe=none`, send `{"context":"vessels.self","subscribe":[{"path":"electrical.batteries.279.voltage","policy":"fixed","period":2000}]}`, and log message times for 20 s with no further writes. Only the first delta arriving means unchanged values are not resent.
 2. **Notification acknowledge and silence.** Inject `notifications.propulsion.port.temperature` as `{"state":"alarm","method":["visual","sound"],"message":"Port coolant high"}`. Read its `id` from `GET /signalk/v2/api/notifications`, then `POST /signalk/v2/api/notifications/{id}/silence` and `.../acknowledge` with `Authorization: Bearer <token>`. The token is in `tools/sk-inject/.token` (get one with `inject.py access`). Expect HTTP 200 (no body needed), and a second WebSocket client subscribed to `notifications.*` sees `method` lose `"sound"` and then become `[]`, with `status.silenced` and `status.acknowledged` set.

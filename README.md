@@ -67,7 +67,7 @@ If your Signal K server requires a token, put it in the `sources.signalk` sectio
 - The roles and UI never include ESP-IDF headers, so the same code runs on the display and in the simulator. `tools/check-layering.sh` enforces this, and CI runs it with the tests.
 - Data sources write into one path-keyed model. A role never knows which source fed it, which is how NMEA 2000 can arrive without touching the instruments.
 
-The design is in [docs/specs/2026-11-02-boat-instruments-design.md](docs/specs/2026-11-02-boat-instruments-design.md). Later milestones have their own specs in `docs/specs/`.
+Hardware notes and test procedures are in `docs/`.
 
 ## Safety
 

@@ -17,4 +17,3 @@ ESP32-S3 touch-display marine instruments (LVGL, ESP-IDF v5.5.1, Signal K). Comp
 
 - The banner shows only un-acknowledged `alarm`/`emergency`. An acknowledged one moves to a bell-and-count marker in the top strip; the alert/warn count stays a separate amber marker. Both open the same list, which still lists acknowledged alarms (ACK hidden, state dimmed).
 - Exception: an alarm whose ACK did not reach Signal K (`send_failed`, e.g. source down or no `ref`) stays on the banner, steady, showing `ACK NOT SENT`. Tests that ACK an alarm and expect the banner to clear must give it a `ref` and have the source up.
-- `docs/specs/2026-11-03-milestone-4-design.md` still describes the older "banner stays, stops flashing" behaviour.
