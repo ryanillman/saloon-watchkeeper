@@ -7,6 +7,7 @@
 The token is kept in tools/sk-inject/.token (not committed).
 """
 import asyncio
+import datetime
 import json
 import math
 import sys
@@ -48,8 +49,11 @@ def request_access():
 
 def value_at(spec, t, duration):
     """A scenario value: a number, null, {"from": a, "to": b} ramped over the duration, or any
-    other object (a notification value), which is sent unchanged.
+    other object (a notification value), which is sent unchanged. "$now" is the current UTC time as an
+    ISO 8601 string (for navigation.datetime).
     In "after" events, "$stop" stops sending that path."""
+    if spec == "$now":
+        return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     if isinstance(spec, dict) and "from" in spec and "to" in spec:
         frac = min(1.0, t / duration) if duration else 1.0
         wobble = spec.get("wobble", 0) * math.sin(t / 1500.0)

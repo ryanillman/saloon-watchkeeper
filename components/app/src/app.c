@@ -11,6 +11,7 @@
 #include "sk_client.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
+#include "ui_clock.h"
 #include "ui_quick.h"
 #include "ui_setup.h"
 #include "ui_shell.h"
@@ -40,6 +41,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   bool ui;
   bool dirty;
   int64_t dirty_ms;
+  int64_t clock_rx_ms;   // arrival time of the navigation.datetime sample last fed to the clock; -1 = none
   palette_t auto_last;   // the last palette environment.mode asked for; day until one arrives
   cfg_origin_t origin;
 } a;
@@ -116,12 +118,14 @@ static void start_writer(void) {
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
   alerts_init();
+  ui_clock_reset();
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;
   bool buzzer_ok = a.buzzer_ok;
   void (*backlight)(uint8_t) = a.backlight;
   bool dims = a.dims;
   memset(&a, 0, sizeof a);
+  a.clock_rx_ms = -1;
   a.backlight = backlight;
   a.dims = dims;
   if (dir) snprintf(a.dir, sizeof a.dir, "%s", dir);
@@ -189,6 +193,8 @@ static size_t bound_ids(sk_sub_t *out, size_t max) {
     bd_id_t mode = bd_intern("environment.mode");
     if (mode != BD_NONE) out[n++] = (sk_sub_t){mode, 0};
   }
+  bd_id_t when = bd_intern("navigation.datetime");   // the strip's clock; it runs on its own between updates
+  if (when != BD_NONE && n < max) out[n++] = (sk_sub_t){when, 15000};
   return n;
 }
 
@@ -547,7 +553,7 @@ unsigned app_apply_config(const cfg_t *next) {
   unsigned did = APPLY_NONE;
   bool units = memcmp(&a.cfg.units, &next->units, sizeof a.cfg.units) != 0;
   bool display = units || strcmp(a.cfg.palette, next->palette) || a.cfg.brightness != next->brightness ||
-                 a.cfg.buzzer != next->buzzer;
+                 a.cfg.buzzer != next->buzzer || a.cfg.utc_offset_min != next->utc_offset_min;
   bool sk = strcmp(a.cfg.sk.host, next->sk.host) || a.cfg.sk.port != next->sk.port ||
             strcmp(a.cfg.sk.token, next->sk.token);   // a stored access-request href is not a reason to reconnect
   bool roles = !same_roles(&a.cfg, next);
@@ -634,6 +640,21 @@ static void run_posted(void) {
   }
 }
 
+// The strip clock: the newest valid navigation.datetime feeds it; it then runs on the monotonic timer,
+// so losing Signal K does not blank it. No valid time yet (or too old with the source down): not drawn.
+static void update_clock(int64_t now) {
+  bd_id_t id = bd_find("navigation.datetime");
+  bd_sample_t smp;
+  int64_t epoch;
+  if (id != BD_NONE && bd_get(id, &smp) && smp.valid && smp.kind == BD_TEXT && smp.rx_ms != a.clock_rx_ms) {
+    a.clock_rx_ms = smp.rx_ms;
+    if (ui_clock_parse_iso(smp.text, &epoch)) ui_clock_feed(epoch, smp.rx_ms);
+  }
+  char hhmm[6];
+  bool up = a.network && sk_client_state() == SK_LIVE;
+  ui_shell_set_clock(ui_clock_format(now, a.cfg.utc_offset_min, up, hhmm) ? hhmm : NULL);
+}
+
 void app_tick(void) {
   run_posted();
   if (a.network) {
@@ -663,6 +684,7 @@ void app_tick(void) {
     }
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does
+  update_clock(platform_millis());
   ui_shell_refresh();
   ui_setup_tick();
 
