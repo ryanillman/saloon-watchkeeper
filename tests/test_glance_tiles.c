@@ -106,6 +106,26 @@ static void test_engine_one_running_one_stopped_is_ok_and_shows_the_running_one(
   TEST_ASSERT_EQUAL_STRING("1500", t.headline);
 }
 
+static void test_engine_stopped_with_an_alarm_shows_the_alarm_not_off(void) {   // ignition on, engine off, oil alarm raised
+  num("propulsion.port.revolutions", 0);
+  num("propulsion.port.oilPressure", 0);
+  alarm_on("propulsion.port.oilPressure");
+  bind("engine");
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+  TEST_ASSERT_EQUAL_STRING("ALARM", t.word);
+  TEST_ASSERT_EQUAL_STRING("STOPPED", t.headline);   // it is still not running
+}
+
+static void test_engine_of_unknown_state_with_an_alarm_shows_the_alarm_not_no_data(void) {
+  bd_set_number(bd_intern("propulsion.port.revolutions"), 25.0, 1, NOW - 60000);
+  bd_set_number(bd_intern("propulsion.port.oilPressure"), 300000, 1, NOW - 60000);
+  alarm_on("propulsion.port.temperature");
+  bind("engine");
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+}
+
 static void test_engine_with_stale_rpm_has_no_data_and_no_number(void) {
   bd_set_number(bd_intern("propulsion.port.revolutions"), 25.0, 1, NOW - 60000);
   bd_set_number(bd_intern("propulsion.port.oilPressure"), 300000, 1, NOW - 60000);
@@ -206,13 +226,33 @@ static void test_tanks_one_in_a_warn_zone_makes_the_tile_warn(void) {
   TEST_ASSERT_EQUAL_UINT8(10, t.bar_pct[1]);
 }
 
-static void test_tanks_invalid_level_is_no_data_and_an_empty_bar(void) {
+static void test_tanks_invalid_level_is_no_data_and_an_unknown_bar(void) {
   three_tanks();
   bd_set_invalid(bd_find("tanks.freshWater.0.currentLevel"));
   bind("tanks");
   tile();
   TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
-  TEST_ASSERT_EQUAL_UINT8(0, t.bar_pct[0]);
+  TEST_ASSERT_EQUAL_UINT8(GT_PCT_UNKNOWN, t.bar_pct[0]);   // never 0%: that reads as an empty tank
+  TEST_ASSERT_EQUAL_UINT8(82, t.bar_pct[1]);               // the other bars keep their good levels
+}
+
+static void test_tanks_one_of_two_water_tanks_missing_makes_the_bar_unknown_not_the_other_level(void) {
+  num("tanks.freshWater.0.currentLevel", 0.80);
+  bd_id_t second = num("tanks.freshWater.1.currentLevel", 0.30);
+  bd_set_invalid(second);
+  bind("tanks");
+  tile();
+  TEST_ASSERT_EQUAL_UINT8(GT_PCT_UNKNOWN, t.bar_pct[0]);   // the lowest tank is not known
+}
+
+static void test_tanks_when_every_level_is_missing_every_bar_is_unknown(void) {
+  three_tanks();
+  bd_invalidate_source(1);   // Signal K dropped
+  bind("tanks");
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_UINT8(3, t.bar_count);
+  for (int i = 0; i < 3; i++) TEST_ASSERT_EQUAL_UINT8(GT_PCT_UNKNOWN, t.bar_pct[i]);
 }
 
 static void test_tanks_two_water_tanks_show_the_lowest_and_missing_kinds_have_no_bar(void) {
@@ -253,6 +293,8 @@ int main(void) {
   RUN_TEST(test_engine_one_in_alarm_shows_the_alarm);
   RUN_TEST(test_engine_stopped_is_off_with_stopped_headline);
   RUN_TEST(test_engine_one_running_one_stopped_is_ok_and_shows_the_running_one);
+  RUN_TEST(test_engine_stopped_with_an_alarm_shows_the_alarm_not_off);
+  RUN_TEST(test_engine_of_unknown_state_with_an_alarm_shows_the_alarm_not_no_data);
   RUN_TEST(test_engine_with_stale_rpm_has_no_data_and_no_number);
   RUN_TEST(test_engine_role_with_no_instance_is_no_data_not_off);
   RUN_TEST(test_power_tile_shows_house_soc_with_trend_and_context);
@@ -261,7 +303,9 @@ int main(void) {
   RUN_TEST(test_power_with_no_battery_is_no_data);
   RUN_TEST(test_tanks_tile_shows_water_fuel_waste_bars);
   RUN_TEST(test_tanks_one_in_a_warn_zone_makes_the_tile_warn);
-  RUN_TEST(test_tanks_invalid_level_is_no_data_and_an_empty_bar);
+  RUN_TEST(test_tanks_invalid_level_is_no_data_and_an_unknown_bar);
+  RUN_TEST(test_tanks_one_of_two_water_tanks_missing_makes_the_bar_unknown_not_the_other_level);
+  RUN_TEST(test_tanks_when_every_level_is_missing_every_bar_is_unknown);
   RUN_TEST(test_tanks_two_water_tanks_show_the_lowest_and_missing_kinds_have_no_bar);
   RUN_TEST(test_tanks_with_none_is_no_data);
   RUN_TEST(test_tanks_water_change_over_six_hours_from_history);

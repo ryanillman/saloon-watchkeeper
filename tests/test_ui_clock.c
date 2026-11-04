@@ -77,6 +77,56 @@ static void test_format_old_feed_with_source_up_still_shows(void) {
   TEST_ASSERT_EQUAL_STRING("02:11", out);
 }
 
+static void test_offer_needs_a_second_value_that_agrees_with_the_elapsed_time(void) {
+  char out[6];
+  ui_clock_offer(1793844000, 1000);   // the value Signal K holds: maybe hours old, maybe live
+  TEST_ASSERT_FALSE(ui_clock_format(1000, 0, true, out));
+  ui_clock_offer(1793844001, 2000);   // one second later by both clocks: it is live
+  TEST_ASSERT_TRUE(ui_clock_format(2000, 0, true, out));
+  TEST_ASSERT_EQUAL_STRING("02:00", out);
+}
+
+static void test_offer_ignores_a_resent_stale_value(void) {
+  char out[6];
+  ui_clock_offer(1793844000, 1000);
+  ui_clock_offer(1793844000, 16000);   // the same time sent again after a reconnect: the GPS is not running
+  ui_clock_offer(1793844000, 31000);
+  TEST_ASSERT_FALSE(ui_clock_format(31000, 0, true, out));
+}
+
+static void test_offer_a_stale_resend_does_not_move_a_running_clock(void) {
+  char out[6];
+  ui_clock_offer(1793844000, 1000);
+  ui_clock_offer(1793844001, 2000);   // running at 02:00:01
+  ui_clock_offer(1793700000, 400000);   // days old, resent on a reconnect
+  TEST_ASSERT_TRUE(ui_clock_format(400000, 0, true, out));
+  TEST_ASSERT_EQUAL_STRING("02:06", out);   // 02:00:01 plus ~398 s: still on its own timer
+}
+
+static void test_offer_rejects_a_jump_and_accepts_the_value_after_it(void) {
+  char out[6];
+  ui_clock_offer(1793844000, 1000);
+  ui_clock_offer(1793847600, 2000);   // an hour ahead in one second: not credible
+  TEST_ASSERT_FALSE(ui_clock_format(2000, 0, true, out));
+  ui_clock_offer(1793847601, 3000);   // but consistent with the one before it
+  TEST_ASSERT_TRUE(ui_clock_format(3000, 0, true, out));
+  TEST_ASSERT_EQUAL_STRING("03:00", out);
+}
+
+static void test_offer_rejects_time_going_backwards(void) {
+  char out[6];
+  ui_clock_offer(1793844010, 1000);
+  ui_clock_offer(1793844005, 6000);
+  TEST_ASSERT_FALSE(ui_clock_format(6000, 0, true, out));
+}
+
+static void test_offer_tolerates_a_few_seconds_of_jitter_between_updates(void) {
+  char out[6];
+  ui_clock_offer(1793844000, 1000);
+  ui_clock_offer(1793844015, 17500);   // 15 s of time, 16.5 s of arrival: within 5 s
+  TEST_ASSERT_TRUE(ui_clock_format(17500, 0, true, out));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_parse_utc_with_fraction);
@@ -90,5 +140,11 @@ int main(void) {
   RUN_TEST(test_format_never_fed_is_false);
   RUN_TEST(test_format_stale_with_source_down_is_false);
   RUN_TEST(test_format_old_feed_with_source_up_still_shows);
+  RUN_TEST(test_offer_needs_a_second_value_that_agrees_with_the_elapsed_time);
+  RUN_TEST(test_offer_ignores_a_resent_stale_value);
+  RUN_TEST(test_offer_a_stale_resend_does_not_move_a_running_clock);
+  RUN_TEST(test_offer_rejects_a_jump_and_accepts_the_value_after_it);
+  RUN_TEST(test_offer_rejects_time_going_backwards);
+  RUN_TEST(test_offer_tolerates_a_few_seconds_of_jitter_between_updates);
   return UNITY_END();
 }

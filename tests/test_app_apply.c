@@ -128,10 +128,18 @@ static void test_clock_hidden_until_a_time_arrives(void) {
   TEST_ASSERT_TRUE(clock_hidden());
 }
 
-static void test_clock_shows_signalk_time_in_the_configured_zone(void) {
+// Two readings one second apart, as a running GPS sends them.
+static void gps_time(const char *first, const char *second) {
   bd_id_t id = bd_intern("navigation.datetime");
-  bd_set_text(id, "2026-11-04T19:08:24.174Z", 1, platform_millis());
+  int64_t t = platform_millis();
+  bd_set_text(id, first, 1, t);
   app_tick();
+  bd_set_text(id, second, 1, t + 1000);
+  app_tick();
+}
+
+static void test_clock_shows_signalk_time_in_the_configured_zone(void) {
+  gps_time("2026-11-04T19:08:24.174Z", "2026-11-04T19:08:25.174Z");
   TEST_ASSERT_FALSE(clock_hidden());
   TEST_ASSERT_EQUAL_STRING("19:08", lv_label_get_text(ui_shell_clock()));
   next.utc_offset_min = -330;
@@ -140,10 +148,17 @@ static void test_clock_shows_signalk_time_in_the_configured_zone(void) {
   TEST_ASSERT_EQUAL_STRING("13:38", lv_label_get_text(ui_shell_clock()));
 }
 
-static void test_clock_keeps_running_when_the_time_goes_invalid(void) {
-  bd_id_t id = bd_intern("navigation.datetime");
-  bd_set_text(id, "2026-11-04T19:08:24Z", 1, platform_millis());
+static void test_clock_hides_a_single_stale_value(void) {   // what Signal K holds for a GPS that is off
+  bd_set_text(bd_intern("navigation.datetime"), "2026-11-03T18:03:00Z", 1, platform_millis());
   app_tick();
+  TEST_ASSERT_TRUE(clock_hidden());
+  bd_set_text(bd_intern("navigation.datetime"), "2026-11-03T18:03:00Z", 1, platform_millis() + 15000);   // resent
+  app_tick();
+  TEST_ASSERT_TRUE(clock_hidden());
+}
+
+static void test_clock_keeps_running_when_the_time_goes_invalid(void) {
+  gps_time("2026-11-04T19:08:24Z", "2026-11-04T19:08:25Z");
   bd_invalidate_source(1);   // Signal K dropped
   app_tick();
   TEST_ASSERT_FALSE(clock_hidden());
@@ -169,6 +184,7 @@ int main(void) {
   RUN_TEST(test_history_tracks_the_trend_paths_and_samples_each_tick);
   RUN_TEST(test_clock_hidden_until_a_time_arrives);
   RUN_TEST(test_clock_shows_signalk_time_in_the_configured_zone);
+  RUN_TEST(test_clock_hides_a_single_stale_value);
   RUN_TEST(test_clock_keeps_running_when_the_time_goes_invalid);
   RUN_TEST(test_clock_ignores_a_malformed_time);
   RUN_TEST(test_apply_identical_is_none);

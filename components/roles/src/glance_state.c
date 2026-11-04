@@ -20,6 +20,11 @@ static gt_state_t from_alert_level(unsigned level) {   // alert_state_t and the 
   }
 }
 
+gt_state_t glance_alert_state(bd_id_t id) {
+  const char *path = id != BD_NONE ? bd_path(id) : NULL;
+  return path && *path ? from_alert_level(alerts_for_path(path)) : GT_OK;
+}
+
 gt_state_t glance_path_state(bd_id_t id, int32_t max_age_ms, int64_t now_ms) {
   const char *path = id != BD_NONE ? bd_path(id) : NULL;
   gt_state_t s = path && *path ? from_alert_level(alerts_for_path(path)) : GT_OK;

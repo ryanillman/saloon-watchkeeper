@@ -203,6 +203,15 @@ static void test_trend_plots_history_after_a_backfill_and_refresh(void) {
   TEST_ASSERT_EQUAL_UINT16(0, glance_trend_points(0));   // the engine tile has no trend
 }
 
+static void test_a_tank_bar_with_no_level_says_fail_not_a_number(void) {
+  bd_set_invalid(bd_find("tanks.freshWater.0.currentLevel"));
+  build(800, 440, SIZE_WIDE);
+  lv_obj_t *pct = glance_bar_pct(2, 0);
+  TEST_ASSERT_NOT_NULL(pct);
+  TEST_ASSERT_EQUAL_STRING("FAIL", lv_label_get_text(pct));
+  TEST_ASSERT_EQUAL_STRING("82%", lv_label_get_text(glance_bar_pct(2, 1)));   // the fuel bar is still good
+}
+
 static void test_an_idle_refresh_redraws_nothing(void) {   // the panel's bus is the scarce thing: no needless invalidation
   build(800, 440, SIZE_WIDE);
   lv_refr_now(NULL);
@@ -302,6 +311,7 @@ int main(void) {
   RUN_TEST(test_no_data_tile_shows_the_fault_style_and_no_number);
   RUN_TEST(test_refresh_follows_the_data_without_rebuilding);
   RUN_TEST(test_trend_plots_history_after_a_backfill_and_refresh);
+  RUN_TEST(test_a_tank_bar_with_no_level_says_fail_not_a_number);
   RUN_TEST(test_an_idle_refresh_redraws_nothing);
   RUN_TEST(test_tapping_a_tile_opens_that_role);
   RUN_TEST(test_pick_keeps_everything_when_it_fits);

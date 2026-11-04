@@ -231,21 +231,27 @@ void engine_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
     return;
   }
   gt_state_t st[ROLE_MAX_INST];
-  uint8_t running = 0;
+  uint8_t running = 0, off = 0;
   double coolant_max = -1e9, oil_min = 1e9, x;
   bool have_coolant = false, have_oil = false;
   for (uint8_t i = 0; i < n; i++) {
     engine_status_t es = assess(b, i, now_ms);
+    static const uint8_t watched[] = {S_RPM, S_COOLANT, S_OIL, S_VOLTS};
+    gt_state_t alert = GT_OK;   // an alarm counts whatever the engine is doing: ignition on, engine off, oil alarm
+    for (size_t w = 0; w < sizeof watched; w++) {
+      gt_state_t as = glance_alert_state(b->g[0].ids[i][watched[w]]);
+      if (as > alert) alert = as;
+    }
     if (es.mode == ENGINE_OFF) {
-      st[i] = GT_OFF;
+      st[i] = alert > GT_OK ? alert : GT_OFF;
+      off++;
       continue;
     }
     if (es.mode != ENGINE_RUNNING) {
-      st[i] = GT_NO_DATA;
+      st[i] = alert > GT_NO_DATA ? alert : GT_NO_DATA;
       continue;
     }
     gt_state_t worst = es.rpm_suspect ? GT_NO_DATA : GT_OK;
-    static const uint8_t watched[] = {S_RPM, S_COOLANT, S_OIL, S_VOLTS};
     for (size_t w = 0; w < sizeof watched; w++) {
       bd_id_t id = b->g[0].ids[i][watched[w]];
       if (id == BD_NONE) continue;
@@ -268,7 +274,7 @@ void engine_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
     if (have_oil) snprintf(out->context[1], sizeof out->context[1], "OIL %.1f %s", oil_min, units_label(Q_PRESSURE, b->units));
     return;
   }
-  if (out->state == GT_OFF) snprintf(out->headline, sizeof out->headline, "STOPPED");
+  if (off == n) snprintf(out->headline, sizeof out->headline, "STOPPED");   // every engine is off, whatever the alarms say
   for (uint8_t i = 0; i < n; i++) {   // stopped: engine hours, and the coolant while it cools
     if (!out->context[0][0] && read(b, i, S_HOURS, now_ms, &x))
       snprintf(out->context[0], sizeof out->context[0], "HOURS %.0f %s", x, units_label(Q_DURATION, b->units));

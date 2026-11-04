@@ -24,3 +24,4 @@ typedef enum { GP_TILE, GP_EDGE, GP_TITLE, GP_WORD, GP_HEADLINE, GP_UNIT, GP_CON
 uint8_t glance_tile_count(void);                              // tiles on the built page
 lv_obj_t *glance_part(uint8_t tile, glance_part_t part);      // NULL when this board or this tile has no such part
 uint16_t glance_trend_points(uint8_t tile);                   // points the tile's trend currently plots (0 = none)
+lv_obj_t *glance_bar_pct(uint8_t tile, uint8_t bar);          // a tank bar's percent label, NULL if none
