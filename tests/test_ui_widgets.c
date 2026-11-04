@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 #include "unity.h"
+#include "ui_flow.h"
 #include "ui_gauge.h"
 
 static uint8_t buf[480 * 48 * 2];
@@ -241,6 +242,79 @@ static void test_dial_fuel_non_finite_level_is_a_fault(void) {
   TEST_ASSERT_TRUE(ui_dial_fuel_faulted(d, 0));
 }
 
+static void test_flow_level_thresholds(void) {
+  TEST_ASSERT_EQUAL(0, ui_flow_level_for(0, 400));
+  TEST_ASSERT_EQUAL(0, ui_flow_level_for(0.3, 400));
+  TEST_ASSERT_EQUAL(0, ui_flow_level_for(-20, 400));
+  TEST_ASSERT_EQUAL(1, ui_flow_level_for(40, 400));
+  TEST_ASSERT_EQUAL(2, ui_flow_level_for(100, 400));
+  TEST_ASSERT_EQUAL(2, ui_flow_level_for(200, 400));
+  TEST_ASSERT_EQUAL(3, ui_flow_level_for(300, 400));
+  TEST_ASSERT_EQUAL(3, ui_flow_level_for(400, 400));
+  TEST_ASSERT_EQUAL(3, ui_flow_level_for(50, 0));   // no reference: the flow is its own largest
+}
+
+static void test_flow_starts_hidden_and_still(void) {
+  lv_obj_t *f = ui_flow_create(scr);
+  TEST_ASSERT_FALSE(ui_flow_valid(f));
+  TEST_ASSERT_FALSE(ui_flow_animating(f));
+}
+
+static void test_flow_active_animates_and_labels(void) {
+  lv_obj_t *f = ui_flow_create(scr);
+  ui_flow_set_path(f, 20, 20, 220, 120, 30);
+  ui_flow_set(f, 2, true, "203 W to battery");
+  render();
+  TEST_ASSERT_TRUE(ui_flow_valid(f));
+  TEST_ASSERT_EQUAL(2, ui_flow_level(f));
+  TEST_ASSERT_TRUE(ui_flow_animating(f));
+  TEST_ASSERT_EQUAL_STRING("203 W to battery", ui_flow_label(f));
+}
+
+static void test_flow_zero_level_stops_the_animation(void) {
+  lv_obj_t *f = ui_flow_create(scr);
+  ui_flow_set_path(f, 20, 20, 220, 20, 0);
+  ui_flow_set(f, 3, true, "x");
+  TEST_ASSERT_TRUE(ui_flow_animating(f));
+  ui_flow_set(f, 0, true, "0 W");
+  TEST_ASSERT_FALSE(ui_flow_animating(f));
+  TEST_ASSERT_TRUE(ui_flow_valid(f));   // still drawn, as a dim stub
+  render();
+}
+
+static void test_flow_invalid_hides_and_drops_the_label(void) {
+  lv_obj_t *f = ui_flow_create(scr);
+  ui_flow_set_path(f, 20, 20, 220, 20, 0);
+  ui_flow_set(f, 2, true, "100 W");
+  ui_flow_set(f, 2, false, "100 W");
+  TEST_ASSERT_FALSE(ui_flow_valid(f));
+  TEST_ASSERT_FALSE(ui_flow_animating(f));
+  TEST_ASSERT_EQUAL_STRING("", ui_flow_label(f));
+  render();
+}
+
+static void test_flow_box_covers_both_ends(void) {
+  lv_obj_t *f = ui_flow_create(scr);
+  ui_flow_set_path(f, 100, 40, 300, 160, -40);
+  lv_area_t a;
+  lv_obj_update_layout(f);
+  lv_obj_get_coords(f, &a);
+  TEST_ASSERT_TRUE(a.x1 <= 100 && a.x2 >= 300);
+  TEST_ASSERT_TRUE(a.y1 <= 40 && a.y2 >= 160);
+}
+
+static void test_every_icon_draws(void) {
+  for (int k = ICON_SOLAR; k <= ICON_LOAD; k++) {
+    lv_obj_t *ic = ui_icon_create(scr, (ui_icon_t)k);
+    lv_obj_set_size(ic, 80, 80);
+    ui_icon_set_fill(ic, 0.6, true, lv_color_hex(0x00ff00));
+    render();
+    ui_icon_set_active(ic, false);
+    ui_icon_set_fill(ic, 0, false, lv_color_hex(0));
+    render();
+  }
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(480, 480);
@@ -269,5 +343,12 @@ int main(void) {
   RUN_TEST(test_dial_one_failed_tank_flags_that_tank_only);
   RUN_TEST(test_dial_fuel_survives_the_engine_going_off_or_failing);
   RUN_TEST(test_dial_fuel_non_finite_level_is_a_fault);
+  RUN_TEST(test_flow_level_thresholds);
+  RUN_TEST(test_flow_starts_hidden_and_still);
+  RUN_TEST(test_flow_active_animates_and_labels);
+  RUN_TEST(test_flow_zero_level_stops_the_animation);
+  RUN_TEST(test_flow_invalid_hides_and_drops_the_label);
+  RUN_TEST(test_flow_box_covers_both_ends);
+  RUN_TEST(test_every_icon_draws);
   return UNITY_END();
 }

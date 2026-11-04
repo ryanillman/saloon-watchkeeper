@@ -130,6 +130,54 @@ static void test_ttg_null_while_charging(void) {
   TEST_ASSERT_EQUAL(TTG_CHARGING, power_time_remaining(&t, &c0, 0, NOW));
 }
 
+static void test_flows_charging(void) {
+  power_summary_t r = {.in_ok = true, .in_w = 403, .batt_ok = true, .batt_w = 203, .load_ok = true, .load_w = 200};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_TRUE(f.to_load_ok);
+  TEST_ASSERT_TRUE(f.batt_ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 200, f.to_load);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 203, f.to_batt);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, f.from_batt);
+}
+
+static void test_flows_discharging(void) {
+  power_summary_t r = {.in_ok = true, .in_w = 100, .batt_ok = true, .batt_w = -150, .load_ok = true, .load_w = 250};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 100, f.to_load);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, f.to_batt);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 150, f.from_batt);
+}
+
+static void test_flows_battery_alone_feeds_load(void) {
+  power_summary_t r = {.in_ok = true, .in_w = 0, .batt_ok = true, .batt_w = -250, .load_ok = true, .load_w = 250};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, f.to_load);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 250, f.from_batt);
+}
+
+static void test_flows_load_never_negative(void) {
+  // dc_system reads less than the battery's discharge: the source share clamps at zero.
+  power_summary_t r = {.batt_ok = true, .batt_w = -300, .load_ok = true, .load_w = 250};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, f.to_load);
+}
+
+static void test_flows_unknown_battery(void) {
+  power_summary_t r = {.load_ok = true, .load_w = 180};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_FALSE(f.batt_ok);
+  TEST_ASSERT_TRUE(f.to_load_ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 180, f.to_load);
+}
+
+static void test_flows_unknown_load(void) {
+  power_summary_t r = {.batt_ok = true, .batt_w = 40};
+  power_flows_t f = power_flows(&r);
+  TEST_ASSERT_FALSE(f.to_load_ok);
+  TEST_ASSERT_TRUE(f.batt_ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 40, f.to_batt);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_in_sums_positive_sources);
@@ -143,5 +191,11 @@ int main(void) {
   RUN_TEST(test_ttg_null_while_charging);
   RUN_TEST(test_dc_system_stands_alone);
   RUN_TEST(test_no_sources_fails_in);
+  RUN_TEST(test_flows_charging);
+  RUN_TEST(test_flows_discharging);
+  RUN_TEST(test_flows_battery_alone_feeds_load);
+  RUN_TEST(test_flows_load_never_negative);
+  RUN_TEST(test_flows_unknown_battery);
+  RUN_TEST(test_flows_unknown_load);
   return UNITY_END();
 }

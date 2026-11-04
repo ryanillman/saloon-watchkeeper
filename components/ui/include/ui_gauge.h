@@ -42,6 +42,8 @@ lv_obj_t *ui_readout_create(lv_obj_t *parent, const char *label, const char *uni
 void ui_readout_set(lv_obj_t *readout, double value, bool valid);
 // Shows a string instead of a number (a charging mode, "1:30"); empty or !valid flags the field.
 void ui_readout_set_text(lv_obj_t *readout, const char *text, bool valid);
+// Centres the label and value in the field instead of left-aligning them (under an icon, say).
+void ui_readout_set_centered(lv_obj_t *readout, bool centered);
 // Replaces the default "<LABEL> FAIL" flag text, for a label too long to repeat (DC LOAD shows LOAD FAIL).
 void ui_field_set_fault_text(lv_obj_t *field, const char *text);
 

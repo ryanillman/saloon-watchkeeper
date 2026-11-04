@@ -50,3 +50,17 @@ ttg_mode_t power_time_remaining(const bd_sample_t *ttg, const bd_sample_t *curre
   if (usable(current, max_age_ms, now_ms) && current->num >= 0) return TTG_CHARGING;
   return TTG_FAIL;
 }
+
+power_flows_t power_flows(const power_summary_t *s) {
+  power_flows_t f = {0};
+  f.batt_ok = s->batt_ok;
+  if (s->batt_ok) {
+    if (s->batt_w > 0) f.to_batt = s->batt_w;
+    else f.from_batt = -s->batt_w;
+  }
+  if (s->load_ok) {
+    f.to_load_ok = true;
+    f.to_load = s->load_w > f.from_batt ? s->load_w - f.from_batt : 0;
+  }
+  return f;
+}

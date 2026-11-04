@@ -21,6 +21,17 @@ typedef struct {
   bool soc_ok;   double soc;        // ratio 0..1
 } power_summary_t;
 
+// Where the power goes, for the Summary diagram. The bus (all sources together) feeds the battery
+// when it charges and the load; a discharging battery feeds the load too. Watts, never negative.
+// to_load is the bus's share of DC LOAD (load minus what the battery supplies). Battery flows need
+// batt_ok; a battery of unknown state is treated as supplying nothing.
+typedef struct {
+  bool to_load_ok;  double to_load;      // bus -> load
+  bool batt_ok;     double to_batt;      // bus -> battery
+                    double from_batt;    // battery -> load
+} power_flows_t;
+power_flows_t power_flows(const power_summary_t *s);
+
 // Sources: solar, charger, dcdc, alternator instances, flattened. batt: the primary bank.
 // dc_system: the Cerbo's DC system power sample, or NULL. max_age_ms 0 = no limit.
 power_summary_t power_summarize(const power_src_t *src, size_t n, const power_src_t *batt,
