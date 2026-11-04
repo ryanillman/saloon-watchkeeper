@@ -232,9 +232,36 @@ static void test_depth_zero_group(void) {
   TEST_ASSERT_EQUAL_STRING("electrical.venus.dcPower", bd_path(pb.g[6].ids[0][0]));
 }
 
+// What a fresh bind would find, ignoring pins and excludes: setup's Discovery screen.
+static void test_role_discover_ignores_pins_and_excludes(void) {
+  bd_intern("propulsion.port.revolutions");
+  bd_intern("propulsion.starboard.revolutions");
+  strcpy(rc.inst[0].id, "port");
+  rc.inst_count = 1;
+  strcpy(rc.exclude[0], "starboard");
+  rc.exclude_count = 1;
+  char ids[16][24];
+  TEST_ASSERT_EQUAL_UINT8(2, role_discover(engine, ids, 16));
+  TEST_ASSERT_EQUAL_STRING("port", ids[0]);
+  TEST_ASSERT_EQUAL_STRING("starboard", ids[1]);
+}
+
+static void test_role_discover_prefixes_multi_group_ids(void) {
+  bd_intern("electrical.batteries.279.voltage");
+  bd_intern("electrical.solar.288.panelPower");
+  bd_intern("electrical.venus.dcPower");   // the depth-0 system group is not an instance
+  char ids[16][24];
+  uint8_t n = role_discover(role_find("power"), ids, 16);
+  TEST_ASSERT_EQUAL_UINT8(2, n);
+  TEST_ASSERT_EQUAL_STRING("battery.279", ids[0]);
+  TEST_ASSERT_EQUAL_STRING("solar.288", ids[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_discovers_two_engines_sorted);
+  RUN_TEST(test_role_discover_ignores_pins_and_excludes);
+  RUN_TEST(test_role_discover_prefixes_multi_group_ids);
   RUN_TEST(test_excluded_instance_dropped);
   RUN_TEST(test_pinned_instance_missing_still_bound);
   RUN_TEST(test_zero_engines_gives_placeholder);

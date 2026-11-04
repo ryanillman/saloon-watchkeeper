@@ -1,5 +1,6 @@
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Large zero-initialised statics that no ISR or DMA engine touches: on the boards they go to
@@ -29,3 +30,12 @@ void platform_unlock(void *lock);
 // Runs fn(arg) on its own thread/task. stack_bytes is ignored on Linux.
 bool platform_task(void (*fn)(void *), void *arg, const char *name, uint32_t stack_bytes);
 void platform_sleep_ms(uint32_t ms);
+
+// Restarts the device (Linux: exits the process).
+void platform_reboot(void);
+
+// Free heap in bytes: internal RAM and PSRAM (Linux: both 0).
+void platform_mem(size_t *internal, size_t *psram);
+
+// The device's base MAC address (Linux: a fixed made-up one).
+void platform_mac(uint8_t mac[6]);

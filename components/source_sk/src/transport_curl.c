@@ -72,6 +72,37 @@ bool sk_http_post(const char *url, const char *token, const char *json_body, int
   return rc == CURLE_OK;
 }
 
+bool sk_http_request(const char *method, const char *url, const char *token, const char *body,
+                     int *status, char **resp, size_t *resp_len) {
+  *resp = NULL;
+  *resp_len = 0;
+  CURL *h = curl_easy_init();
+  if (!h) return false;
+  struct curl_slist *hdr = auth_header(token);
+  if (body) hdr = curl_slist_append(hdr, "Content-Type: application/json");
+  buf_t b = {0};
+  curl_easy_setopt(h, CURLOPT_URL, url);
+  curl_easy_setopt(h, CURLOPT_CUSTOMREQUEST, method);
+  if (body) curl_easy_setopt(h, CURLOPT_POSTFIELDS, body);
+  curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, on_body);
+  curl_easy_setopt(h, CURLOPT_WRITEDATA, &b);
+  curl_easy_setopt(h, CURLOPT_TIMEOUT, 5L);
+  curl_easy_setopt(h, CURLOPT_HTTPHEADER, hdr);
+  CURLcode rc = curl_easy_perform(h);
+  long code = 0;
+  if (rc == CURLE_OK) curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &code);
+  curl_slist_free_all(hdr);
+  curl_easy_cleanup(h);
+  *status = (int)code;
+  if (rc != CURLE_OK) {
+    free(b.data);
+    return false;
+  }
+  *resp = b.data;
+  *resp_len = b.len;
+  return true;
+}
+
 static struct {
   CURL *h;
   struct curl_slist *hdr;

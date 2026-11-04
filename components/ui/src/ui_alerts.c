@@ -5,6 +5,7 @@
 #include <string.h>
 #include "platform.h"
 #include "ui_quick.h"
+#include "ui_setup.h"
 #include "ui_shell.h"
 
 typedef struct {
@@ -29,7 +30,7 @@ typedef struct {
 typedef struct {
   char id[64], message[96];
   uint8_t state, n;
-  bool shown, failed, lit;
+  bool shown, acked, silenced, failed, lit;
   int8_t role;
   const ui_colors_t *theme;
 } bkey_t;
@@ -119,9 +120,16 @@ static void on_silence(lv_event_t *e) {
 static void on_go(lv_event_t *e) {
   (void)e;
   if (u.ban_role >= 0) {
+    ui_setup_close();   // the alarm's page, not a half-finished setup screen
+    ui_quick_close();
     uint8_t page = u.page_of && u.ban_id[0] ? u.page_of(u.ban_id) : 0;
     ui_shell_goto((uint8_t)u.ban_role, page);
   }
+}
+
+void ui_alerts_to_front(void) {
+  if (u.banner && lv_obj_is_valid(u.banner)) lv_obj_move_foreground(u.banner);
+  if (u.list && lv_obj_is_valid(u.list)) lv_obj_move_foreground(u.list);
 }
 
 static int32_t banner_bh(void) { return 44; }
@@ -202,6 +210,8 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
     k.state = (uint8_t)a->state;
     k.n = n;
     k.shown = true;
+    k.acked = a->acked;   // only still on the banner when the ACK did not reach the server
+    k.silenced = a->silenced;
     k.failed = a->send_failed;
     k.lit = a->acked || ((now_ms < 0 ? 0 : now_ms) / 500) % 2 == 0;   // 1 Hz until acked, then steady
     k.role = u.role_of ? u.role_of(a->id) : -1;
@@ -239,6 +249,9 @@ static void update_banner(const alerts_snapshot_t *s, int64_t now_ms) {
   int32_t cw = corner[0] ? lv_text_get_width(corner, strlen(corner), &lv_font_montserrat_20, 0) + 4 : 0;
   if (cw != u.corner_w) layout_banner(cw);
   show(u.go, k.role >= 0);
+  // Acknowledged here or elsewhere: nothing left to send, so nothing to tap. Silenced: same for SILENCE.
+  show(u.ack, !k.acked);
+  show(u.silence, !k.acked && !k.silenced);
 }
 
 // ---- marker and offline text ----

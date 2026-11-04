@@ -218,6 +218,15 @@ void ui_shell_set_status_override(const char *text, lv_color_t color) {
   show_status();
 }
 
+void ui_shell_set_roles(uint8_t role_count) {
+  if (role_count > UI_MAX_ROLES) role_count = UI_MAX_ROLES;
+  uint8_t pages[UI_MAX_ROLES] = {0};
+  for (uint8_t i = 0; i < role_count; i++) pages[i] = s.roles[i].page_count;
+  uint8_t keep = s.nav.role < role_count ? s.nav.role : 0;
+  ui_nav_init(&s.nav, role_count, pages, keep);
+  rebuild();
+}
+
 void ui_shell_rebuild(void) {
   if (!s.content) return;
   uint8_t pages[UI_MAX_ROLES];   // a rebind can change a role's page count
