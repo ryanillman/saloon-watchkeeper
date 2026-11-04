@@ -5,8 +5,9 @@
     "signalk": { "host": "auto", "port": 3000 }
   },
   "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm" },
-  "display": { "palette": "day", "brightness": 80, "start_role": "engine" },
+  "display": { "palette": "day", "brightness": 80, "utc_offset_min": 0, "start_role": "glance" },
   "roles": [
+    { "role": "glance" },
     { "role": "engine" },
     { "role": "power" },
     { "role": "tanks" },

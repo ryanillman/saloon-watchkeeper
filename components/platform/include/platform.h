@@ -37,5 +37,9 @@ void platform_reboot(void);
 // Free heap in bytes: internal RAM and PSRAM (Linux: both 0).
 void platform_mem(size_t *internal, size_t *psram);
 
+// The least internal RAM that has been free at any moment since boot, in bytes: catches a transient peak that
+// platform_mem, read afterwards, misses (Linux: 0).
+size_t platform_min_internal(void);
+
 // The device's base MAC address (Linux: a fixed made-up one).
 void platform_mac(uint8_t mac[6]);

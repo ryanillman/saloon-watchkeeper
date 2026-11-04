@@ -140,6 +140,33 @@ static void test_display_save_calls_save_with_units(void) {
   TEST_ASSERT_EQUAL(SETUP_MENU, ui_setup_screen());
 }
 
+static void test_display_time_zone_row_steps_by_half_hours(void) {
+  open_setup();
+  click("menu_display");
+  TEST_ASSERT_NOT_NULL(ui_setup_part("tz_value"));
+  click("tz_plus");
+  click("tz_plus");
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(ui_setup_part("tz_value")), "UTC+01:00"));
+  click("tz_minus");
+  click("tz_minus");
+  click("tz_minus");
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(ui_setup_part("tz_value")), "UTC-00:30"));
+  click("tz_plus");
+  click("tz_plus");
+  click("tz_plus");
+  click("save");
+  TEST_ASSERT_EQUAL_INT16(60, saved.utc_offset_min);
+}
+
+static void test_time_zone_stops_at_the_limits(void) {
+  open_setup();
+  click("menu_display");
+  for (int i = 0; i < 60; i++) click("tz_minus");
+  TEST_ASSERT_EQUAL_INT16(-720, ui_setup_working()->utc_offset_min);
+  for (int i = 0; i < 80; i++) click("tz_plus");
+  TEST_ASSERT_EQUAL_INT16(840, ui_setup_working()->utc_offset_min);
+}
+
 static void test_inactivity_closes(void) {
   open_setup();
   click("menu_display");
@@ -224,11 +251,12 @@ static void test_roles_reorder_and_save(void) {
   click("menu_roles");
   TEST_ASSERT_EQUAL(SETUP_ROLES, ui_setup_screen());
   click("down_engine");
-  TEST_ASSERT_EQUAL_STRING("power", ui_setup_working()->roles[0].role);
-  TEST_ASSERT_EQUAL_STRING("engine", ui_setup_working()->roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("glance", ui_setup_working()->roles[0].role);   // the default list starts with the glance page
+  TEST_ASSERT_EQUAL_STRING("power", ui_setup_working()->roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("engine", ui_setup_working()->roles[2].role);
   click("save");
   TEST_ASSERT_EQUAL_INT(1, saves);
-  TEST_ASSERT_EQUAL_STRING("power", saved.roles[0].role);
+  TEST_ASSERT_EQUAL_STRING("power", saved.roles[1].role);
 }
 
 static void test_add_offers_missing_roles_only(void) {
@@ -455,6 +483,8 @@ int main(void) {
   RUN_TEST(test_menu_opens_display_and_about);
   RUN_TEST(test_back_with_changes_asks);
   RUN_TEST(test_display_save_calls_save_with_units);
+  RUN_TEST(test_display_time_zone_row_steps_by_half_hours);
+  RUN_TEST(test_time_zone_stops_at_the_limits);
   RUN_TEST(test_inactivity_closes);
   RUN_TEST(test_banner_stays_above_setup);
   RUN_TEST(test_go_closes_setup);

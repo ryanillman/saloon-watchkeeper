@@ -1,6 +1,6 @@
 # Saloon Watchkeeper
 
-Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, and Tanks work today; Anchor, Wind, and Navigation are planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
+Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, and Tanks work today, with a Glance page that shows one tile per role at a glance; Anchor, Wind, and Navigation are planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
 
 It started with a simple annoyance: the display that shows a boat's battery and tank data cost hundreds of dollars and could only show one vendor's data. A general-purpose touch display can do the job for any boat's data.
 

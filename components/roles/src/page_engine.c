@@ -172,11 +172,11 @@ void engine_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
   else detail(area, b);
 }
 
-static bool sample(role_binding_t *b, uint8_t i, uint8_t k, bd_sample_t *out) {
+static bool sample(const role_binding_t *b, uint8_t i, uint8_t k, bd_sample_t *out) {
   return b->g[0].ids[i][k] != BD_NONE && bd_get(b->g[0].ids[i][k], out);
 }
 
-static bool read(role_binding_t *b, uint8_t i, uint8_t k, int64_t now, double *out) {
+static bool read(const role_binding_t *b, uint8_t i, uint8_t k, int64_t now, double *out) {
   bd_sample_t s;
   if (!sample(b, i, k, &s) || s.kind != BD_NUMBER) return false;
   if (!bd_is_fresh(&s, b->def->groups[0].slots[k].max_age_ms, now)) return false;
@@ -184,7 +184,7 @@ static bool read(role_binding_t *b, uint8_t i, uint8_t k, int64_t now, double *o
   return true;
 }
 
-static engine_status_t assess(role_binding_t *b, uint8_t i, int64_t now) {
+static engine_status_t assess(const role_binding_t *b, uint8_t i, int64_t now) {
   bd_sample_t r, o, st;
   bool hr = sample(b, i, S_RPM, &r), ho = sample(b, i, S_OIL, &o), hs = sample(b, i, S_STATE, &st);
   return engine_assess(hr ? &r : NULL, ho ? &o : NULL, hs ? &st : NULL, now);
@@ -216,5 +216,69 @@ void engine_refresh(role_binding_t *b, int64_t now) {
       if (k == S_HOURS) ui_readout_set(w, x, ok);
       else ui_strip_set(w, x, ok);
     }
+  }
+}
+
+// The Glance tile. Running engines give their RPM, joined by "/"; all stopped reads STOPPED. The state is the
+// worst over the engines: an engine that is off is OFF, one we cannot tell about is NO DATA, a running one
+// takes the worst of its RPM, coolant, oil and volts (alerts and zones from Signal K).
+void engine_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
+  out->title = "ENGINE";
+  const role_group_t *g = &b->def->groups[0];
+  uint8_t n = b->g[0].inst_count;
+  if (n == 0) {
+    glance_tile_state(out, GT_NO_DATA);
+    return;
+  }
+  gt_state_t st[ROLE_MAX_INST];
+  uint8_t running = 0, off = 0;
+  double coolant_max = -1e9, oil_min = 1e9, x;
+  bool have_coolant = false, have_oil = false;
+  for (uint8_t i = 0; i < n; i++) {
+    engine_status_t es = assess(b, i, now_ms);
+    static const uint8_t watched[] = {S_RPM, S_COOLANT, S_OIL, S_VOLTS};
+    gt_state_t alert = GT_OK;   // an alarm counts whatever the engine is doing: ignition on, engine off, oil alarm
+    for (size_t w = 0; w < sizeof watched; w++) {
+      gt_state_t as = glance_alert_state(b->g[0].ids[i][watched[w]]);
+      if (as > alert) alert = as;
+    }
+    if (es.mode == ENGINE_OFF) {
+      st[i] = alert > GT_OK ? alert : GT_OFF;
+      off++;
+      continue;
+    }
+    if (es.mode != ENGINE_RUNNING) {
+      st[i] = alert > GT_NO_DATA ? alert : GT_NO_DATA;
+      continue;
+    }
+    gt_state_t worst = es.rpm_suspect ? GT_NO_DATA : GT_OK;
+    for (size_t w = 0; w < sizeof watched; w++) {
+      bd_id_t id = b->g[0].ids[i][watched[w]];
+      if (id == BD_NONE) continue;
+      gt_state_t ps = glance_path_state(id, g->slots[watched[w]].max_age_ms, now_ms);
+      if (ps > worst) worst = ps;
+    }
+    st[i] = worst;
+    running++;
+    if (read(b, i, S_RPM, now_ms, &x) && !es.rpm_suspect) {
+      size_t len = strlen(out->headline);
+      snprintf(out->headline + len, sizeof out->headline - len, "%s%.0f", len ? "/" : "", x);
+    }
+    if (read(b, i, S_COOLANT, now_ms, &x) && (!have_coolant || x > coolant_max)) coolant_max = x, have_coolant = true;
+    if (read(b, i, S_OIL, now_ms, &x) && (!have_oil || x < oil_min)) oil_min = x, have_oil = true;
+  }
+  glance_tile_state(out, glance_worst(st, n));
+  if (running) {
+    snprintf(out->unit, sizeof out->unit, "%s", units_label(Q_ROTATION, b->units));
+    if (have_coolant) snprintf(out->context[0], sizeof out->context[0], "COOLANT %.0f %s", coolant_max, units_label(Q_TEMPERATURE, b->units));
+    if (have_oil) snprintf(out->context[1], sizeof out->context[1], "OIL %.1f %s", oil_min, units_label(Q_PRESSURE, b->units));
+    return;
+  }
+  if (off == n) snprintf(out->headline, sizeof out->headline, "STOPPED");   // every engine is off, whatever the alarms say
+  for (uint8_t i = 0; i < n; i++) {   // stopped: engine hours, and the coolant while it cools
+    if (!out->context[0][0] && read(b, i, S_HOURS, now_ms, &x))
+      snprintf(out->context[0], sizeof out->context[0], "HOURS %.0f %s", x, units_label(Q_DURATION, b->units));
+    if (!out->context[1][0] && read(b, i, S_COOLANT, now_ms, &x))
+      snprintf(out->context[1], sizeof out->context[1], "COOLANT %.0f %s", x, units_label(Q_TEMPERATURE, b->units));
   }
 }

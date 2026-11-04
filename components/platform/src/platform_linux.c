@@ -48,6 +48,8 @@ void platform_sleep_ms(uint32_t ms) {
 
 void platform_reboot(void) { exit(0); }
 
+size_t platform_min_internal(void) { return 0; }
+
 void platform_mem(size_t *internal, size_t *psram) {
   *internal = 0;
   *psram = 0;

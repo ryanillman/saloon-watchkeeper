@@ -6,8 +6,8 @@
 #include "cJSON.h"
 #include "platform.h"
 
-static const char *KNOWN_ROLES[] = {"engine", "power", "tanks", "anchor", "wind", "nav"};
-static const char *DEFAULT_ROLES[] = {"engine", "power", "tanks", "anchor"};
+static const char *KNOWN_ROLES[] = {"glance", "engine", "power", "tanks", "anchor", "wind", "nav"};
+static const char *DEFAULT_ROLES[] = {"glance", "engine", "power", "tanks", "anchor"};
 
 // The JSON tree last loaded or saved. Saves edit it in place so unknown keys survive.
 // The UI, config writer, and console tasks all reach it: every access holds `lock`.
@@ -56,6 +56,7 @@ void cfg_defaults(cfg_t *c) {
   strcpy(c->units.distance, "nm");
   strcpy(c->palette, "auto");
   c->brightness = 80;
+  c->utc_offset_min = 0;
   default_roles(c);
   strcpy(c->start_role, c->roles[0].role);
 }
@@ -190,6 +191,23 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   COPY(c->palette, cJSON_GetObjectItem(d, "palette"));
   const cJSON *br = cJSON_GetObjectItem(d, "brightness");
   if (cJSON_IsNumber(br)) c->brightness = br->valueint < 0 ? 0 : br->valueint > 100 ? 100 : (uint8_t)br->valueint;
+  const cJSON *tz = cJSON_GetObjectItem(d, "utc_offset_min");
+  double minutes = 0;
+  bool have_tz = false;
+  if (cJSON_IsNumber(tz)) {
+    minutes = tz->valuedouble;
+    have_tz = true;
+  } else if (cJSON_IsString(tz)) {   // `config set` creates a key the file lacks as text; the next save writes a number
+    char *end;
+    long v = strtol(tz->valuestring, &end, 10);
+    if (*tz->valuestring && !*end) {
+      minutes = (double)v;
+      have_tz = true;
+    } else {
+      issue(rep, "display.utc_offset_min", 0, "must be a whole number of minutes");
+    }
+  }
+  if (have_tz) c->utc_offset_min = minutes < -720 ? -720 : minutes > 840 ? 840 : (int16_t)minutes;
   COPY(c->start_role, cJSON_GetObjectItem(d, "start_role"));
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
 
@@ -441,6 +459,7 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   cJSON *d = object(tree, "display");
   set_str(d, "palette", c->palette);
   set_num(d, "brightness", c->brightness);
+  set_num(d, "utc_offset_min", c->utc_offset_min);
   set_str(d, "start_role", c->start_role);
   cJSON *bz = object(tree, "buzzer");
   cJSON_DeleteItemFromObject(bz, "enabled");

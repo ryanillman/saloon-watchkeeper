@@ -17,6 +17,7 @@ static const role_group_t groups[] = {
 void tanks_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b);
 void tanks_refresh(role_binding_t *b, int64_t now_ms);
 uint8_t tanks_pages(const role_binding_t *b, size_class_t sc);
+void tanks_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out);
 
 const role_def_t role_tanks = {
   .name = "tanks",
@@ -28,4 +29,5 @@ const role_def_t role_tanks = {
   .page_for = tanks_page_for,
   .build_page = tanks_build_page,
   .refresh = tanks_refresh,
+  .tile = tanks_tile,
 };

@@ -320,7 +320,7 @@ static void test_square_offline_clear_of_page_dots(void) {
   lv_display_set_default(d);
   ui_shell_create(d, SIZE_SQUARE, PALETTE_DAY, two_pages, 1, 0);
   ui_alerts_attach(lv_display_get_screen_active(d), ui_shell_strip(), SIZE_SQUARE, role_of, NULL);
-  ui_shell_set_status("SK OFFLINE", ui_theme()->alarm);
+  ui_shell_set_source(UI_SRC_OFFLINE);
   alerts_source_up(false);
   raise("a.one", AL_WARN, "One");   // the marker is showing too
   alerts_snapshot_t s;
