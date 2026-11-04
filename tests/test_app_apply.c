@@ -4,6 +4,8 @@
 #include "app.h"
 #include "boatdata.h"
 #include "config.h"
+#include "glance_page.h"
+#include "history.h"
 #include "platform.h"
 #include "ui_alerts.h"
 #include "ui_shell.h"
@@ -92,6 +94,33 @@ static void test_apply_keeps_alarm_banner(void) {
   alerts_source_up(false);
 }
 
+static void test_glance_is_the_first_page_with_a_tile_per_role_that_has_one(void) {
+  TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->role);
+  TEST_ASSERT_EQUAL_UINT8(3, glance_tile_count());   // engine, power, tanks; anchor has no role yet
+}
+
+static void test_tapping_a_glance_tile_opens_that_role(void) {
+  TEST_ASSERT_NOT_NULL(glance_part(1, GP_TILE));
+  lv_obj_send_event(glance_part(1, GP_TILE), LV_EVENT_CLICKED, NULL);   // the second tile is Power
+  lv_timer_handler();
+  TEST_ASSERT_EQUAL_UINT8(2, ui_shell_nav()->role);   // glance, engine, power, tanks, anchor
+}
+
+static void test_history_tracks_the_trend_paths_and_samples_each_tick(void) {
+  bd_id_t soc = bd_intern("electrical.batteries.279.capacity.stateOfCharge");
+  app_bind();   // a battery appeared
+  bd_id_t ids[HIST_MAX_PATHS];
+  size_t n = hist_tracked(ids, HIST_MAX_PATHS);
+  bool found = false;
+  for (size_t i = 0; i < n; i++) found = found || ids[i] == soc;
+  TEST_ASSERT_TRUE(found);
+  bd_set_number(soc, 0.8, 1, platform_millis());
+  app_tick();
+  float v[1];
+  TEST_ASSERT_EQUAL_UINT(1, hist_read(soc, 1, v));
+  TEST_ASSERT_EQUAL_FLOAT(0.8f, v[0]);
+}
+
 static bool clock_hidden(void) { return lv_obj_has_flag(ui_shell_clock(), LV_OBJ_FLAG_HIDDEN); }
 
 static void test_clock_hidden_until_a_time_arrives(void) {
@@ -135,6 +164,9 @@ int main(void) {
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   UNITY_BEGIN();
+  RUN_TEST(test_glance_is_the_first_page_with_a_tile_per_role_that_has_one);
+  RUN_TEST(test_tapping_a_glance_tile_opens_that_role);
+  RUN_TEST(test_history_tracks_the_trend_paths_and_samples_each_tick);
   RUN_TEST(test_clock_hidden_until_a_time_arrives);
   RUN_TEST(test_clock_shows_signalk_time_in_the_configured_zone);
   RUN_TEST(test_clock_keeps_running_when_the_time_goes_invalid);

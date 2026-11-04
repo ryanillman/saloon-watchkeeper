@@ -251,11 +251,12 @@ static void test_roles_reorder_and_save(void) {
   click("menu_roles");
   TEST_ASSERT_EQUAL(SETUP_ROLES, ui_setup_screen());
   click("down_engine");
-  TEST_ASSERT_EQUAL_STRING("power", ui_setup_working()->roles[0].role);
-  TEST_ASSERT_EQUAL_STRING("engine", ui_setup_working()->roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("glance", ui_setup_working()->roles[0].role);   // the default list starts with the glance page
+  TEST_ASSERT_EQUAL_STRING("power", ui_setup_working()->roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("engine", ui_setup_working()->roles[2].role);
   click("save");
   TEST_ASSERT_EQUAL_INT(1, saves);
-  TEST_ASSERT_EQUAL_STRING("power", saved.roles[0].role);
+  TEST_ASSERT_EQUAL_STRING("power", saved.roles[1].role);
 }
 
 static void test_add_offers_missing_roles_only(void) {

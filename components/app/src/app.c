@@ -4,6 +4,8 @@
 #include <string.h>
 #include "alerts.h"
 #include "boatdata.h"
+#include "glance_page.h"
+#include "history.h"
 #include "net.h"
 #include "platform.h"
 #include "role.h"
@@ -118,6 +120,7 @@ static void start_writer(void) {
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
   alerts_init();
+  hist_init();
   ui_clock_reset();
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;
@@ -213,6 +216,18 @@ void app_bind(void) {
       .ctx = r,
     };
   }
+  // The Glance page draws a tile for every bound role that has one, and the history store records their trends.
+  glance_source_t src[CFG_MAX_ROLES];
+  uint8_t ns = 0;
+  for (uint8_t i = 0; i < a.count; i++) {
+    const app_role_t *r = &a.roles[i];
+    if (!r->def || !r->def->tile) continue;
+    src[ns++] = (glance_source_t){&r->binding, i};
+    glance_tile_t t = {0};
+    r->def->tile(&r->binding, platform_millis(), &t);
+    if (t.trend != BD_NONE) hist_track(t.trend);
+  }
+  glance_set_sources(src, ns);
 }
 
 // The palette environment.mode asks for; day while there is no valid value.
@@ -685,6 +700,7 @@ void app_tick(void) {
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   update_clock(platform_millis());
+  hist_tick(platform_millis());
   ui_shell_refresh();
   ui_setup_tick();
 

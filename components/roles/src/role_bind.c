@@ -7,7 +7,8 @@
 extern const role_def_t role_engine;
 extern const role_def_t role_tanks;
 extern const role_def_t role_power;
-static const role_def_t *const ROLES[] = {&role_engine, &role_power, &role_tanks};
+extern const role_def_t role_glance;
+static const role_def_t *const ROLES[] = {&role_glance, &role_engine, &role_power, &role_tanks};
 
 const role_def_t *role_find(const char *name) {
   for (size_t i = 0; i < sizeof ROLES / sizeof ROLES[0]; i++)
