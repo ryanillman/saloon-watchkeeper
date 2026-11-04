@@ -104,7 +104,7 @@ static int8_t role_of(const char *id) { (void)id; return 0; }
 static void test_panel_sits_above_banner_and_alarm_closes_it(void) {
   alerts_init();
   alerts_source_up(true);
-  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of, NULL);
   ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
   lv_obj_t *scrn = lv_screen_active();
   TEST_ASSERT_EQUAL(lv_obj_get_child_count(scrn) - 1, lv_obj_get_index(root_of()));   // last child: drawn over the banner
@@ -140,7 +140,7 @@ static void update(int64_t now) {
 static void test_second_alarm_closes_panel(void) {
   alerts_init();
   alerts_source_up(true);
-  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of, NULL);
   raise_alarm("a.one", "One");
   update(0);
   alerts_request("a.one", AL_REQ_ACK);
@@ -158,7 +158,7 @@ static void test_second_alarm_closes_panel(void) {
 static void test_new_alarm_behind_banner_closes_panel(void) {
   alerts_init();
   alerts_source_up(true);
-  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, role_of, NULL);
   raise_alarm("a.one", "One");
   update(0);
   ui_quick_open(lv_screen_active(), "day", 80, true, &cb);

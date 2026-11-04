@@ -24,6 +24,8 @@ typedef struct {
   uint8_t alert;                 // alert_state_t of the notification on this field
   bool text_mode;                // readout showing a string (ui_readout_set_text)
   char text[2][24];
+  char footer[48];               // dial: a line under the digits, or empty
+  const lv_font_t *value_font;   // strip: pinned in draw_strip
   lv_obj_t *fault;               // overlay: red cross and "<LABEL> FAIL"
   lv_obj_t *fault_label;
 } gauge_t;
@@ -296,6 +298,17 @@ static void draw_dial(lv_event_t *e) {
       text_at(layer, row, ff, c->fault_label, cx, y, LV_TEXT_ALIGN_CENTER);
     }
   }
+
+  // Footer under the digits, in the open bottom of the sweep. Fuel percent lives here.
+  if (g->footer[0]) {
+    const lv_font_t *ff = r >= 90 ? &lv_font_montserrat_20 : &lv_font_montserrat_14;
+    if (lv_text_get_width(g->footer, strlen(g->footer), ff, 0) > w - 16) ff = &lv_font_montserrat_14;
+    int32_t fh = lv_font_get_line_height(ff);
+    int32_t fy = a.y2 - 4 - fh / 2;
+    int32_t block = any ? y0 + (int32_t)g->n * row_h : cy;
+    if (fy - fh / 2 < block + 4) fy = block + 4 + fh / 2;
+    text_at(layer, g->footer, ff, c->fg, cx, fy, LV_TEXT_ALIGN_CENTER);
+  }
 }
 
 lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t needles,
@@ -328,7 +341,43 @@ void ui_dial_set(lv_obj_t *o, uint8_t i, double v, bool valid) {
   sync_fault(o);
 }
 
+void ui_dial_set_footer(lv_obj_t *o, const char *text) {
+  gauge_t *g = G(o);
+  char next[sizeof g->footer];
+  snprintf(next, sizeof next, "%s", text ? text : "");
+  if (strcmp(g->footer, next) == 0) return;
+  memcpy(g->footer, next, sizeof next);
+  lv_obj_invalidate(o);
+}
+
 // ---- strip ----
+
+static const lv_font_t *const STRIP_FONTS[] = {&lv_font_montserrat_48, &lv_font_montserrat_28,
+                                               &lv_font_montserrat_20, &lv_font_montserrat_14};
+
+static bool strip_text_fits(bool vertical, const char *txt, const lv_font_t *f, int32_t w, int32_t h,
+                            int32_t label_w) {
+  int32_t fh = lv_font_get_line_height(f);
+  int32_t fw = lv_text_get_width(txt, strlen(txt), f, 0);
+  if (vertical) return fw <= w - 4 && fh <= h / 4;
+  return fh <= h * 55 / 100 && fw <= w - label_w - 16;
+}
+
+// Largest font in which both ends of the scale fit. The live reading is not
+// consulted: 99 crossing to 100 must not change the size.
+static const lv_font_t *strip_value_font(bool vertical, const ui_gauge_spec_t *s, int32_t w, int32_t h,
+                                        int32_t label_w) {
+  char lo[40], hi[40];
+  const char *unit = s->unit ? s->unit : "";
+  snprintf(lo, sizeof lo, "%.*f %s", s->decimals, s->lo, unit);
+  snprintf(hi, sizeof hi, "%.*f %s", s->decimals, s->hi, unit);
+  for (size_t i = 0; i < sizeof STRIP_FONTS / sizeof STRIP_FONTS[0]; i++) {
+    const lv_font_t *f = STRIP_FONTS[i];
+    if (strip_text_fits(vertical, lo, f, w, h, label_w) && strip_text_fits(vertical, hi, f, w, h, label_w))
+      return f;
+  }
+  return &lv_font_montserrat_14;
+}
 
 static void draw_strip(lv_event_t *e) {
   lv_obj_t *o = lv_event_get_target(e);
@@ -340,38 +389,49 @@ static void draw_strip(lv_event_t *e) {
   lv_obj_get_coords(o, &a);
   int32_t w = lv_area_get_width(&a), h = lv_area_get_height(&a);
 
-  // Text: label (dim) and value; the value takes the largest font that fits.
-  static const lv_font_t *const FONTS[] = {&lv_font_montserrat_48, &lv_font_montserrat_28,
-                                           &lv_font_montserrat_20, &lv_font_montserrat_14};
-  const lv_font_t *lf = (g->vertical ? w : h) >= 70 ? &lv_font_montserrat_20 : &lv_font_montserrat_14;
+  // A narrow vertical strip stays at 14. At 20, "COOLANT" is wider than the strip.
+  const lv_font_t *lf = &lv_font_montserrat_14;
+  if (g->vertical) {
+    if (w >= 110) lf = &lv_font_montserrat_20;
+  } else if (h >= 70) {
+    lf = &lv_font_montserrat_20;
+  }
   int32_t lh = lv_font_get_line_height(lf);
   int32_t lw = lv_text_get_width(s->label, strlen(s->label), lf, 0);
-  char v[40];
-  if (g->off[0]) snprintf(v, sizeof v, "OFF");
-  else snprintf(v, sizeof v, "%s %s", g->valid[0] ? g->text[0] : "", s->unit);
-  const lv_font_t *vf = &lv_font_montserrat_14;
-  for (size_t i = 0; i < sizeof FONTS / sizeof FONTS[0]; i++) {
-    int32_t fh = lv_font_get_line_height(FONTS[i]);
-    int32_t fw = lv_text_get_width(v, strlen(v), FONTS[i], 0);
-    bool fits = g->vertical ? (fw <= w - 4 && fh <= h / 4) : (fh <= h * 55 / 100 && fw <= w - lw - 16);
-    if (fits) {
-      vf = FONTS[i];
-      break;
-    }
-  }
+  const lv_font_t *vf = strip_value_font(g->vertical, s, w, h, lw);
+  g->value_font = vf;
   int32_t vh = lv_font_get_line_height(vf);
 
-  // Tape: horizontal runs left to right under the text row; vertical runs
-  // bottom to top between the value (top) and the label (bottom).
+  // Tape: horizontal runs left to right; vertical runs bottom to top between
+  // the value (top) and the label (bottom). Thickness follows the pinned font.
   lv_area_t tape;
+  int32_t name_cy, value_cy, rise = 0;
   if (g->vertical) {
     int32_t tw = w / 4;
-    tape = (lv_area_t){a.x1 + w / 2 - tw / 2, a.y1 + vh + 8, a.x1 + w / 2 + tw / 2, a.y2 - lh - 6};
+    if (tw < 8) tw = 8;
+    // Name under the value, then the tape. A label on the bottom edge reads as
+    // the title of the strip stacked beneath this one.
+    value_cy = a.y1 + vh / 2;
+    name_cy = a.y1 + vh + 2 + lh / 2;
+    int32_t top = a.y1 + vh + lh + 8;
+    if (top > a.y2 - 8) top = a.y2 - 8;
+    tape = (lv_area_t){a.x1 + w / 2 - tw / 2, top, a.x1 + w / 2 + tw / 2, a.y2 - 4};
   } else {
-    int32_t th = h - vh - 6;
-    if (th > h / 3) th = h / 3;
+    int32_t th = h / 3;
+    int32_t room = h - vh - 8;
+    if (room < 6) room = 6;
+    if (th > room) th = room;
     if (th < 6) th = 6;
     tape = (lv_area_t){a.x1 + 4, a.y2 - th - 2, a.x2 - 4, a.y2 - 2};
+    rise = h / 6;
+    if (rise < 4) rise = 4;
+    // Name and value sit on this strip's tape. Spare height stays above them,
+    // so a short value cannot float up against the tape of the strip above.
+    int32_t text_bottom = tape.y1 - rise - 2;
+    if (text_bottom - vh < a.y1) text_bottom = a.y1 + vh;
+    if (text_bottom > tape.y1 - 2) text_bottom = tape.y1 - 2;
+    value_cy = text_bottom - vh / 2;
+    name_cy = text_bottom - lh / 2;
   }
   rect(layer, &tape, c->strip_bg, 2);
   int32_t len = g->vertical ? lv_area_get_height(&tape) : lv_area_get_width(&tape);
@@ -396,31 +456,34 @@ static void draw_strip(lv_event_t *e) {
     else line(layer, tape.x1 + p, tape.y2, tape.x1 + p, tape.y2 - (tape.y2 - tape.y1) / 3, 2, c->dim);
   }
 
-  if (g->vertical) {
-    text_at(layer, s->label, lf, c->dim, a.x1 + w / 2, a.y2 - lh / 2, LV_TEXT_ALIGN_CENTER);
-  } else {
-    text_at(layer, s->label, lf, c->dim, a.x1 + 4, a.y1 + vh - lh / 2 - 2, LV_TEXT_ALIGN_LEFT);
-  }
+  if (g->vertical) text_at(layer, s->label, lf, c->dim, a.x1 + w / 2, name_cy, LV_TEXT_ALIGN_CENTER);
+  else text_at(layer, s->label, lf, c->dim, a.x1 + 4, name_cy, LV_TEXT_ALIGN_LEFT);
   if (g->off[0]) {   // quiet: label-sized and dim, so it never reads as a value or an alarm
-    if (g->vertical) text_at(layer, "OFF", lf, c->dim, a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
-    else text_at(layer, "OFF", lf, c->dim, a.x2 - 4, a.y1 + vh - lh / 2 - 2, LV_TEXT_ALIGN_RIGHT);
+    int32_t off_cy = value_cy + vh / 2 - lh / 2;
+    if (g->vertical) text_at(layer, "OFF", lf, c->dim, a.x1 + w / 2, off_cy, LV_TEXT_ALIGN_CENTER);
+    else text_at(layer, "OFF", lf, c->dim, a.x2 - 4, off_cy, LV_TEXT_ALIGN_RIGHT);
     return;
   }
   if (!g->valid[0]) return;   // the fault overlay covers the rest
 
   // Fill and pointer (clamped to the tape); digits show the true value.
   int32_t p = (int32_t)(ui_scale_fraction(g->value[0], s->lo, s->hi) * len);
-  int32_t ps = g->vertical ? w / 8 : h / 6;
+  int32_t ps = g->vertical ? w / 8 : rise;
+  char v[40];
+  snprintf(v, sizeof v, "%s %s", g->text[0], s->unit);
   if (g->vertical) {
     lv_area_t fill = {tape.x1 + 2, tape.y2 - p, tape.x2 - 2, tape.y2};
     rect(layer, &fill, s->has_color ? s->color : c->fg, 0);
     line(layer, tape.x2 + 2, tape.y2 - p, tape.x2 + ps + 2, tape.y2 - p, 4, c->fg);
+    text_at(layer, v, vf, value_color(g), a.x1 + w / 2, value_cy, LV_TEXT_ALIGN_CENTER);
   } else {
-    lv_area_t mark = {tape.x1 + p - 2, tape.y1 - ps, tape.x1 + p + 2, tape.y2};
+    int32_t mark_top = tape.y1 - rise;
+    int32_t limit = value_cy + vh / 2 + 1;   // stop at the glyphs
+    if (mark_top < limit) mark_top = limit;
+    lv_area_t mark = {tape.x1 + p - 2, mark_top, tape.x1 + p + 2, tape.y2};
     rect(layer, &mark, c->fg, 0);
+    text_at(layer, v, vf, value_color(g), a.x2 - 4, value_cy, LV_TEXT_ALIGN_RIGHT);
   }
-  if (g->vertical) text_at(layer, v, vf, value_color(g), a.x1 + w / 2, a.y1 + vh / 2, LV_TEXT_ALIGN_CENTER);
-  else text_at(layer, v, vf, value_color(g), a.x2 - 4, a.y1 + vh / 2, LV_TEXT_ALIGN_RIGHT);
 }
 
 lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool vertical) {
@@ -555,4 +618,5 @@ double ui_strip_fraction(lv_obj_t *o) {
   return ui_scale_fraction(g->value[0], g->spec->lo, g->spec->hi);
 }
 const char *ui_strip_text(lv_obj_t *o) { return G(o)->text[0]; }
+const lv_font_t *ui_strip_value_font(lv_obj_t *o) { return G(o)->value_font; }
 const char *ui_readout_text(lv_obj_t *o) { return G(o)->text[0]; }

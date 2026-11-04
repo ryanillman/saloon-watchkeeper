@@ -25,6 +25,7 @@ const role_def_t role_tanks = {
   .group_count = 1,
   .page_count = 1,
   .pages = tanks_pages,
+  .page_for = tanks_page_for,
   .build_page = tanks_build_page,
   .refresh = tanks_refresh,
 };

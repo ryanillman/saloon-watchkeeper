@@ -45,7 +45,7 @@ void setUp(void) {
   lv_obj_clean(scr);
   strip = lv_obj_create(scr);
   lv_obj_set_size(strip, 800, 40);
-  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of);
+  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of, NULL);
   tick(0);
 }
 void tearDown(void) {}
@@ -260,7 +260,7 @@ static void test_night_banner_never_white(void) {
   lv_obj_clean(scr);
   strip = lv_obj_create(scr);
   lv_obj_set_size(strip, 800, 40);
-  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of);
+  ui_alerts_attach(scr, strip, SIZE_WIDE, role_of, NULL);
   raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
   raise("a.two", AL_ALARM, "Two");
   static const ui_alerts_part_t btn[] = {UI_ALERTS_ACK, UI_ALERTS_SILENCE, UI_ALERTS_GO};
@@ -319,7 +319,7 @@ static void test_square_offline_clear_of_page_dots(void) {
   lv_display_set_buffers(d, buf480, NULL, sizeof buf480, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_default(d);
   ui_shell_create(d, SIZE_SQUARE, PALETTE_DAY, two_pages, 1, 0);
-  ui_alerts_attach(lv_display_get_screen_active(d), ui_shell_strip(), SIZE_SQUARE, role_of);
+  ui_alerts_attach(lv_display_get_screen_active(d), ui_shell_strip(), SIZE_SQUARE, role_of, NULL);
   ui_shell_set_status("SK OFFLINE", ui_theme()->alarm);
   alerts_source_up(false);
   raise("a.one", AL_WARN, "One");   // the marker is showing too
@@ -391,6 +391,30 @@ static void test_state_change_rearms_tap_guard(void) {
   TEST_ASSERT_FALSE(a.acked);
 }
 
+static uint8_t fuel_page(const char *id) {
+  (void)id;
+  return 1;
+}
+static int8_t tanks_role(const char *id) {
+  (void)id;
+  return 1;
+}
+
+static void test_go_opens_the_alarms_page(void) {
+  static const ui_role_view_t roles[] = {
+    {.name = "ENGINE", .page_count = 2},
+    {.name = "TANKS", .page_count = 2},
+  };
+  ui_shell_create(lv_display_get_default(), SIZE_WIDE, PALETTE_DAY, roles, 2, 0);
+  ui_alerts_attach(lv_screen_active(), ui_shell_strip(), SIZE_WIDE, tanks_role, fuel_page);
+  raise("tanks.fuel.0.currentLevel", AL_ALARM, "Fuel low");
+  tick(0);
+  click(UI_ALERTS_GO);
+  const ui_nav_t *n = ui_shell_nav();
+  TEST_ASSERT_EQUAL_UINT8(1, n->role);
+  TEST_ASSERT_EQUAL_UINT8(1, n->page);
+}
+
 static void test_list_row_ack_guarded(void) {
   raise("a.one", AL_ALARM, "One");
   tick(0);
@@ -437,6 +461,7 @@ int main(void) {
   RUN_TEST(test_palette_switch_restyles_alerts);
   RUN_TEST(test_double_tap_acks_only_the_first_alarm);
   RUN_TEST(test_state_change_rearms_tap_guard);
+  RUN_TEST(test_go_opens_the_alarms_page);
   RUN_TEST(test_list_row_ack_guarded);
   return UNITY_END();
 }

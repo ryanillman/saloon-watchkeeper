@@ -26,6 +26,8 @@ lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t 
                          const char *const *needle_labels);   // labels may be NULL
 void ui_dial_set(lv_obj_t *dial, uint8_t needle, double value, bool valid);
 void ui_dial_set_off(lv_obj_t *dial, uint8_t needle);   // engine off: dim "OFF", no needle, no cross
+// A line under the digits, such as "FUEL 55%". Empty or NULL hides it.
+void ui_dial_set_footer(lv_obj_t *dial, const char *text);
 
 lv_obj_t *ui_strip_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, bool vertical);
 void ui_strip_set(lv_obj_t *strip, double value, bool valid);
@@ -52,4 +54,7 @@ double ui_dial_needle_fraction(lv_obj_t *dial, uint8_t needle);
 const char *ui_dial_text(lv_obj_t *dial, uint8_t needle);
 double ui_strip_fraction(lv_obj_t *strip);
 const char *ui_strip_text(lv_obj_t *strip);
+// Font chosen for the value. Pinned to the scale, so it does not change with the reading.
+// NULL until the strip has been drawn.
+const lv_font_t *ui_strip_value_font(lv_obj_t *strip);
 const char *ui_readout_text(lv_obj_t *readout);

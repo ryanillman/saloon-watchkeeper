@@ -226,10 +226,11 @@ void ui_shell_rebuild(void) {
   rebuild();
 }
 
-void ui_shell_goto_role(uint8_t role) {
+void ui_shell_goto(uint8_t role, uint8_t page) {
   if (role >= s.nav.role_count) return;
+  uint8_t n = s.nav.page_count[role];
   s.nav.role = role;
-  s.nav.page = 0;
+  s.nav.page = n && page >= n ? (uint8_t)(n - 1) : page;
   rebuild();
 }
 

@@ -1,0 +1,46 @@
+{
+  "description": "Six tanks. Fuel sorts onto the second square page. Clears any previous fuel alarm, then raises a new one at 8 s so GO can be checked.",
+  "durationMs": 80000,
+  "intervalMs": 1000,
+  "values": {
+    "tanks.blackWater.0.currentLevel": 0.2,
+    "tanks.freshWater.0.currentLevel": 0.8,
+    "tanks.freshWater.1.currentLevel": 0.7,
+    "tanks.freshWater.2.currentLevel": 0.6,
+    "tanks.fuel.0.currentLevel": 0.1,
+    "tanks.fuel.0.capacity": 0.2,
+    "tanks.wasteWater.0.currentLevel": 0.3
+  },
+  "after": [
+    {
+      "atMs": 0,
+      "note": "clear any previous fuel alarm",
+      "values": {
+        "notifications.tanks.fuel.0.currentLevel": null
+      }
+    },
+    {
+      "atMs": 8000,
+      "note": "fuel low alarm; square GO should open the second tanks page",
+      "values": {
+        "notifications.tanks.fuel.0.currentLevel": {
+          "state": "alarm",
+          "method": ["visual", "sound"],
+          "message": "Fuel low"
+        }
+      }
+    },
+    {
+      "atMs": 80000,
+      "note": "clears the alarm condition",
+      "values": {
+        "notifications.tanks.fuel.0.currentLevel": {
+          "state": null,
+          "method": ["visual", "sound"],
+          "message": "Fuel OK"
+        }
+      }
+
+    }
+  ]
+}
