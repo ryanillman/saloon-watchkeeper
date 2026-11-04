@@ -100,9 +100,10 @@ static void test_both_missing_uses_defaults(void) {
   cfg_t c;
   cfg_report_t r;
   TEST_ASSERT_EQUAL(CFG_FROM_DEFAULTS, cfg_load(dir, &c, &r));
-  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);
-  TEST_ASSERT_EQUAL_STRING("engine", c.roles[0].role);
-  TEST_ASSERT_EQUAL_STRING("anchor", c.roles[3].role);
+  TEST_ASSERT_EQUAL_UINT8(5, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("glance", c.roles[0].role);   // the glance page comes first
+  TEST_ASSERT_EQUAL_STRING("engine", c.roles[1].role);
+  TEST_ASSERT_EQUAL_STRING("anchor", c.roles[4].role);
 }
 
 static void test_parse_error_reports_line_and_falls_back(void) {
@@ -140,7 +141,7 @@ static void test_no_valid_roles_uses_default_roles(void) {
   cfg_t c;
   cfg_report_t r;
   cfg_load(dir, &c, &r);
-  TEST_ASSERT_EQUAL_UINT8(4, c.role_count);   // never a blank display
+  TEST_ASSERT_EQUAL_UINT8(5, c.role_count);   // never a blank display
 }
 
 static void test_unknown_keys_survive_save(void) {
@@ -192,7 +193,7 @@ static void test_save_from_defaults_creates_file(void) {
   TEST_ASSERT_TRUE(cfg_save(dir, &c));
   cfg_t again;
   TEST_ASSERT_EQUAL(CFG_FROM_MAIN, cfg_load(dir, &again, &r));
-  TEST_ASSERT_EQUAL_UINT8(4, again.role_count);
+  TEST_ASSERT_EQUAL_UINT8(5, again.role_count);
 }
 
 static void test_unknown_unit_reported_and_defaulted(void) {
@@ -472,6 +473,31 @@ static void test_cfg_set_creates_missing_string_key(void) {
   TEST_ASSERT_EQUAL_STRING("192.168.0.108", out.sk.host);
 }
 
+static void test_cfg_set_utc_offset_on_a_file_that_lacks_the_key(void) {
+  // The key is new: `config set` creates a missing key as a string. It must still take effect, and be saved as a number.
+  write_file("config.json", "{ \"display\": {\"brightness\": 80}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.utc_offset_min", "-300", &out, &r));
+  TEST_ASSERT_EQUAL_INT16(-300, out.utc_offset_min);
+  cJSON *root = roles_of(read_file("config.json"));
+  cJSON *tz = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "display"), "utc_offset_min");
+  TEST_ASSERT_TRUE(cJSON_IsNumber(tz));
+  TEST_ASSERT_EQUAL_INT(-300, tz->valueint);
+  cJSON_Delete(root);
+}
+
+static void test_cfg_set_rejects_a_utc_offset_that_is_not_a_number(void) {
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 60}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_FALSE(cfg_set(dir, "display.utc_offset_min", "abc", &out, &r));
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("display.utc_offset_min", r.issues[0].key_path);
+}
+
 static void test_cfg_show_masks_secrets(void) {
   write_file("config.json",
              "{ \"wifi\": {\"ssid\": \"B\", \"password\": \"hunter22\"},"
@@ -488,8 +514,44 @@ static void test_cfg_show_masks_secrets(void) {
   free(s);
 }
 
+static void test_utc_offset_default_is_zero(void) {
+  cfg_t c;
+  cfg_defaults(&c);
+  TEST_ASSERT_EQUAL_INT16(0, c.utc_offset_min);
+}
+
+static void test_utc_offset_loads_and_clamps(void) {
+  cfg_t c;
+  cfg_report_t r;
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": -480} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(-480, c.utc_offset_min);
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 2000} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(840, c.utc_offset_min);
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": -2000} }");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_INT16(-720, c.utc_offset_min);
+}
+
+static void test_utc_offset_saves_and_keeps_unknown_display_keys(void) {
+  cfg_t c;
+  cfg_report_t r;
+  write_file("config.json", "{ \"display\": {\"utc_offset_min\": 60, \"theme_note\": \"keep\"} }");
+  cfg_load(dir, &c, &r);
+  c.utc_offset_min = 330;
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "theme_note"));
+  cfg_t again;
+  cfg_load(dir, &again, &r);
+  TEST_ASSERT_EQUAL_INT16(330, again.utc_offset_min);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_utc_offset_default_is_zero);
+  RUN_TEST(test_utc_offset_loads_and_clamps);
+  RUN_TEST(test_utc_offset_saves_and_keeps_unknown_display_keys);
   RUN_TEST(test_minimal_file_loads);
   RUN_TEST(test_full_role_fields);
   RUN_TEST(test_missing_main_uses_backup);
@@ -510,6 +572,8 @@ int main(void) {
   RUN_TEST(test_cfg_set_rejects_bad_number);
   RUN_TEST(test_cfg_set_rejects_invalid_value);
   RUN_TEST(test_cfg_set_creates_missing_string_key);
+  RUN_TEST(test_cfg_set_utc_offset_on_a_file_that_lacks_the_key);
+  RUN_TEST(test_cfg_set_rejects_a_utc_offset_that_is_not_a_number);
   RUN_TEST(test_cfg_show_masks_secrets);
   RUN_TEST(test_power_primary_round_trip);
   RUN_TEST(test_power_banks_round_trip);

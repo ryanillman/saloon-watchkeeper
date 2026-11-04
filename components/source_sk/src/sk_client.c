@@ -6,6 +6,8 @@
 #include "platform.h"
 #include "sk_access.h"
 #include "sk_parse.h"
+#include "history.h"
+#include "sk_history.h"
 #include "sk_transport.h"
 
 #define MAX_BOUND 256
@@ -169,6 +171,12 @@ void sk_client_run_once(void) {
     set_state(SK_LIVE);
     alerts_source_up(true);
     printf("signalk: live at %s:%u\n", host, port);
+    // Trends fill in from the server's history after a boot or a reconnect (never a fault). One path per request, one
+    // request per pass of the loop below, so the live stream is read between them; the UI task may track more paths
+    // later, once it has bound the roles, and those are asked for as they appear. A request nobody answers waits 30 s.
+    hist_forget_backfill();
+    int64_t fill_retry_ms = 0;
+    if (sk_history_backfill(base, token) == SK_HIST_NO_ANSWER) fill_retry_ms = platform_millis() + 30000;
     int64_t last_discovery = platform_millis();
     for (;;) {
       platform_lock(c.lock);
@@ -183,6 +191,8 @@ void sk_client_run_once(void) {
       // change, so a lost one would never come back: resubscribe to get them resent.
       if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
+      if (platform_millis() >= fill_retry_ms && sk_history_backfill(base, token) == SK_HIST_NO_ANSWER)
+        fill_retry_ms = platform_millis() + 30000;
       sk_access_poll(base, platform_millis());
       if (now_please || platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);

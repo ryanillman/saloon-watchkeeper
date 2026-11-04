@@ -9,7 +9,7 @@ ctest --test-dir build/sim --output-on-failure
 tools/check-layering.sh
 ```
 
-`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid). Engine page 1 is also rendered `-alarm` (port coolant alarm banner) and `-alarm-long` (a 96-character emergency message, wrapped to two lines and truncated, with all three buttons still on the banner); `alerts-list.png` shows the alert list open over two alerts.
+`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid). Engine page 1 is also rendered `-alarm` (port coolant alarm banner) and `-alarm-long` (a 96-character emergency message, wrapped to two lines and truncated, with all three buttons still on the banner); `alerts-list.png` shows the alert list open over two alerts. The Glance page is rendered `glance-p0-live.png` (all three tiles, with twelve hours of synthetic history behind the Power trend and the water change) and `glance-p0-fault.png` (the house charge, the port coolant and a water tank sender failed). Every snapshot shows the clock (02:14) and the live source dot.
 
 ## Against a real Signal K server
 
@@ -99,6 +99,17 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 **Power discovery bug (fixed):** `wanted()` in `components/source_sk/src/sk_parse.c` used to compare only the top-level segment with multi-segment prefixes, so no Power instance was discovered. It now matches on segment boundaries and descends into ancestors of a prefix. Re-run against the server: IN 668 W, BATTERY 161 W, LOAD 507 W, SOC 82 %, `SHORE` marker, no FAIL, with the committed code.
 
 Notes for repeat runs: kill the injector only after its clear event, or write `null` to the notification paths first. The server keeps a notification's acknowledged state when the same alarm is rewritten, and answers a second acknowledge with HTTP 400 `Alarm already acknowledged!`. `GET /signalk/v2/api/notifications` also keeps stale entries for cleared paths.
+
+## The Glance page, the clock and history
+
+Play `tools/scenario.sh glance-mixed` (or `two-engines` for the clock), then check on each board. Compare with the snapshots in `build/sim/snap/`.
+
+1. **Tiles match the alerts.** Each tile's edge and word agree with the alert list: an alarm on `propulsion.port.temperature` turns the Engine tile to ALARM; a warn zone on a tank turns Tanks to WARN. A tap on a tile opens that role's first page; the swipe back returns.
+2. **Missing data is never calm.** At 2 minutes `glance-mixed` sends `null` for the house charge: the Power tile shows NO DATA, a red cross and no number. Stop the injector and the Signal K server: tiles that read it show NO DATA, the source dot becomes a ring with a cross and `SK OFFLINE` appears.
+3. **The clock.** It shows the Signal K time in the configured zone (Display setup, Time zone, in half-hour steps). It is not drawn until a `navigation.datetime` arrives, and it keeps running after Signal K drops, until 10 minutes have passed with the source down, when it disappears.
+4. **History after a reboot.** With a Signal K history provider recording the paths, reboot the board and open Glance: the Power trend is full width at once (axis `-12 h`) and the Tanks tile shows `WATER -n% in 6 h`. Without a provider the trend starts empty and the axis shows only the time since boot. `GET /signalk/v2/api/history/_providers` lists the providers; the bench server (2.35.1) listed one, `kip`, and returned empty `data` for the simulator's paths, so confirm on the boat that the provider records `electrical.batteries.*.capacity.stateOfCharge` and `tanks.*.currentLevel`.
+5. **Small board.** On the 480x480 board the second context line and the axis labels are dropped. Judge from across the saloon whether the 14 px context line is readable; if not, drop it there too.
+6. **Night.** The night palette is red only: OK is the dim red, a warning or alarm the bright red, and the state word always says which.
 
 ## Capturing a boat's server
 

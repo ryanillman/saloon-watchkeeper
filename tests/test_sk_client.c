@@ -4,6 +4,7 @@
 #include "unity.h"
 #include "alerts.h"
 #include "boatdata.h"
+#include "history.h"
 #include "sk_client.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
@@ -12,6 +13,9 @@ static sk_msg_cb cb;
 static void *cb_ctx;
 static int polls;
 static int http_gets;
+static int history_gets;
+static char history_url[256];
+static const char *history_body;   // NULL: the generic snapshot body
 static int live_polls = 1;   // polls that keep the socket open
 static const char *full_body;
 static bool connect_ok;
@@ -24,14 +28,23 @@ static int post_status = 200;
 static int live_hook;   // 1: queue an ack on the first poll; 2: also check send_failed while live
 static int fail_seen = -1;
 static int sends;
+static int track_at_poll;   // hist_track a new path during this poll (0: never)
 static int rebind_at_poll;   // sk_client_rebind during this poll (0: never)
 static char sent_log[8][512];
 static int overflow_at_poll;   // sk_ws_take_overflow reports a drop after this poll (0: never)
 static bool overflow_taken;
 
 bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
-  (void)url; (void)token;
+  (void)token;
   http_gets++;
+  if (strstr(url, "/signalk/v2/api/history/values")) {
+    history_gets++;
+    snprintf(history_url, sizeof history_url, "%s", url);
+    if (!history_body) return false;
+    *body = strdup(history_body);
+    *len = strlen(history_body);
+    return true;
+  }
   const char *full = full_body ? full_body : "{\"uuid\":\"urn:mrn:signalk:uuid:abc\",\"propulsion\":{\"port\":{\"revolutions\":{\"value\":1}}}}";
   *body = strdup(full);
   *len = strlen(full);
@@ -66,6 +79,7 @@ bool sk_ws_send(const char *text) {
 bool sk_ws_poll(int timeout_ms) {
   (void)timeout_ms;
   polls++;
+  if (track_at_poll && polls == track_at_poll) hist_track(bd_intern("environment.depth.belowTransducer"));
   if (rebind_at_poll && polls == rebind_at_poll) {
     sk_sub_t one = {bd_intern("propulsion.port.revolutions"), 0};
     sk_client_rebind(&one, 1);
@@ -125,12 +139,17 @@ void setUp(void) {
   live_hook = 0;
   sends = 0;
   rebind_at_poll = 0;
+  track_at_poll = 0;
   overflow_at_poll = 0;
   overflow_taken = false;
   sk_parse_reset();
   connect_ok = true;
   last_sent[0] = 0;
   http_gets = 0;
+  history_gets = 0;
+  history_body = NULL;
+  history_url[0] = 0;
+  hist_init();
   live_polls = 1;
   full_body = NULL;
   sk_client_set_rediscover_ms(20000);
@@ -142,6 +161,60 @@ void setUp(void) {
   sk_client_init(&c.sk, &sub, 1);
 }
 void tearDown(void) {}
+
+static void test_history_backfilled_once_on_going_live(void) {
+  hist_track(rpm);
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, history_gets);
+  TEST_ASSERT_NOT_NULL(strstr(history_url, "http://localhost:3000/signalk/v2/api/history/values?paths=propulsion.port.revolutions"));
+}
+
+static void test_history_not_asked_when_nothing_is_tracked(void) {
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(0, history_gets);
+}
+
+static void test_history_path_tracked_while_live_is_backfilled_then(void) {   // the UI task binds roles after the connect
+  hist_track(rpm);
+  history_body = "{\"data\":[[\"t\",1]]}";
+  track_at_poll = 2;
+  live_polls = 5;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(2, history_gets);
+  TEST_ASSERT_NOT_NULL(strstr(history_url, "paths=environment.depth.belowTransducer"));
+}
+
+static void test_history_is_asked_again_after_a_reconnect(void) {
+  hist_track(rpm);
+  history_body = "{\"data\":[[\"t\",1]]}";
+  sk_client_run_once();
+  sk_client_run_once();   // the connection dropped and came back: there may be a gap
+  TEST_ASSERT_EQUAL_INT(2, history_gets);
+}
+
+static void test_history_no_answer_is_not_retried_within_the_wait(void) {
+  hist_track(rpm);
+  history_body = NULL;   // no response
+  live_polls = 6;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, history_gets);   // asked once at going live; the retry waits 30 s
+}
+
+static void test_history_error_page_does_not_disturb_the_connection(void) {
+  hist_track(rpm);
+  history_body = "<html>Not Found</html>";
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, history_gets);
+  TEST_ASSERT_TRUE(valid_while_live);   // went live and ran normally
+  TEST_ASSERT_EQUAL(SK_BACKOFF, sk_client_state());
+}
+
+static void test_failed_connect_asks_for_no_history(void) {
+  hist_track(rpm);
+  connect_ok = false;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(0, history_gets);
+}
 
 static void test_backoff_sequence(void) {
   int want[] = {1000, 2000, 4000, 8000, 16000, 30000, 30000};
@@ -254,6 +327,13 @@ static void test_rebind_unsubscribes_first(void) {   // the server does not dedu
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_backoff_sequence);
+  RUN_TEST(test_history_backfilled_once_on_going_live);
+  RUN_TEST(test_history_not_asked_when_nothing_is_tracked);
+  RUN_TEST(test_history_path_tracked_while_live_is_backfilled_then);
+  RUN_TEST(test_history_is_asked_again_after_a_reconnect);
+  RUN_TEST(test_history_no_answer_is_not_retried_within_the_wait);
+  RUN_TEST(test_history_error_page_does_not_disturb_the_connection);
+  RUN_TEST(test_failed_connect_asks_for_no_history);
   RUN_TEST(test_cycle_subscribes_to_bound_paths);
   RUN_TEST(test_value_valid_while_live);
   RUN_TEST(test_close_invalidates_sk_paths);

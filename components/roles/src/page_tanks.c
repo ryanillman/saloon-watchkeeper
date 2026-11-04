@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "history.h"
 #include "role.h"
 #include "tanks.h"
 #include "platform.h"
@@ -173,4 +174,47 @@ void tanks_refresh(role_binding_t *b, int64_t now) {
     bool vok = tank_volume(hl ? &lv : NULL, hv ? &vo : NULL, hc ? &ca : NULL, &m3);
     ui_readout_set(v.vol[j], vok ? units_from_si(Q_VOLUME, m3, b->units) : 0, vok);
   }
+}
+
+// The Glance tile: three bars, water and fuel at their lowest tank and waste (black, else grey) at its fullest.
+// A tank whose level is missing makes the tile NO DATA and its bar GT_PCT_UNKNOWN (drawn FAIL, never 0%). Water's change over the
+// last 6 h comes from the history store when it has the data.
+void tanks_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
+  out->title = "TANKS";
+  uint8_t n = b->g[0].inst_count;
+  if (n == 0) {
+    glance_tile_state(out, GT_NO_DATA);
+    return;
+  }
+  gt_state_t st[ROLE_MAX_INST];
+  static const char LABEL[3] = {'W', 'F', 'S'};
+  bool present[3] = {false}, valid[3] = {false}, unknown[3] = {false};
+  double level[3] = {0};
+  for (uint8_t i = 0; i < n; i++) {
+    bd_id_t id = b->g[0].ids[i][S_LEVEL];
+    st[i] = glance_path_state(id, 0, now_ms);
+    tank_kind_t kind = tank_kind(b->g[0].inst_id[i]);
+    int bar = kind == TANK_FRESH ? 0 : kind == TANK_FUEL ? 1 : kind == TANK_BLACK || kind == TANK_GREY ? 2 : -1;
+    if (bar < 0) continue;
+    present[bar] = true;
+    if (bar == 0 && out->trend == BD_NONE) out->trend = id;
+    bd_sample_t smp;
+    if (id == BD_NONE || !bd_get(id, &smp) || smp.kind != BD_NUMBER || !smp.valid) {
+      unknown[bar] = true;   // the lowest (or fullest) tank of this kind is not known without this one
+      continue;
+    }
+    double pct = units_from_si(Q_RATIO, smp.num, b->units);
+    if (!valid[bar] || (bar == 2 ? pct > level[bar] : pct < level[bar])) level[bar] = pct;
+    valid[bar] = true;
+  }
+  glance_tile_state(out, glance_worst(st, n));
+  for (int bar = 0; bar < 3; bar++) {
+    if (!present[bar]) continue;
+    double pct = level[bar];
+    out->bar_label[out->bar_count] = LABEL[bar];
+    out->bar_pct[out->bar_count++] = unknown[bar] || !valid[bar] ? GT_PCT_UNKNOWN : (uint8_t)(pct < 0 ? 0 : pct > 100 ? 100 : pct + 0.5);
+  }
+  float d;
+  if (out->trend != BD_NONE && hist_change(out->trend, 360, &d))
+    snprintf(out->context[0], sizeof out->context[0], "WATER %+.0f%% in 6 h", (double)d * 100.0);
 }

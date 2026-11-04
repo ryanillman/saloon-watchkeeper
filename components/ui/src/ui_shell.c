@@ -8,11 +8,48 @@ static struct {
   size_class_t sc;
   palette_t pal;
   void (*strip_tap)(void);
-  lv_obj_t *screen, *strip, *tap, *name, *dots, *status, *content;
+  lv_obj_t *screen, *strip, *tap, *name, *dots, *clock, *src, *status, *content;
+  ui_src_t src_state;
   char status_text[24], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
   bool over;
 } s;
+
+#define SRC_DOT 16   // the source dot's diameter
+
+static void show_status(void);
+
+// Filled = live, hollow ring = connecting, ring with a cross = offline; the text comes with the last two.
+static void draw_source(void) {
+  const ui_colors_t *c = ui_theme_colors(s.pal);
+  bool live = s.src_state == UI_SRC_LIVE;
+  lv_color_t col = live ? c->fg : s.src_state == UI_SRC_CONNECTING ? c->warn : c->alarm;
+  lv_obj_clean(s.src);
+  lv_obj_set_style_bg_color(s.src, col, 0);
+  lv_obj_set_style_bg_opa(s.src, live ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_color(s.src, col, 0);
+  lv_obj_set_style_border_width(s.src, live ? 0 : 2, 0);
+  if (s.src_state == UI_SRC_OFFLINE) {
+    static const lv_point_precise_t slash[] = {{2, 2}, {9, 9}}, back[] = {{9, 2}, {2, 9}};
+    const lv_point_precise_t *strokes[] = {slash, back};
+    for (int i = 0; i < 2; i++) {
+      lv_obj_t *l = lv_line_create(s.src);
+      lv_line_set_points(l, strokes[i], 2);
+      lv_obj_set_style_line_width(l, 2, 0);
+      lv_obj_set_style_line_color(l, col, 0);
+      lv_obj_set_pos(l, 0, 0);
+    }
+  }
+  snprintf(s.status_text, sizeof s.status_text, "%s",
+           live ? "" : s.src_state == UI_SRC_CONNECTING ? "SK CONNECTING" : "SK OFFLINE");
+  s.status_color = col;
+  show_status();
+}
+
+static void place_clock(void) {
+  lv_obj_update_layout(s.strip);   // the dots' width is their content
+  lv_obj_align_to(s.clock, s.dots, LV_ALIGN_OUT_LEFT_MID, -16, 0);
+}
 
 static void apply_palette(void) {
   ui_theme_set_current(s.pal);
@@ -21,6 +58,8 @@ static void apply_palette(void) {
   lv_obj_set_style_text_color(s.screen, c->fg, 0);
   lv_obj_set_style_bg_color(s.strip, c->strip_bg, 0);
   lv_obj_set_style_bg_opa(s.content, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_text_color(s.clock, c->fg, 0);
+  draw_source();
 }
 
 static void draw_dots(void) {
@@ -38,6 +77,7 @@ static void draw_dots(void) {
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(dot, i == s.nav.page ? c->fg : c->dim, 0);
   }
+  place_clock();
 }
 
 // LVGL makes every container scrollable, and a scrollable child that overflows
@@ -103,6 +143,13 @@ static void on_strip_tap(lv_event_t *e) {
   if (s.strip_tap) s.strip_tap();
 }
 
+// The strip's objects go when its screen does (a display deleted, or the shell built again);
+// forget them so a late caller (the alert markers align to the status label) never touches freed memory.
+static void on_strip_delete(lv_event_t *e) {
+  (void)e;
+  s.strip = s.tap = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
+}
+
 void ui_shell_set_strip_tap(void (*fn)(void)) { s.strip_tap = fn; }
 lv_obj_t *ui_shell_strip_tap(void) { return s.tap; }
 
@@ -131,6 +178,7 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_set_style_bg_opa(s.strip, LV_OPA_COVER, 0);
   lv_obj_set_style_pad_hor(s.strip, 12, 0);
   lv_obj_remove_flag(s.strip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s.strip, on_strip_delete, LV_EVENT_DELETE, NULL);
 
   s.name = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.name, &lv_font_montserrat_20, 0);
@@ -143,14 +191,24 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_set_style_pad_column(s.dots, 8, 0);
   lv_obj_align(s.dots, LV_ALIGN_CENTER, 0, 0);
 
+  s.clock = lv_label_create(s.strip);
+  lv_obj_set_style_text_font(s.clock, &lv_font_montserrat_20, 0);
+  lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);   // until a time is set
+
+  s.src = lv_obj_create(s.strip);
+  lv_obj_remove_style_all(s.src);
+  lv_obj_set_size(s.src, SRC_DOT, SRC_DOT);
+  lv_obj_set_style_radius(s.src, LV_RADIUS_CIRCLE, 0);
+  lv_obj_remove_flag(s.src, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(s.src, LV_ALIGN_RIGHT_MID, 0, 0);
+
+  // The status text sits left of the dot. The alert markers align to its left edge.
   s.status = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.status, &lv_font_montserrat_14, 0);
-  lv_label_set_text(s.status, "NO SOURCE");
-  snprintf(s.status_text, sizeof s.status_text, "NO SOURCE");
-  s.status_color = ui_theme_colors(pal)->dim;
+  lv_label_set_text(s.status, "");
   s.over = false;
-  lv_obj_set_style_text_color(s.status, s.status_color, 0);
-  lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, -(SRC_DOT + 8), 0);
+  s.src_state = UI_SRC_OFFLINE;   // no source heard from yet
 
   // An invisible tap target over the strip's left part (role name side), created after the labels, which are not clickable.
   s.tap = lv_obj_create(s.strip);
@@ -199,11 +257,23 @@ static void show_status(void) {
   lv_obj_set_style_text_color(s.status, s.over ? s.over_color : s.status_color, 0);
 }
 
-void ui_shell_set_status(const char *text, lv_color_t color) {
-  if (!s.status) return;
-  snprintf(s.status_text, sizeof s.status_text, "%s", text);
-  s.status_color = color;
-  show_status();
+void ui_shell_set_source(ui_src_t st) {
+  if (!s.src || st == s.src_state) return;   // the app calls this every tick
+  s.src_state = st;
+  draw_source();
+}
+
+void ui_shell_set_clock(const char *hhmm) {   // the app calls this every tick: touch nothing that has not changed
+  if (!s.clock) return;
+  bool hidden = lv_obj_has_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+  if (!hhmm) {
+    if (!hidden) lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  if (!hidden && strcmp(lv_label_get_text(s.clock), hhmm) == 0) return;
+  lv_label_set_text(s.clock, hhmm);
+  if (hidden) lv_obj_remove_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+  place_clock();
 }
 
 void ui_shell_set_status_override(const char *text, lv_color_t color) {
@@ -246,3 +316,6 @@ void ui_shell_goto(uint8_t role, uint8_t page) {
 lv_obj_t *ui_shell_strip(void) { return s.strip; }
 lv_obj_t *ui_shell_status(void) { return s.status; }
 lv_obj_t *ui_shell_dots(void) { return s.dots; }
+lv_obj_t *ui_shell_name(void) { return s.name; }
+lv_obj_t *ui_shell_clock(void) { return s.clock; }
+lv_obj_t *ui_shell_source_dot(void) { return s.src; }
