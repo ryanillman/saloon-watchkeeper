@@ -304,7 +304,7 @@ static void test_flow_box_covers_both_ends(void) {
 }
 
 static void test_every_icon_draws(void) {
-  for (int k = ICON_SOLAR; k <= ICON_LOAD; k++) {
+  for (int k = ICON_SOLAR; k <= ICON_CONVERTER; k++) {
     lv_obj_t *ic = ui_icon_create(scr, (ui_icon_t)k);
     lv_obj_set_size(ic, 80, 80);
     ui_icon_set_fill(ic, 0.6, true, lv_color_hex(0x00ff00));

@@ -15,6 +15,8 @@ foreach(f sim480/day/setup-wifi-keyboard.png sim800/night/setup-wifi.png sim800/
         sim1024/day/tanks-p0-fault.png
         sim480/day/power-p0-live.png sim800/day/power-p0-fault.png sim1024/dusk/power-p1-live.png
         sim800/night/power-p2-live.png
+        sim800/day/power-p0-banks-live.png sim480/day/power-p1-banks-live.png sim800/night/power-p1-banks-fault.png
+        sim480/dusk/power-p2-banks-live.png sim1024/day/power-p3-banks-live.png
         sim480/day/engine-p0-alarm.png sim800/night/engine-p0-alarm-long.png sim1024/day/alerts-list.png
         sim800/day/quick-panel.png sim480/night/quick-panel.png)
   if(NOT EXISTS ${OUT}/${f})

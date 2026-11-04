@@ -120,17 +120,26 @@ static void draw_icon(lv_event_t *e) {
       tri(layer, x3, y3, x6, y6, x4, y4, hi);
       break;
     }
-    case ICON_BATTERY: {
+    case ICON_BATTERY:
+    case ICON_CONVERTER: {
       // A battery seen from the front: body, two terminals, and the charge as a fill from the bottom.
-      int32_t bx1 = IC_X(&a, 0.06f), bx2 = IC_X(&a, 0.94f), by1 = IC_Y(&a, 0.24f), by2 = IC_Y(&a, 0.90f);
-      int32_t tw = s / 8, th = s / 10;
-      box(layer, IC_X(&a, 0.20f), by1 - th, IC_X(&a, 0.20f) + tw, by1, fg, LV_OPA_COVER, fg, 0, 0);
-      box(layer, IC_X(&a, 0.80f) - tw, by1 - th, IC_X(&a, 0.80f), by1, fg, LV_OPA_COVER, fg, 0, 0);
+      // The converter variant is the same battery pushed right, with an arrow feeding into it.
+      bool conv = ic->kind == ICON_CONVERTER;
+      int32_t bx1 = IC_X(&a, conv ? 0.38f : 0.06f), bx2 = IC_X(&a, 0.94f), by1 = IC_Y(&a, 0.24f), by2 = IC_Y(&a, 0.90f);
+      int32_t bw = bx2 - bx1;
+      int32_t tw = conv ? s / 10 : s / 8, th = s / 10;
+      box(layer, bx1 + bw * 20 / 100, by1 - th, bx1 + bw * 20 / 100 + tw, by1, fg, LV_OPA_COVER, fg, 0, 0);
+      box(layer, bx1 + bw * 80 / 100 - tw, by1 - th, bx1 + bw * 80 / 100, by1, fg, LV_OPA_COVER, fg, 0, 0);
       box(layer, bx1, by1, bx2, by2, c->strip_bg, LV_OPA_COVER, fg, t, s / 14);
       if (ic->fill_valid && ic->fill > 0) {
         double f = ic->fill > 1 ? 1 : ic->fill;
         int32_t in = t + 2, top = by2 - in - (int32_t)lround((double)(by2 - by1 - 2 * in) * f);
         box(layer, bx1 + in, top, bx2 - in, by2 - in, ic->fill_color, LV_OPA_COVER, ic->fill_color, 0, s / 24);
+      }
+      if (conv) {
+        int32_t my = (by1 + by2) / 2, hx = bx1 - t;   // the arrow runs from the left edge to the battery's side
+        line(layer, IC_X(&a, 0.02f), my, hx - s / 8, my, t + 1, hi, LV_OPA_COVER);
+        tri(layer, hx, my, hx - s / 5, my - s / 8, hx - s / 5, my + s / 8, hi);
       }
       break;
     }
@@ -189,7 +198,7 @@ enum {
   PHASE_STEPS = 16,     // the animation redraws this many times per cycle: smooth enough, and cheap
   LABEL_W = 150,
   LABEL_H = 22,
-  LABEL_GAP = 14,       // from the curve to the label's centre
+  LABEL_GAP = 18,       // from the curve to the label's centre
 };
 
 typedef struct {

@@ -64,3 +64,44 @@ power_flows_t power_flows(const power_summary_t *s) {
   }
   return f;
 }
+
+power_banks_t power_summarize_banks(const power_banks_in_t *in, int64_t max_age_ms, int64_t now_ms) {
+  power_banks_t r = {0};
+  r.house_in.ok = in->n_into_house > 0;
+  for (size_t k = 0; r.house_in.ok && k < in->n_into_house; k++) {
+    double w;
+    if (!watts(&in->into_house[k], &w, max_age_ms, now_ms)) r.house_in.ok = false;
+    else if (w > 0) r.house_in.w += w;
+  }
+  if (!r.house_in.ok) r.house_in.w = 0;
+  r.house_batt.ok = watts(in->house_batt, &r.house_batt.w, max_age_ms, now_ms);
+  if (!r.house_batt.ok) r.house_batt.w = 0;
+
+  double draw = 0, out_sum = 0;
+  bool draw_ok = true, out_ok = in->has_nav && in->n_to_nav > 0, est = false;
+  for (size_t k = 0; k < in->n_to_nav; k++) {
+    const power_conv_t *c = &in->to_nav[k];
+    double o = 0, i = 0;
+    bool have_out = watts(c->out, &o, max_age_ms, now_ms);
+    if (have_out) out_sum += o; else out_ok = false;
+    if (watts(c->in, &i, max_age_ms, now_ms)) draw += i;
+    else if (have_out) { draw += o / POWER_CONV_EFF; est = true; }
+    else draw_ok = false;
+  }
+  if (in->n_to_nav > 0 && draw_ok) {
+    r.nav_feed.ok = true;
+    r.nav_feed.w = draw;
+    r.nav_feed.est = est;
+  }
+  if (r.house_in.ok && r.house_batt.ok && draw_ok) {
+    r.house_load.ok = true;
+    r.house_load.w = r.house_in.w - r.house_batt.w - draw;
+    r.house_load.est = est;
+  }
+  double nb;
+  if (out_ok && watts(in->nav_batt, &nb, max_age_ms, now_ms)) {
+    r.nav_load.ok = true;
+    r.nav_load.w = out_sum - nb;
+  }
+  return r;
+}

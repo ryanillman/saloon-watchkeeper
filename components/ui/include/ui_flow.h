@@ -4,13 +4,14 @@
 #include <stdbool.h>
 #include "lvgl.h"
 
-typedef enum { ICON_SOLAR, ICON_SHORE, ICON_ENGINE, ICON_BATTERY, ICON_LOAD } ui_icon_t;
+// ICON_CONVERTER: a battery with an arrow feeding into it, a DC-DC link to another bank. Fills like ICON_BATTERY.
+typedef enum { ICON_SOLAR, ICON_SHORE, ICON_ENGINE, ICON_BATTERY, ICON_LOAD, ICON_CONVERTER } ui_icon_t;
 
 // A square icon; set its size with lv_obj_set_size. Drawn in the foreground colour when active,
 // dim when not (a source making no power, a load drawing none).
 lv_obj_t *ui_icon_create(lv_obj_t *parent, ui_icon_t kind);
 void ui_icon_set_active(lv_obj_t *icon, bool active);
-// Battery only: fills the body from the bottom to `fraction` (0..1) in `color`; !valid draws it empty.
+// Battery and converter only: fills the body from the bottom to `fraction` (0..1) in `color`; !valid draws it empty.
 void ui_icon_set_fill(lv_obj_t *icon, double fraction, bool valid, lv_color_t color);
 
 // An arrow along a quadratic curve from (x0,y0) to (x1,y1), both in the parent's coordinates, bent

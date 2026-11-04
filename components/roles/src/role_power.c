@@ -34,6 +34,11 @@ static const role_slot_t dcdc[] = {
   {"voltage",   "voltage",        NULL, Q_VOLTAGE,  10,  16,  0, "VOLTS", 0},
   {"current",   "current",        NULL, Q_CURRENT,  0,   60,  0, "AMPS", 0},
   {"mode",      "chargingMode",   NULL, Q_NONE,     0,   0,   0, "MODE", 0},
+  // Input side, read only by multi-bank boats (power_topo). These suffixes are a guess: an Orion XS is
+  // expected to report its input, but the signalk-venus paths have not been seen. A converter whose
+  // input does not bind has its input power estimated from its output.
+  {"inVolts",   "input.voltage",  NULL, Q_VOLTAGE,  0,   0,   0, "IN VOLTS", 0},
+  {"inAmps",    "input.current",  NULL, Q_CURRENT,  0,   0,   0, "IN AMPS", 0},
 };
 
 static const role_slot_t alternator[] = {

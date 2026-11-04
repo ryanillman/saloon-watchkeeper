@@ -66,10 +66,61 @@ static bool known_role(const char *name) {
   return false;
 }
 
+static bool kind_ok(const char *k) { return !strcmp(k, "house") || !strcmp(k, "start") || !strcmp(k, "nav"); }
+
+static bool has_kind(const cfg_role_t *r, const char *k) {
+  for (uint8_t i = 0; i < r->bank_count; i++)
+    if (strcmp(r->bank[i].kind, k) == 0) return true;
+  return false;
+}
+
+bool cfg_power_topology_check(const cfg_role_t *r, char *why, size_t n) {
+  if (r->bank_count == 0) return true;
+  for (uint8_t i = 0; i < r->bank_count; i++) {
+    if (!kind_ok(r->bank[i].kind)) { snprintf(why, n, "bank %u: kind must be house, start, or nav", i + 1); return false; }
+    if (!r->bank[i].id[0]) { snprintf(why, n, "bank %u: id is missing", i + 1); return false; }
+    for (uint8_t j = 0; j < i; j++)
+      if (!strcmp(r->bank[i].kind, r->bank[j].kind)) { snprintf(why, n, "two %s banks; at most one of each kind", r->bank[i].kind); return false; }
+  }
+  if (!has_kind(r, "house")) { snprintf(why, n, "banks need exactly one house bank"); return false; }
+  static const char *const groups[] = {"charger", "solar", "dcdc", "alternator"};
+  for (uint8_t i = 0; i < r->link_count; i++) {
+    const cfg_link_t *l = &r->link[i];
+    const char *colon = strchr(l->src, ':');
+    bool grp = false;
+    if (colon && colon[1])
+      for (size_t g = 0; g < ARRAY_LEN(groups); g++)
+        if ((size_t)(colon - l->src) == strlen(groups[g]) && !strncmp(l->src, groups[g], strlen(groups[g]))) grp = true;
+    if (!grp) { snprintf(why, n, "link %u: src must be charger, solar, dcdc, or alternator, then :<instance>", i + 1); return false; }
+    bool dcdc = !strncmp(l->src, "dcdc:", 5);
+    if (!has_kind(r, l->to)) { snprintf(why, n, "link %u: to \"%s\" is not a configured bank", i + 1, l->to); return false; }
+    if (dcdc && !l->from[0]) { snprintf(why, n, "link %u: a dcdc link needs from", i + 1); return false; }
+    if (!dcdc && l->from[0]) { snprintf(why, n, "link %u: only a dcdc link takes from", i + 1); return false; }
+    if (dcdc && !has_kind(r, l->from)) { snprintf(why, n, "link %u: from \"%s\" is not a configured bank", i + 1, l->from); return false; }
+  }
+  return true;
+}
+
 static void parse_role(const cJSON *j, cfg_role_t *r) {
   const cJSON *it;
   COPY(r->role, cJSON_GetObjectItem(j, "role"));
   COPY(r->primary, cJSON_GetObjectItem(j, "primary"));
+  cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "banks")) {
+    if (r->bank_count >= CFG_MAX_BANKS) break;
+    cfg_bank_t *k = &r->bank[r->bank_count++];
+    COPY(k->id, cJSON_GetObjectItem(it, "id"));
+    COPY(k->name, cJSON_GetObjectItem(it, "name"));
+    COPY(k->kind, cJSON_GetObjectItem(it, "kind"));
+  }
+  cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "links")) {
+    if (r->link_count >= CFG_MAX_LINKS) break;
+    cfg_link_t *l = &r->link[r->link_count++];
+    COPY(l->src, cJSON_GetObjectItem(it, "src"));
+    COPY(l->from, cJSON_GetObjectItem(it, "from"));
+    COPY(l->to, cJSON_GetObjectItem(it, "to"));
+    const cJSON *o = cJSON_GetObjectItem(it, "output");
+    if (cJSON_IsNumber(o) && o->valuedouble >= 0 && o->valuedouble < 255) l->output = (uint8_t)o->valuedouble;
+  }
   cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "instances")) {
     if (r->inst_count >= ARRAY_LEN(r->inst)) break;
     cfg_instance_t *in = &r->inst[r->inst_count++];
@@ -157,6 +208,17 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
       char key[24];
       snprintf(key, sizeof key, "roles[%d].role", i++);
       if (known_role(r->role)) {
+        if (!strcmp(r->role, "power")) {
+          char why[96] = "";
+          bool over = cJSON_GetArraySize(cJSON_GetObjectItem(it, "banks")) > CFG_MAX_BANKS ||
+                      cJSON_GetArraySize(cJSON_GetObjectItem(it, "links")) > CFG_MAX_LINKS;
+          if (over) snprintf(why, sizeof why, "too many banks or links (at most %d and %d)", CFG_MAX_BANKS, CFG_MAX_LINKS);
+          if (over || !cfg_power_topology_check(r, why, sizeof why)) {
+            issue(rep, "roles.power.banks", 0, why);
+            r->bank_count = 0;
+            r->link_count = 0;
+          }
+        }
         r->src_entry = (uint8_t)i;   // i was already advanced: 1-based
         c->role_count++;
       }
@@ -263,6 +325,30 @@ static void write_role(cJSON *o, const cfg_role_t *r) {
   const char *owned[] = {"instances", "overrides", "bind", "exclude", "primary"};
   for (size_t i = 0; i < ARRAY_LEN(owned); i++) cJSON_DeleteItemFromObject(o, owned[i]);
   if (r->primary[0]) set_str(o, "primary", r->primary);
+  // banks and links are rewritten only when loaded; a rejected topology stays in the file as the user wrote it.
+  if (r->bank_count) {
+    cJSON_DeleteItemFromObject(o, "banks");
+    cJSON_DeleteItemFromObject(o, "links");
+    cJSON *a = cJSON_AddArrayToObject(o, "banks");
+    for (uint8_t i = 0; i < r->bank_count; i++) {
+      cJSON *k = cJSON_CreateObject();
+      cJSON_AddStringToObject(k, "id", r->bank[i].id);
+      if (r->bank[i].name[0]) cJSON_AddStringToObject(k, "name", r->bank[i].name);
+      cJSON_AddStringToObject(k, "kind", r->bank[i].kind);
+      cJSON_AddItemToArray(a, k);
+    }
+    if (r->link_count) {
+      cJSON *la = cJSON_AddArrayToObject(o, "links");
+      for (uint8_t i = 0; i < r->link_count; i++) {
+        cJSON *l = cJSON_CreateObject();
+        cJSON_AddStringToObject(l, "src", r->link[i].src);
+        if (r->link[i].output) cJSON_AddNumberToObject(l, "output", r->link[i].output);
+        if (r->link[i].from[0]) cJSON_AddStringToObject(l, "from", r->link[i].from);
+        cJSON_AddStringToObject(l, "to", r->link[i].to);
+        cJSON_AddItemToArray(la, l);
+      }
+    }
+  }
   if (r->inst_count) {
     cJSON *a = cJSON_AddArrayToObject(o, "instances");
     for (uint8_t i = 0; i < r->inst_count; i++) {
