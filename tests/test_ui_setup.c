@@ -25,6 +25,7 @@ static void on_save(const cfg_t *c) {
   saves++;
 }
 static void on_about(char *out, size_t n) { snprintf(out, n, "firmware: test\nboard: sim800"); }
+static bool disc_extra;   // discovery now also finds engine "center"
 static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
   (void)max;
   memset(out, 0, sizeof *out);
@@ -33,6 +34,7 @@ static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
   strcpy(out[0].ids[1], "starboard");
   strcpy(out[0].ids[2], "wing");
   out[0].count = 3;
+  if (disc_extra) strcpy(out[0].ids[out[0].count++], "center");
   return 1;
 }
 static int rediscoveries;
@@ -260,6 +262,61 @@ static void test_discovery_confirm_writes_pins_and_excludes(void) {
   TEST_ASSERT_EQUAL_STRING("wing", r->exclude[0]);
 }
 
+// Discovery re-reads the tree every 20 s. A refresh must not throw away switches the user has flipped
+// but not confirmed yet.
+static void flip(const char *part) {
+  lv_obj_t *sw = ui_setup_part(part);
+  TEST_ASSERT_NOT_NULL_MESSAGE(sw, part);
+  if (lv_obj_has_state(sw, LV_STATE_CHECKED)) lv_obj_remove_state(sw, LV_STATE_CHECKED);
+  else lv_obj_add_state(sw, LV_STATE_CHECKED);
+  lv_obj_send_event(sw, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+static void test_discovery_refresh_with_nothing_new_leaves_the_screen_alone(void) {
+  open_setup();
+  click("menu_discovery");
+  flip("keep_engine_wing");
+  lv_obj_t *before = ui_setup_part("keep_engine_wing");
+  ui_setup_discovery_changed();
+  lv_timer_handler();
+  TEST_ASSERT_EQUAL_PTR(before, ui_setup_part("keep_engine_wing"));   // not rebuilt
+  TEST_ASSERT_FALSE(lv_obj_has_state(ui_setup_part("keep_engine_wing"), LV_STATE_CHECKED));
+}
+
+static void test_discovery_refresh_with_a_new_id_keeps_unconfirmed_choices(void) {
+  open_setup();
+  click("menu_discovery");
+  flip("keep_engine_wing");
+  TEST_ASSERT_NULL(ui_setup_part("keep_engine_center"));
+  disc_extra = true;
+  ui_setup_discovery_changed();
+  lv_timer_handler();
+  disc_extra = false;
+  TEST_ASSERT_NOT_NULL(ui_setup_part("keep_engine_center"));
+  TEST_ASSERT_FALSE(lv_obj_has_state(ui_setup_part("keep_engine_wing"), LV_STATE_CHECKED));   // still off
+  TEST_ASSERT_TRUE(lv_obj_has_state(ui_setup_part("keep_engine_port"), LV_STATE_CHECKED));
+  click("confirm_engine");
+  const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
+  TEST_ASSERT_EQUAL_UINT8(1, r->exclude_count);
+  TEST_ASSERT_EQUAL_STRING("wing", r->exclude[0]);
+}
+
+static void test_discovery_confirm_keeps_other_roles_unconfirmed_choices(void) {
+  open_setup();
+  click("menu_discovery");
+  flip("keep_engine_wing");
+  click("confirm_engine");   // rebuilds the screen
+  TEST_ASSERT_FALSE(lv_obj_has_state(ui_setup_part("keep_engine_wing"), LV_STATE_CHECKED));   // as confirmed
+}
+
+static void test_auto_after_flipping_resets_the_role(void) {
+  open_setup();
+  click("menu_discovery");
+  flip("keep_engine_wing");
+  click("auto_engine");
+  TEST_ASSERT_TRUE(lv_obj_has_state(ui_setup_part("keep_engine_wing"), LV_STATE_CHECKED));
+}
+
 static void test_discovery_missing_shown(void) {
   cfg_role_t *e = &cfg.roles[role_index(&cfg, "engine")];
   strcpy(e->inst[0].id, "port");
@@ -407,6 +464,10 @@ int main(void) {
   RUN_TEST(test_roles_reorder_and_save);
   RUN_TEST(test_add_offers_missing_roles_only);
   RUN_TEST(test_discovery_confirm_writes_pins_and_excludes);
+  RUN_TEST(test_discovery_refresh_with_nothing_new_leaves_the_screen_alone);
+  RUN_TEST(test_discovery_refresh_with_a_new_id_keeps_unconfirmed_choices);
+  RUN_TEST(test_discovery_confirm_keeps_other_roles_unconfirmed_choices);
+  RUN_TEST(test_auto_after_flipping_resets_the_role);
   RUN_TEST(test_discovery_missing_shown);
   RUN_TEST(test_auto_clears_pins);
   RUN_TEST(test_wifi_scan_lists_sorted);

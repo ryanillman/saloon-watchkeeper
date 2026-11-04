@@ -43,6 +43,8 @@ PLATFORM_EXT_BSS static struct {
   lv_obj_t *live_state, *live_access;   // refreshed by ui_setup_tick
   void (*live_fn)(char *, size_t);
   uint16_t n_rows;
+  bool carry;          // the next Discovery build keeps the switches as they stand (not yet confirmed)
+  int8_t reset_role;   // ...except this role's, which AUTO just reset; -1 none
 } u;
 
 static bool open_now(void) { return u.root && lv_obj_is_valid(u.root); }
@@ -381,6 +383,8 @@ static void on_confirm(lv_event_t *e) {
       snprintf(r->exclude[r->exclude_count++], sizeof r->exclude[0], "%s", u.rows[k].id);
     }
   }
+  u.carry = true;   // the other roles' switches may be mid-edit
+  u.reset_role = -1;
   rebuild_later();
 }
 
@@ -388,6 +392,8 @@ static void on_auto(lv_event_t *e) {
   cfg_role_t *r = &u.work.roles[(uint8_t)(uintptr_t)lv_event_get_user_data(e)];
   r->inst_count = 0;
   r->exclude_count = 0;
+  u.carry = true;
+  u.reset_role = (int8_t)(uint8_t)(uintptr_t)lv_event_get_user_data(e);
   rebuild_later();
 }
 
@@ -398,8 +404,20 @@ static void on_run(lv_event_t *e) {
 
 static void on_label(lv_event_t *e);
 
+// The switches as they stood before a rebuild: role index, id, on.
+PLATFORM_EXT_BSS static struct { uint8_t role; char id[24]; bool keep; } prev[CFG_MAX_ROLES * 16];
+static uint16_t n_prev;
+
 static void build_discovery(void) {
   const ui_colors_t *c = ui_theme();
+  n_prev = 0;
+  if (u.carry)
+    for (uint16_t k = 0; k < u.n_rows; k++) {
+      prev[n_prev].role = u.rows[k].role;
+      memcpy(prev[n_prev].id, u.rows[k].id, sizeof prev[0].id);
+      prev[n_prev++].keep = u.rows[k].keep;
+    }
+
   lv_obj_t *run = button(u.body, "RUN DISCOVERY", on_run, NULL);
   part("run", run);
   u.n_disc = u.cb->discovery ? u.cb->discovery(u.disc, CFG_MAX_ROLES) : 0;
@@ -435,6 +453,8 @@ static void build_discovery(void) {
       u.rows[k].role = (uint8_t)ri;
       snprintf(u.rows[k].id, sizeof u.rows[k].id, "%s", ids[i]);
       u.rows[k].keep = r->inst_count ? pinned : !excluded;
+      for (uint16_t q = 0; q < n_prev; q++)   // flipped but not confirmed: keep it
+        if (prev[q].role == ri && ri != u.reset_role && !strcmp(prev[q].id, ids[i])) u.rows[k].keep = prev[q].keep;
       snprintf(u.rows[k].label, sizeof u.rows[k].label, "%s", label);
       lv_obj_t *rr = row(u.body);
       u.rows[k].btn = on_off(rr, u.rows[k].keep, on_keep, (void *)(uintptr_t)k);
@@ -460,6 +480,8 @@ static void build_discovery(void) {
     snprintf(pn, sizeof pn, "auto_%s", r->role);
     part(pn, ab);
   }
+  u.carry = false;
+  u.reset_role = -1;
 }
 
 // ---- keyboard ----
@@ -712,8 +734,28 @@ static void on_label(lv_event_t *e) {
   kb_open(prompt, u.rows[k].label, false, false, sizeof u.rows[k].label - 1, label_done, k);
 }
 
+// Discovery re-reads the Signal K tree every 20 s and says so each time. Only a different answer
+// needs a new screen; rebuilding for the same one would reset the scroll and drop the switches the
+// user has flipped but not confirmed.
+PLATFORM_EXT_BSS static ui_disc_role_t fresh[CFG_MAX_ROLES];
+
+static bool discovery_differs(void) {
+  memset(fresh, 0, sizeof fresh);
+  uint8_t n = u.cb->discovery ? u.cb->discovery(fresh, CFG_MAX_ROLES) : 0;
+  if (n != u.n_disc) return true;
+  for (uint8_t d = 0; d < n; d++) {
+    if (strcmp(fresh[d].role, u.disc[d].role) || fresh[d].count != u.disc[d].count) return true;
+    for (uint8_t i = 0; i < fresh[d].count; i++)
+      if (strcmp(fresh[d].ids[i], u.disc[d].ids[i])) return true;
+  }
+  return false;
+}
+
 void ui_setup_discovery_changed(void) {
-  if (open_now() && u.screen == SETUP_DISCOVERY) rebuild_later();
+  if (!open_now() || u.screen != SETUP_DISCOVERY || !discovery_differs()) return;
+  u.carry = true;
+  u.reset_role = -1;
+  rebuild_later();
 }
 
 static const char *title_of(ui_setup_screen_t s) {
