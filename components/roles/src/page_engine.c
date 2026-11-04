@@ -1,7 +1,8 @@
 // Engine pages. Overview: a hero RPM dial (one needle per engine, two at most),
-// fuel-tank percent under the digits, and strips for coolant, oil, and volts.
+// the fuel-tank level on the open bottom of the dial's sweep, and strips for coolant, oil, and volts.
 // A square screen puts that dial on top and only coolant and oil in horizontal
 // strips under it. Detail: every slot for every engine.
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,48 +50,48 @@ static lv_obj_t *place(lv_obj_t *o, int32_t x, int32_t y, int32_t w, int32_t h) 
   return o;
 }
 
-// "tanks.fuel.0.currentLevel" -> "fuel.0", which tank_label understands.
-static void fuel_inst(const char *path, char *out, size_t n) {
-  const char *s = path ? path : "";
-  if (strncmp(s, "tanks.", 6) == 0) s += 6;
-  snprintf(out, n, "%s", s);
-  char *dot = strchr(out, '.');
-  if (dot && (dot = strchr(dot + 1, '.'))) *dot = 0;
-}
-
 static int cmp_fuel(const void *a, const void *b) {
   const char *pa = bd_path(*(const bd_id_t *)a);
   const char *pb = bd_path(*(const bd_id_t *)b);
   return strcmp(pa ? pa : "", pb ? pb : "");
 }
 
-// Tank level, not fuel rate. One tank reads "FUEL 55%"; several are named.
-static void fuel_footer(const cfg_units_t *u, char *out, size_t n) {
+// "tanks.fuel.port.currentLevel" -> "PORT"; "...starboard..." -> "STBD"; "...1..." -> "2" (ids count from 0).
+static void fuel_name(const char *path, char *out, size_t n) {
+  const char *s = path ? path : "";
+  if (strncmp(s, "tanks.fuel.", 11) == 0) s += 11;
+  size_t len = strcspn(s, ".");
+  if (len == 4 && strncmp(s, "port", 4) == 0) snprintf(out, n, "PORT");
+  else if (len >= 4 && strncmp(s, "star", 4) == 0) snprintf(out, n, "STBD");
+  else if (len && isdigit((unsigned char)s[0])) snprintf(out, n, "%d", atoi(s) + 1);
+  else snprintf(out, n, "%.*s", (int)len, s);
+}
+
+// The tank scale in the open bottom of the RPM dial: tank level, not fuel rate. One pointer per tank, two at
+// most, in path order (port before starboard, 0 before 1). Bands are the first tank's meta.zones.
+static void fuel_scale(lv_obj_t *dial) {
   bd_id_t ids[4];
   size_t c = bd_match("tanks.fuel.*.currentLevel", ids, 4);
-  out[0] = 0;
-  if (!c) return;
+  if (c > 2) c = 2;
   qsort(ids, c, sizeof ids[0], cmp_fuel);
+  char names[2][12] = {"", ""};
+  const char *labels[2] = {names[0], names[1]};
+  for (size_t i = 0; i < c && c > 1; i++) fuel_name(bd_path(ids[i]), names[i], sizeof names[i]);
+  ui_band_t bands[6];
+  uint8_t nb = 0;
+  bd_meta_t m;
+  if (c && bd_get_meta(ids[0], &m)) {
+    const ui_colors_t *col = ui_theme();
+    for (uint8_t z = 0; z < m.zone_count && nb < 6; z++) {
+      if (m.zones[z].state == 0) continue;   // normal zones are not drawn
+      bands[nb++] = (ui_band_t){m.zones[z].lower, m.zones[z].upper, m.zones[z].state >= 3 ? col->alarm : col->warn};
+    }
+  }
+  ui_dial_fuel_setup(dial, (uint8_t)c, labels, bands, nb);
   for (size_t i = 0; i < c; i++) {
     bd_sample_t s;
     bool ok = bd_get(ids[i], &s) && s.kind == BD_NUMBER && s.valid;
-    char bit[24];
-    if (c == 1) {
-      if (ok) snprintf(bit, sizeof bit, "FUEL %.0f%%", units_from_si(Q_RATIO, s.num, u));
-      else snprintf(bit, sizeof bit, "FUEL --");
-    } else {
-      char id[16], name[16];
-      fuel_inst(bd_path(ids[i]), id, sizeof id);
-      tank_label(id, (uint8_t)c, name, sizeof name);
-      if (ok) snprintf(bit, sizeof bit, "%s %.0f%%", name, units_from_si(Q_RATIO, s.num, u));
-      else snprintf(bit, sizeof bit, "%s --", name);
-    }
-    size_t used = strlen(out);
-    if (used && used + 1 < n) {
-      out[used++] = ' ';
-      out[used] = 0;
-    }
-    snprintf(out + used, n - used, "%s", bit);
+    ui_dial_fuel_set(dial, (uint8_t)i, ok ? s.num : 0, ok);
   }
 }
 
@@ -190,11 +191,7 @@ static engine_status_t assess(role_binding_t *b, uint8_t i, int64_t now) {
 }
 
 void engine_refresh(role_binding_t *b, int64_t now) {
-  if (v.dial) {
-    char cap[48];
-    fuel_footer(b->units, cap, sizeof cap);
-    ui_dial_set_footer(v.dial, cap);
-  }
+  if (v.dial) fuel_scale(v.dial);   // stays live when an engine is off: a tank level does not depend on it
   for (uint8_t i = 0; i < b->g[0].inst_count; i++) {
     engine_status_t es = assess(b, i, now);
     for (uint8_t k = 0; k < b->def->groups[0].slot_count; k++) {

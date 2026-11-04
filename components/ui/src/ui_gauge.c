@@ -24,7 +24,12 @@ typedef struct {
   uint8_t alert;                 // alert_state_t of the notification on this field
   bool text_mode;                // readout showing a string (ui_readout_set_text)
   char text[2][24];
-  char footer[48];               // dial: a line under the digits, or empty
+  uint8_t fuel_n;                // dial: tank pointers on the second scale; 0 = no second scale
+  char fuel_label[2][12];
+  double fuel_val[2];
+  bool fuel_ok[2];
+  ui_band_t fuel_band[6];
+  uint8_t fuel_band_n;
   const lv_font_t *value_font;   // strip: pinned in draw_strip
   lv_obj_t *fault;               // overlay: red cross and "<LABEL> FAIL"
   lv_obj_t *fault_label;
@@ -186,6 +191,81 @@ static void polar(int32_t cx, int32_t cy, double r, double deg, int32_t *x, int3
   *y = cy + (int32_t)lround(sin(a) * r);
 }
 
+// The second scale in the open bottom of the sweep. Angles run clockwise from 3 o'clock, so the main scale
+// leaves the gap from its end (45 deg) round to its start (135 deg). Empty is at the left (the larger angle).
+enum { FUEL_GAP_DEG = 10, FUEL_TRACK_W = 4, FUEL_POINTER_W = 6 };
+
+static void draw_fuel(lv_layer_t *layer, const gauge_t *g, const ui_colors_t *c, int32_t cx, int32_t cy, int32_t r) {
+  const ui_gauge_spec_t *s = g->spec;
+  if (!g->fuel_n || s->sweep != SWEEP_THREE_QUARTER) return;
+  double a_empty = start_angle(s->sweep) - FUEL_GAP_DEG;
+  double a_full = start_angle(s->sweep) + s->sweep - 360 + FUEL_GAP_DEG;
+  double span = a_empty - a_full;
+#define FUEL_ANGLE(f) (a_empty - (f) * span)
+
+  lv_draw_arc_dsc_t arc;
+  lv_draw_arc_dsc_init(&arc);
+  arc.center.x = cx;
+  arc.center.y = cy;
+  arc.radius = r;
+  arc.width = FUEL_TRACK_W;
+  arc.color = c->strip_bg;
+  arc.start_angle = a_full;
+  arc.end_angle = a_empty;
+  lv_draw_arc(layer, &arc);
+  // Bands take the full track, which is narrower than the pointer, so a band never reads as a fill level.
+  for (uint8_t i = 0; i < g->fuel_band_n; i++) {
+    double f0 = ui_scale_fraction(g->fuel_band[i].lo, 0, 1), f1 = ui_scale_fraction(g->fuel_band[i].hi, 0, 1);
+    if (f1 <= f0) continue;
+    arc.color = g->fuel_band[i].color;
+    arc.start_angle = FUEL_ANGLE(f1);
+    arc.end_angle = FUEL_ANGLE(f0);
+    lv_draw_arc(layer, &arc);
+  }
+
+  // E, 1/2 and F are long and bright with a label; the quarters are short and grey.
+  static const struct { double f; const char *text; } marks[] = {
+    {0.0, "E"}, {0.25, NULL}, {0.5, "1/2"}, {0.75, NULL}, {1.0, "F"}};
+  const lv_font_t *nf = font_for(r / 8);
+  for (size_t i = 0; i < sizeof marks / sizeof marks[0]; i++) {
+    int32_t x1, y1, x2, y2, tx, ty;
+    double ang = FUEL_ANGLE(marks[i].f);
+    bool major = marks[i].text != NULL;
+    polar(cx, cy, r - FUEL_TRACK_W, ang, &x1, &y1);
+    polar(cx, cy, r - FUEL_TRACK_W - (major ? r / 8 : r / 16), ang, &x2, &y2);
+    line(layer, x1, y1, x2, y2, major ? 3 : 2, major ? c->fg : c->dim);
+    if (!major) continue;
+    polar(cx, cy, r - FUEL_TRACK_W - r / 8 - r / 9, ang, &tx, &ty);
+    text_at(layer, marks[i].text, nf, c->fg, tx, ty, LV_TEXT_ALIGN_CENTER);
+  }
+
+  const lv_font_t *ff = font_for(r / 7);
+  int32_t fh = lv_font_get_line_height(ff);
+  uint8_t row = 0;
+  for (uint8_t i = 0; i < g->fuel_n; i++) {
+    if (g->fuel_ok[i]) {
+      int32_t x1, y1, x2, y2;
+      double ang = FUEL_ANGLE(ui_scale_fraction(g->fuel_val[i], 0, 1));
+      polar(cx, cy, r + 2, ang, &x1, &y1);
+      polar(cx, cy, r - FUEL_TRACK_W - r / 8, ang, &x2, &y2);   // stops at the tick ends, clear of the labels
+      line(layer, x1, y1, x2, y2, FUEL_POINTER_W, i == 0 ? c->fg : c->accent);
+      continue;
+    }
+    // This tank failed: a crossed-out label, as on the RPM digits. The other tank stays live.
+    char txt[40];
+    snprintf(txt, sizeof txt, "%s%sFUEL FAIL", g->fuel_label[i], g->fuel_label[i][0] ? " " : "");
+    int32_t y = cy + r * 3 / 4 + row++ * (fh + 6);
+    int32_t half = lv_text_get_width(txt, strlen(txt), ff, 0) / 2 + 4;
+    int32_t cw = half + r / 10, ch = fh * 3 / 4 + 2;
+    line(layer, cx - cw, y - ch, cx + cw, y + ch, 3, c->fault_cross);
+    line(layer, cx + cw, y - ch, cx - cw, y + ch, 3, c->fault_cross);
+    lv_area_t box = {cx - half, y - fh / 2, cx + half, y + fh / 2};
+    rect(layer, &box, lv_color_black(), 0);
+    text_at(layer, txt, ff, c->fault_label, cx, y, LV_TEXT_ALIGN_CENTER);
+  }
+#undef FUEL_ANGLE
+}
+
 static void draw_dial(lv_event_t *e) {
   lv_obj_t *o = lv_event_get_target(e);
   gauge_t *g = G(o);
@@ -299,16 +379,7 @@ static void draw_dial(lv_event_t *e) {
     }
   }
 
-  // Footer under the digits, in the open bottom of the sweep. Fuel percent lives here.
-  if (g->footer[0]) {
-    const lv_font_t *ff = r >= 90 ? &lv_font_montserrat_20 : &lv_font_montserrat_14;
-    if (lv_text_get_width(g->footer, strlen(g->footer), ff, 0) > w - 16) ff = &lv_font_montserrat_14;
-    int32_t fh = lv_font_get_line_height(ff);
-    int32_t fy = a.y2 - 4 - fh / 2;
-    int32_t block = any ? y0 + (int32_t)g->n * row_h : cy;
-    if (fy - fh / 2 < block + 4) fy = block + 4 + fh / 2;
-    text_at(layer, g->footer, ff, c->fg, cx, fy, LV_TEXT_ALIGN_CENTER);
-  }
+  draw_fuel(layer, g, c, cx, cy, r);
 }
 
 lv_obj_t *ui_dial_create(lv_obj_t *parent, const ui_gauge_spec_t *spec, uint8_t needles,
@@ -341,13 +412,45 @@ void ui_dial_set(lv_obj_t *o, uint8_t i, double v, bool valid) {
   sync_fault(o);
 }
 
-void ui_dial_set_footer(lv_obj_t *o, const char *text) {
+void ui_dial_fuel_setup(lv_obj_t *o, uint8_t tanks, const char *const *labels, const ui_band_t *bands,
+                        uint8_t band_count) {
   gauge_t *g = G(o);
-  char next[sizeof g->footer];
-  snprintf(next, sizeof next, "%s", text ? text : "");
-  if (strcmp(g->footer, next) == 0) return;
-  memcpy(g->footer, next, sizeof next);
+  if (tanks > 2) tanks = 2;
+  if (band_count > 6) band_count = 6;
+  bool same = g->fuel_n == tanks && g->fuel_band_n == band_count;
+  for (uint8_t i = 0; i < 2; i++) {
+    char next[sizeof g->fuel_label[0]];
+    snprintf(next, sizeof next, "%s", labels && labels[i] && i < tanks ? labels[i] : "");
+    if (strcmp(next, g->fuel_label[i]) != 0) {
+      same = false;
+      memcpy(g->fuel_label[i], next, sizeof next);
+    }
+  }
+  for (uint8_t i = 0; i < band_count; i++) {
+    const ui_band_t *x = &g->fuel_band[i], *y = &bands[i];
+    if (x->lo != y->lo || x->hi != y->hi || !lv_color_eq(x->color, y->color)) same = false;
+  }
+  if (same) return;
+  g->fuel_n = tanks;
+  g->fuel_band_n = band_count;
+  for (uint8_t i = 0; i < band_count; i++) g->fuel_band[i] = bands[i];
   lv_obj_invalidate(o);
+}
+
+void ui_dial_fuel_set(lv_obj_t *o, uint8_t i, double v, bool valid) {
+  gauge_t *g = G(o);
+  valid = valid && isfinite(v);
+  if (i >= 2) return;
+  if (g->fuel_ok[i] == valid && (!valid || fabs(g->fuel_val[i] - v) < 0.002)) return;
+  g->fuel_ok[i] = valid;
+  if (valid) g->fuel_val[i] = v;
+  lv_obj_invalidate(o);
+}
+
+bool ui_dial_fuel_visible(lv_obj_t *o, uint8_t i) { return i < G(o)->fuel_n && G(o)->fuel_ok[i]; }
+bool ui_dial_fuel_faulted(lv_obj_t *o, uint8_t i) { return i < G(o)->fuel_n && !G(o)->fuel_ok[i]; }
+double ui_dial_fuel_fraction(lv_obj_t *o, uint8_t i) {
+  return i < 2 ? ui_scale_fraction(G(o)->fuel_val[i], 0, 1) : 0;
 }
 
 // ---- strip ----
@@ -377,6 +480,30 @@ static const lv_font_t *strip_value_font(bool vertical, const ui_gauge_spec_t *s
       return f;
   }
   return &lv_font_montserrat_14;
+}
+
+// Zone bands are a thin stripe on the tick edge of the tape (left of a vertical one, bottom of a horizontal
+// one), about a quarter of a tick long. A band as wide as the tape reads as a fill level.
+static void strip_bands(lv_layer_t *layer, const gauge_t *g, const lv_area_t *tape, int32_t len) {
+  const ui_gauge_spec_t *s = g->spec;
+  int32_t thick = g->vertical ? lv_area_get_width(tape) : lv_area_get_height(tape);
+  int32_t bw = (thick / 3 + 3) / 4;
+  if (bw < 2) bw = 2;
+  for (uint8_t i = 0; i < s->band_count; i++) {
+    double f0 = ui_scale_fraction(s->bands[i].lo, s->lo, s->hi), f1 = ui_scale_fraction(s->bands[i].hi, s->lo, s->hi);
+    if (f1 <= f0) continue;
+    lv_area_t b = *tape;
+    if (g->vertical) {
+      b.x2 = tape->x1 + bw - 1;
+      b.y2 = tape->y2 - (int32_t)(f0 * len);
+      b.y1 = tape->y2 - (int32_t)(f1 * len);
+    } else {
+      b.y1 = tape->y2 - bw + 1;
+      b.x1 = tape->x1 + (int32_t)(f0 * len);
+      b.x2 = tape->x1 + (int32_t)(f1 * len);
+    }
+    rect(layer, &b, s->bands[i].color, 0);
+  }
 }
 
 static void draw_strip(lv_event_t *e) {
@@ -435,19 +562,6 @@ static void draw_strip(lv_event_t *e) {
   }
   rect(layer, &tape, c->strip_bg, 2);
   int32_t len = g->vertical ? lv_area_get_height(&tape) : lv_area_get_width(&tape);
-  for (uint8_t i = 0; i < s->band_count; i++) {
-    double f0 = ui_scale_fraction(s->bands[i].lo, s->lo, s->hi), f1 = ui_scale_fraction(s->bands[i].hi, s->lo, s->hi);
-    if (f1 <= f0) continue;
-    lv_area_t b = tape;
-    if (g->vertical) {
-      b.y2 = tape.y2 - (int32_t)(f0 * len);
-      b.y1 = tape.y2 - (int32_t)(f1 * len);
-    } else {
-      b.x1 = tape.x1 + (int32_t)(f0 * len);
-      b.x2 = tape.x1 + (int32_t)(f1 * len);
-    }
-    rect(layer, &b, s->bands[i].color, 0);
-  }
   ui_ticks_t t;
   ui_scale_ticks(s->lo, s->hi, 5, &t);
   for (uint8_t i = 0; i < t.major_count; i++) {
@@ -455,6 +569,7 @@ static void draw_strip(lv_event_t *e) {
     if (g->vertical) line(layer, tape.x1, tape.y2 - p, tape.x1 + (tape.x2 - tape.x1) / 3, tape.y2 - p, 2, c->dim);
     else line(layer, tape.x1 + p, tape.y2, tape.x1 + p, tape.y2 - (tape.y2 - tape.y1) / 3, 2, c->dim);
   }
+  strip_bands(layer, g, &tape, len);
 
   if (g->vertical) text_at(layer, s->label, lf, c->dim, a.x1 + w / 2, name_cy, LV_TEXT_ALIGN_CENTER);
   else text_at(layer, s->label, lf, c->dim, a.x1 + 4, name_cy, LV_TEXT_ALIGN_LEFT);
@@ -474,6 +589,7 @@ static void draw_strip(lv_event_t *e) {
   if (g->vertical) {
     lv_area_t fill = {tape.x1 + 2, tape.y2 - p, tape.x2 - 2, tape.y2};
     rect(layer, &fill, s->has_color ? s->color : c->fg, 0);
+    strip_bands(layer, g, &tape, len);   // the fill is inset 2 px; the stripe is a little wider
     line(layer, tape.x2 + 2, tape.y2 - p, tape.x2 + ps + 2, tape.y2 - p, 4, c->fg);
     text_at(layer, v, vf, value_color(g), a.x1 + w / 2, value_cy, LV_TEXT_ALIGN_CENTER);
   } else {

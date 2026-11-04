@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 #include "unity.h"
 #include "ui_gauge.h"
@@ -188,6 +189,58 @@ static void test_unchanged_value_does_not_redraw(void) {
   TEST_ASSERT_GREATER_THAN_INT(0, flushes);
 }
 
+static void test_dial_fuel_scale_is_hidden_until_set_up(void) {
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  render();
+  TEST_ASSERT_FALSE(ui_dial_fuel_visible(d, 0));
+  TEST_ASSERT_FALSE(ui_dial_fuel_faulted(d, 0));   // no tank, so nothing to flag
+}
+
+static void test_dial_fuel_pointer_follows_the_level(void) {
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  ui_dial_fuel_setup(d, 1, NULL, NULL, 0);
+  ui_dial_fuel_set(d, 0, 0.25, true);
+  render();
+  TEST_ASSERT_TRUE(ui_dial_fuel_visible(d, 0));
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.25, ui_dial_fuel_fraction(d, 0));
+  ui_dial_fuel_set(d, 0, 1.4, true);   // over-full clamps
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, ui_dial_fuel_fraction(d, 0));
+}
+
+static void test_dial_one_failed_tank_flags_that_tank_only(void) {
+  const char *labels[] = {"PORT", "STBD"};
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  ui_dial_fuel_setup(d, 2, labels, NULL, 0);
+  ui_dial_fuel_set(d, 0, 0.5, true);
+  ui_dial_fuel_set(d, 1, 0, false);
+  ui_dial_set(d, 0, 1800, true);
+  render();
+  TEST_ASSERT_TRUE(ui_dial_fuel_visible(d, 0));
+  TEST_ASSERT_FALSE(ui_dial_fuel_visible(d, 1));
+  TEST_ASSERT_TRUE(ui_dial_fuel_faulted(d, 1));
+  TEST_ASSERT_FALSE(ui_dial_fuel_faulted(d, 0));
+  TEST_ASSERT_FALSE(ui_field_faulted(d));          // the RPM side is unaffected
+}
+
+static void test_dial_fuel_survives_the_engine_going_off_or_failing(void) {
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  ui_dial_fuel_setup(d, 1, NULL, NULL, 0);
+  ui_dial_fuel_set(d, 0, 0.6, true);
+  ui_dial_set_off(d, 0);
+  render();
+  TEST_ASSERT_TRUE(ui_dial_fuel_visible(d, 0));
+  ui_dial_set(d, 0, 0, false);
+  render();
+  TEST_ASSERT_TRUE(ui_dial_fuel_visible(d, 0));
+}
+
+static void test_dial_fuel_non_finite_level_is_a_fault(void) {
+  lv_obj_t *d = ui_dial_create(scr, &rpm, 1, NULL);
+  ui_dial_fuel_setup(d, 1, NULL, NULL, 0);
+  ui_dial_fuel_set(d, 0, NAN, true);
+  TEST_ASSERT_TRUE(ui_dial_fuel_faulted(d, 0));
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(480, 480);
@@ -211,5 +264,10 @@ int main(void) {
   RUN_TEST(test_readout_text_shows_string_and_flags_when_invalid);
   RUN_TEST(test_fault_text_override);
   RUN_TEST(test_unchanged_value_does_not_redraw);
+  RUN_TEST(test_dial_fuel_scale_is_hidden_until_set_up);
+  RUN_TEST(test_dial_fuel_pointer_follows_the_level);
+  RUN_TEST(test_dial_one_failed_tank_flags_that_tank_only);
+  RUN_TEST(test_dial_fuel_survives_the_engine_going_off_or_failing);
+  RUN_TEST(test_dial_fuel_non_finite_level_is_a_fault);
   return UNITY_END();
 }
