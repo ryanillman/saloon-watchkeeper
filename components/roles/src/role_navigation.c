@@ -1,12 +1,6 @@
 #include "navigation_page.h"
 
-// The page is in page_navigation.c. Until it exists these keep the role registered and drawable.
-void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b) {
-  (void)area; (void)page; (void)sc; (void)b;
-}
-void navigation_refresh(role_binding_t *b, int64_t now_ms) {
-  (void)b; (void)now_ms;
-}
+// The page is in page_navigation.c; the tile is still to come.
 void navigation_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
   (void)now_ms;
   out->title = b->def->title;

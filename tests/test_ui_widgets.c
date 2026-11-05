@@ -3,6 +3,7 @@
 #include "unity.h"
 #include "ui_flow.h"
 #include "ui_gauge.h"
+#include "ui_theme.h"
 
 static uint8_t buf[480 * 48 * 2];
 static int flushes;
@@ -89,6 +90,15 @@ static void test_readout_text_shows_string_and_flags_when_invalid(void) {
   ui_readout_set_text(r, "", false);
   TEST_ASSERT_TRUE(ui_field_faulted(r));
   TEST_ASSERT_EQUAL_STRING("MODE FAIL", ui_field_fault_text(r));
+}
+
+static void test_readout_tint_colours_the_value(void) {
+  lv_obj_t *r = ui_readout_create(scr, "APPARENT", "", 0);
+  TEST_ASSERT_TRUE(lv_color_eq(ui_field_value_color(r), ui_theme()->fg));
+  ui_readout_set_color(r, lv_color_hex(0xFFE62E));
+  TEST_ASSERT_TRUE(lv_color_eq(ui_field_value_color(r), lv_color_hex(0xFFE62E)));
+  ui_readout_set_text(r, "38\xC2\xB0 STBD", true);
+  render();   // drawn with the tint without trouble
 }
 
 static void test_readout_invalid_has_no_digits(void) {
@@ -328,6 +338,7 @@ int main(void) {
   RUN_TEST(test_dial_one_of_two_failed_flags_that_needle_only);
   RUN_TEST(test_dial_out_of_range_clamps_needle_readout_true);
   RUN_TEST(test_strip_invalid_then_valid);
+  RUN_TEST(test_readout_tint_colours_the_value);
   RUN_TEST(test_readout_invalid_has_no_digits);
   RUN_TEST(test_valid_after_invalid_clears_fault);
   RUN_TEST(test_fault_label_text);
