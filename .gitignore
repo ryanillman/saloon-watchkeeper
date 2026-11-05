@@ -7,6 +7,7 @@ out/
 dependencies.lock
 *.log
 tools/sk-inject/.token
+tools/sk-inject/zones-created.json
 
 # Design specs and implementation plans: kept locally, not published
 docs/specs/
