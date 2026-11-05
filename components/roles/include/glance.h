@@ -32,6 +32,7 @@ typedef struct {
   const void *swing;       // the Anchor's plan view (a ui_swing_data_t that outlives the next call); NULL = none. Drawn in place of a trend
   bool has_forecast;       // this role may draw a forecast after "now": the page keeps room for it
   uint8_t fc_n;            // forecast points that follow (0 = none known now); at most GLANCE_FC_POINTS
+  uint8_t line_state;      // 0 normal; 2 or 3: the chart's forecast enters a warn or alarm zone, so the line is drawn in that zone's colour (the tile state is separate)
   float fc[GLANCE_FC_POINTS];   // the trend path's expected values (SI, as the history), GLANCE_FC_MINUTES apart from the first, which is that long after now
 } glance_tile_t;
 

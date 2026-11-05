@@ -36,9 +36,14 @@ tide_t tide_assess(const bd_sample_t *time_high, const bd_sample_t *time_low, in
 
 // The tide's change from its height at `now_s` at each of `n` times, `step_s` apart starting one step after now, as a
 // cosine between the next high and next low (so they are half a tide apart, and the shape repeats). Heights are in
-// metres; only their difference matters. False when the two events are not both in the future, or are not between
+// metres; only their difference matters. `now_m` is the measured height now (NAN when it is not known): the change is
+// from that, so the rise to the high is exactly the high less the height now; without it the curve's own value now is used. False when the two events are not both in the future, or are not between
 // 30 minutes and 9 hours apart, which no real tide is.
-bool tide_deltas(double high_m, int64_t high_s, double low_m, int64_t low_s, int64_t now_s, int32_t step_s, float *out, size_t n);
+bool tide_deltas(double high_m, int64_t high_s, double low_m, int64_t low_s, double now_m, int64_t now_s, int32_t step_s, float *out, size_t n);
+
+// The worst zone state (2 warn, 3 alarm; 0 when none) any of the `n` forecast values (SI) falls in, for the zones Signal K
+// gave the path. Lower bounds are inclusive and upper exclusive, as for the value now.
+uint8_t depth_forecast_zone(bd_id_t id, const float *fc, size_t n);
 
 // Local-time offset the Depth page and tile use for tide times (the app sets it from display.utc_offset_min).
 void depth_set_utc_offset(int16_t minutes);

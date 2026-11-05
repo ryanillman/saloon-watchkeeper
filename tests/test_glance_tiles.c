@@ -10,6 +10,7 @@
 #include "history.h"
 #include "nav_state.h"
 #include "role.h"
+#include "trend_data.h"
 #include "unity.h"
 
 #define NOW 1000000LL
@@ -582,7 +583,7 @@ static void test_depth_tile_forecasts_the_depth_from_the_next_high_and_low(void)
   tile();
   TEST_ASSERT_TRUE(t.has_forecast);
   TEST_ASSERT_EQUAL_UINT8(GLANCE_FC_POINTS, t.fc_n);
-  TEST_ASSERT_FLOAT_WITHIN(0.1, 2.4 + 1.0, t.fc[29]);   // at the high (150 min on): the range 2.8 m, less what it had risen already
+  TEST_ASSERT_FLOAT_WITHIN(0.01, 2.4 + 1.4, t.fc[29]);   // at the high (150 min on): 3.2 - 1.8 of rise, from the measured height
   TEST_ASSERT_TRUE(t.fc[GLANCE_FC_POINTS - 1] < t.fc[29]);   // and falling after it
   bd_set_invalid(bd_find("environment.tide.timeLow"));   // the low's time goes: no forecast, but the chart is still wanted
   tile();
@@ -590,12 +591,131 @@ static void test_depth_tile_forecasts_the_depth_from_the_next_high_and_low(void)
   TEST_ASSERT_EQUAL_UINT8(0, t.fc_n);
 }
 
+static void test_depth_headline_never_exceeds_three_digits_and_a_point(void) {
+  num("environment.depth.belowKeel", 99.96);   // rounds up to 100.0, which would be five characters
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("100", t.headline);
+  num("environment.depth.belowKeel", 1500.0);   // no sounder reads this deep; the field holds at 999
+  tile();
+  TEST_ASSERT_EQUAL_STRING("999", t.headline);
+  num("environment.depth.belowKeel", 99.94);
+  tile();
+  TEST_ASSERT_EQUAL_STRING("99.9", t.headline);
+}
+
+// 10 ft of water, the tide at +3 ft and rising to a high of +10 ft: the chart must climb 7 ft, to 17 ft.
+static void test_depth_forecast_in_feet_rises_by_the_tides_rise(void) {
+  strcpy(cfg.units.depth, "ft");
+  num("environment.depth.belowKeel", 10.0 * 0.3048);
+  num("environment.tide.heightHigh", 10.0 * 0.3048);
+  num("environment.tide.heightLow", -2.0 * 0.3048);
+  tide(3.0 * 0.3048, "2026-11-04T14:32:00.000Z", "2026-11-04T20:50:00.000Z");
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_UINT8(GLANCE_FC_POINTS, t.fc_n);
+  TEST_ASSERT_FLOAT_WITHIN(0.02, 17.0 * 0.3048, t.fc[29]);   // 152 min on, the high, 5 min a point
+}
+
+static void test_trend_range_rounds_out_to_whole_steps(void) {
+  float lo = 0.62f, hi = 3.8f;
+  trend_round_range(&lo, &hi, 1.0f);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, lo);
+  TEST_ASSERT_EQUAL_FLOAT(4.0f, hi);
+  lo = hi = 2.0f;   // never an empty range
+  trend_round_range(&lo, &hi, 0.5f);
+  TEST_ASSERT_EQUAL_FLOAT(0.5f, hi - lo);
+}
+
+// The tile's own forecast reading: 2.4 m now, rising to 3.8 m at the high 152 min on, then falling to about 2.2 m at
+// the end of the 6 h. A zone the line passes through is advisory: LOW TIDE, never more than amber.
+static void forecast_fixture(void) {
+  num("environment.tide.heightHigh", 3.2);
+  num("environment.tide.heightLow", 0.4);
+  tide(1.8, "2026-11-04T14:32:00.000Z", "2026-11-04T20:50:00.000Z");
+}
+
+static void test_forecast_into_a_warn_zone_makes_the_tile_low_tide(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 2.4);
+  forecast_fixture();
+  zone(id, 2.0, 2.3, AL_WARN);   // not where the boat is now, but where the line ends
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);
+  TEST_ASSERT_EQUAL_STRING("LOW TIDE", t.word);
+  TEST_ASSERT_EQUAL_UINT8(2, t.line_state);
+}
+
+static void test_forecast_into_an_alarm_zone_draws_red_but_the_tile_stays_amber(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 2.4);
+  forecast_fixture();
+  zone(id, 2.0, 2.3, AL_ALARM);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);   // only Signal K raises an ALARM
+  TEST_ASSERT_EQUAL_STRING("LOW TIDE", t.word);
+  TEST_ASSERT_EQUAL_UINT8(3, t.line_state);
+}
+
+static void test_forecast_clear_of_the_zones_changes_nothing(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 2.4);
+  forecast_fixture();
+  zone(id, 0.0, 1.5, AL_WARN);   // the line never gets that low
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_STRING("OK", t.word);
+  TEST_ASSERT_EQUAL_UINT8(0, t.line_state);
+}
+
+static void test_low_tide_never_replaces_a_signal_k_state(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 2.4);
+  forecast_fixture();
+  zone(id, 2.0, 3.0, AL_WARN);   // the boat is in it now: Signal K's own word stays
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);
+  TEST_ASSERT_EQUAL_STRING("WARN", t.word);
+  TEST_ASSERT_EQUAL_UINT8(2, t.line_state);   // the line is still drawn for it
+  zone(id, 2.0, 2.3, AL_WARN);
+  alarm_on("environment.depth.belowKeel");
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+  TEST_ASSERT_EQUAL_STRING("ALARM", t.word);
+}
+
+static void test_no_forecast_means_no_low_tide(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 2.4);
+  forecast_fixture();
+  zone(id, 2.0, 2.3, AL_WARN);
+  bd_set_invalid(bd_find("environment.tide.timeLow"));
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_UINT8(0, t.fc_n);
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_UINT8(0, t.line_state);
+}
+
 static void test_tide_deltas_are_a_cosine_between_the_high_and_low(void) {
   float d[72];
-  TEST_ASSERT_TRUE(tide_deltas(3.0, T_1200 + 3600, 1.0, T_1200 + 3600 + 6 * 3600, T_1200, 300, d, 72));
+  TEST_ASSERT_TRUE(tide_deltas(3.0, T_1200 + 3600, 1.0, T_1200 + 3600 + 6 * 3600, NAN, T_1200, 300, d, 72));
   TEST_ASSERT_FLOAT_WITHIN(0.02, 1.0 - 1.0 * cosf((float)M_PI * 1.0f / 6.0f), d[11]);   // the high, an hour on, from a tide 1/6 of the way
-  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 - 60, 1.0, T_1200 + 3600, T_1200, 300, d, 72));   // the high is past
-  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 + 60, 1.0, T_1200 + 120, T_1200, 300, d, 72));    // two minutes apart: not a tide
+  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 - 60, 1.0, T_1200 + 3600, NAN, T_1200, 300, d, 72));   // the high is past
+  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 + 60, 1.0, T_1200 + 120, NAN, T_1200, 300, d, 72));    // two minutes apart: not a tide
+}
+
+// The chart's rise must be the tide's real rise: +3 now and a high of +10 is 7 of depth at high water, whatever the
+// cosine between the two events says the tide is doing now (here it says +5).
+static void test_tide_deltas_anchor_on_the_measured_height(void) {
+  float d[72];
+  int64_t hw = T_1200 + 3 * 3600, lw = hw + 6 * 3600;
+  TEST_ASSERT_TRUE(tide_deltas(10.0, hw, 0.0, lw, 3.0, T_1200, 300, d, 72));
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 7.0, d[35]);                 // at high water: 10 - 3
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 2.0, d[71]);                 // 6 h on, halfway down to the low: 5 - 3
+  TEST_ASSERT_TRUE(fabsf(d[0]) < 0.5f);                        // the first step does not jump to the curve
+  TEST_ASSERT_TRUE(d[0] > 0);                                  // and it is rising
+  TEST_ASSERT_TRUE(tide_deltas(10.0, hw, 0.0, lw, NAN, T_1200, 300, d, 72));
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 5.0, d[35]);                 // no measured height: the curve alone (10 - 5)
 }
 
 static void test_tide_times_are_local_and_heights_follow_the_units(void) {
@@ -670,7 +790,16 @@ int main(void) {
   RUN_TEST(test_navigation_tile_alert_state);
   RUN_TEST(test_depth_tile_shows_the_depth_and_what_it_is_below);
   RUN_TEST(test_depth_tile_forecasts_the_depth_from_the_next_high_and_low);
+  RUN_TEST(test_depth_headline_never_exceeds_three_digits_and_a_point);
+  RUN_TEST(test_depth_forecast_in_feet_rises_by_the_tides_rise);
+  RUN_TEST(test_trend_range_rounds_out_to_whole_steps);
+  RUN_TEST(test_forecast_into_a_warn_zone_makes_the_tile_low_tide);
+  RUN_TEST(test_forecast_into_an_alarm_zone_draws_red_but_the_tile_stays_amber);
+  RUN_TEST(test_forecast_clear_of_the_zones_changes_nothing);
+  RUN_TEST(test_low_tide_never_replaces_a_signal_k_state);
+  RUN_TEST(test_no_forecast_means_no_low_tide);
   RUN_TEST(test_tide_deltas_are_a_cosine_between_the_high_and_low);
+  RUN_TEST(test_tide_deltas_anchor_on_the_measured_height);
   RUN_TEST(test_depth_prefers_the_transducer_and_says_so);
   RUN_TEST(test_depth_falls_back_when_the_preferred_reading_goes_stale_and_names_the_new_one);
   RUN_TEST(test_depth_with_no_fresh_reading_is_no_data_and_shows_no_number);

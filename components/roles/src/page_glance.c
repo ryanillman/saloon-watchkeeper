@@ -8,15 +8,14 @@
 #include "glance_page.h"
 #include "history.h"
 #include "platform.h"
+#include "trend_data.h"
 #include "ui_swing.h"
 #include "ui_shell.h"
 
 #define MAX_SOURCES 12
-#define CHART_POINTS 144          // 12 h at 5 min a point
 #define CHART_REFRESH_MS 5000
 #define CHART_SCALE 1000          // the chart plots each series scaled to 0..CHART_SCALE
 #define MAX_BANDS 2
-#define FC_HIST_SLOTS (6 * 60 / GLANCE_FC_MINUTES)   // with a forecast the chart is 6 h back and 6 h on
 
 typedef struct {
   uint8_t source;               // index into g.src
@@ -41,7 +40,7 @@ PLATFORM_EXT_BSS static struct {
   int32_t chart_h;
 } g;
 
-PLATFORM_EXT_BSS static float series[HIST_MINUTES];
+PLATFORM_EXT_BSS static trend_data_t chart_data;   // the chart being drawn: one at a time
 
 void glance_set_sources(const glance_source_t *src, uint8_t n) {
   g.n = n > MAX_SOURCES ? MAX_SOURCES : n;
@@ -297,82 +296,28 @@ static void clear_chart(tile_w_t *w) {
   if (w->axis_l) set_text(w->axis_l, "");
 }
 
-// How far past the data's range a warn or alarm zone is drawn: a sliver of it shows even when the data is nowhere
-// near, so the chart says where trouble is. Not when the zone is so far away it would flatten the line.
-#define ZONE_SLIVER 0.15f
-#define ZONE_REACH 2.0f
-
 static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
-  if (!w->chart || now_ms - w->chart_ms < CHART_REFRESH_MS) return;
+  if (!w->chart || (now_ms - w->chart_ms < CHART_REFRESH_MS && t->line_state == w->last.line_state)) return;   // a new line colour is not waited for
   w->chart_ms = now_ms;
-  size_t n = hist_read(t->trend, HIST_MINUTES, series);
-  if (n < 2) {
+  trend_data_t *d_ = &chart_data;
+  if (!trend_build(t, w->chart_fc != NULL, d_)) {
     clear_chart(w);
     return;
   }
-  bool fc = w->chart_fc && t->fc_n > 0;
-  size_t p = fc ? FC_HIST_SLOTS : (n < CHART_POINTS ? n : CHART_POINTS);
-  size_t total = fc ? p + t->fc_n : p;
-  float lo = INFINITY, hi = -INFINITY;
-  static float avg[CHART_POINTS + GLANCE_FC_POINTS];
-  uint16_t pts = 0;
-  for (size_t i = 0; i < p; i++) {   // each point is the mean of its slice of the minutes
-    long a, b;
-    if (fc) {   // 6 h ending now, a slot every GLANCE_FC_MINUTES; slots before the first record are empty
-      a = (long)n - (long)(FC_HIST_SLOTS - i) * GLANCE_FC_MINUTES;
-      b = a + GLANCE_FC_MINUTES;
-      if (a < 0) a = 0;
-      if (b < 0) b = 0;
-    } else {
-      a = (long)(i * n / p);
-      b = (long)((i + 1) * n / p);
-    }
-    double sum = 0;
-    size_t cnt = 0;
-    for (long k = a; k < b; k++)
-      if (!isnan(series[k])) sum += series[k], cnt++;
-    avg[i] = cnt ? (float)(sum / (double)cnt) : NAN;
-    if (cnt) {
-      if (avg[i] < lo) lo = avg[i];
-      if (avg[i] > hi) hi = avg[i];
-      pts++;
-    }
-  }
-  for (size_t i = p; i < total; i++) {
-    avg[i] = t->fc[i - p];
-    if (avg[i] < lo) lo = avg[i];
-    if (avg[i] > hi) hi = avg[i];
-  }
-  w->points = pts;
-  if (hi - lo < 1e-6f) {   // flat: centre it rather than divide by nothing
-    float mid = pts ? lo : 0;
-    lo = mid - 0.5f;
-    hi = mid + 0.5f;
-  } else {
-    float pad = (hi - lo) * 0.1f;
-    lo -= pad;
-    hi += pad;
-  }
+  bool fc = d_->fc;
+  size_t p = d_->p, total = d_->total, n = d_->minutes;
+  float lo = d_->lo, hi = d_->hi;
+  const float *avg = d_->v;
+  w->points = d_->have;
   bd_meta_t m;
   bool has_meta = bd_get_meta(t->trend, &m);
-  if (has_meta) {
-    float span = hi - lo, nlo = lo, nhi = hi;
-    for (uint8_t z = 0; z < m.zone_count; z++) {
-      if (m.zones[z].state < 2) continue;
-      if (isfinite(m.zones[z].upper) && m.zones[z].upper <= lo && lo - (float)m.zones[z].upper <= ZONE_REACH * span &&
-          (float)m.zones[z].upper - ZONE_SLIVER * span < nlo)
-        nlo = (float)m.zones[z].upper - ZONE_SLIVER * span;
-      if (isfinite(m.zones[z].lower) && m.zones[z].lower >= hi && (float)m.zones[z].lower - hi <= ZONE_REACH * span &&
-          (float)m.zones[z].lower + ZONE_SLIVER * span > nhi)
-        nhi = (float)m.zones[z].lower + ZONE_SLIVER * span;
-    }
-    lo = nlo;
-    hi = nhi;
-  }
   lv_chart_set_point_count(w->chart, (uint32_t)total);
   for (size_t i = 0; i < total; i++)
     lv_chart_set_series_value_by_id(w->chart, w->ser, (uint32_t)i,
                                     i >= p || isnan(avg[i]) ? LV_CHART_POINT_NONE : (int32_t)((avg[i] - lo) / (hi - lo) * CHART_SCALE));
+  lv_color_t line = ui_zone_line_color(t->line_state, ui_theme()->accent);
+  lv_chart_set_series_color(w->chart, w->ser, line);
+  if (w->chart_fc) lv_chart_set_series_color(w->chart_fc, w->ser_fc, line);
   lv_chart_refresh(w->chart);
   if (w->chart_fc) {
     lv_chart_set_point_count(w->chart_fc, (uint32_t)total);
@@ -396,10 +341,10 @@ static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
   if (has_meta)
     for (uint8_t z = 0; z < m.zone_count && nb < MAX_BANDS; z++) {
       if (m.zones[z].state < 2 || m.zones[z].upper <= lo || m.zones[z].lower >= hi) continue;
-      float zl = m.zones[z].lower < lo ? lo : (float)m.zones[z].lower, zh = m.zones[z].upper > hi ? hi : (float)m.zones[z].upper;
-      int32_t ytop = (int32_t)((1.0f - (zh - lo) / (hi - lo)) * (float)ch), ybot = (int32_t)((1.0f - (zl - lo) / (hi - lo)) * (float)ch);
-      lv_obj_set_y(w->band[nb], lv_obj_get_y(w->chart) + ytop);
-      lv_obj_set_height(w->band[nb], ybot - ytop > 2 ? ybot - ytop : 2);
+      int32_t by, bh;
+      trend_band(lo, hi, (float)m.zones[z].lower, (float)m.zones[z].upper, ch, &by, &bh);
+      lv_obj_set_y(w->band[nb], lv_obj_get_y(w->chart) + by);
+      lv_obj_set_height(w->band[nb], bh);
       lv_obj_set_style_bg_color(w->band[nb], m.zones[z].state >= 3 ? ui_theme()->alarm : ui_theme()->warn, 0);
       show(w->band[nb], true);
       nb++;

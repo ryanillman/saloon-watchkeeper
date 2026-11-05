@@ -428,6 +428,13 @@ static int run_snapshots(const char *out) {
             fixture_nav("full");
             fixture_depth(true);
             if (write_page(disp, dir, "-live", b)) return 1;
+            {   // the depth forecast falls into an alarm zone: a red line and a LOW TIDE tile, still amber
+              bd_meta_t lt = {.zone_count = 1};
+              lt.zones[0] = (bd_zone_t){.lower = 2.0, .upper = 2.3, .state = 3};
+              bd_set_meta(bd_find("environment.depth.belowKeel"), &lt);
+              if (write_page(disp, dir, "-low-tide", b)) return 1;
+              fixture_depth(true);
+            }
             bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));   // the house charge goes
             bd_set_invalid(bd_find("propulsion.port.temperature"));                         // and the port coolant sender
             bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));                     // and a water tank sender
@@ -462,6 +469,16 @@ static int run_snapshots(const char *out) {
           } else if (depth) {
             fixture_depth(true);
             if (write_page(disp, dir, "-live", b)) return 1;
+            {   // a warn zone the forecast line (2.4 m, up to 3.8 m, then down to about 2.2 m) falls into, and then an alarm one
+              bd_meta_t lt = {.zone_count = 1};
+              lt.zones[0] = (bd_zone_t){.lower = 2.0, .upper = 2.3, .state = 2};
+              bd_set_meta(bd_find("environment.depth.belowKeel"), &lt);
+              if (write_page(disp, dir, "-low-tide-warn", b)) return 1;
+              lt.zones[0].state = 3;
+              bd_set_meta(bd_find("environment.depth.belowKeel"), &lt);
+              if (write_page(disp, dir, "-low-tide-alarm", b)) return 1;
+              fixture_depth(true);   // the default zones again
+            }
             bd_set_invalid(bd_find("environment.tide.heightNow"));   // the tide plugin stops: the height goes, the next high stays
             if (write_page(disp, dir, "-tide-partial", b)) return 1;
             bd_set_invalid(bd_find("environment.depth.belowKeel"));   // the sounder fails: surface depth takes over, named as such
