@@ -205,6 +205,25 @@ static void test_source_time_roundtrip(void) {
   TEST_ASSERT_EQUAL_INT64(0, s.src_s);
 }
 
+static void test_invalidated_flag_and_newest_source_time(void) {
+  bd_id_t id = bd_intern("a.b");
+  bd_set_number(id, 5, 1, 100);
+  bd_sample_t s;
+  bd_get(id, &s);
+  TEST_ASSERT_FALSE(s.invalidated);
+  bd_invalidate_source(1);   // the connection went away
+  bd_get(id, &s);
+  TEST_ASSERT_FALSE(s.valid);
+  TEST_ASSERT_TRUE(s.invalidated);   // unlike a null the source sent
+  bd_set_number(id, NAN, 1, 200);
+  bd_get(id, &s);
+  TEST_ASSERT_FALSE(s.invalidated);
+  TEST_ASSERT_EQUAL_INT64(0, bd_newest_source_time());
+  bd_set_source_time(id, 5000);
+  bd_set_source_time(bd_intern("c.d"), 4000);
+  TEST_ASSERT_EQUAL_INT64(5000, bd_newest_source_time());   // the server's own clock, as far as it has spoken
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_new_path_is_invalid);
@@ -223,5 +242,6 @@ int main(void) {
   RUN_TEST(test_meta_overwrites_and_is_cleared_by_init);
   RUN_TEST(test_meta_for_every_path);
   RUN_TEST(test_source_time_roundtrip);
+  RUN_TEST(test_invalidated_flag_and_newest_source_time);
   return UNITY_END();
 }

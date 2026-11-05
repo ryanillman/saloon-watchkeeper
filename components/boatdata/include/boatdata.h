@@ -21,6 +21,7 @@ typedef struct {
   int64_t rx_ms;     // monotonic time of the last real update
   bool valid;
   uint8_t source;    // id of the source that wrote it
+  bool invalidated;  // made invalid by bd_invalidate_source (the connection went away), not a null the source sent; any bd_set_* clears it
   int64_t src_s;     // the source's own timestamp of the last update, epoch seconds; 0 when the update carried none
 } bd_sample_t;
 
@@ -43,6 +44,7 @@ void bd_set_number(bd_id_t id, double v, uint8_t source, int64_t now_ms);   // n
 void bd_set_position(bd_id_t id, double lat, double lon, uint8_t source, int64_t now_ms);
 void bd_set_text(bd_id_t id, const char *s, uint8_t source, int64_t now_ms);
 void bd_set_source_time(bd_id_t id, int64_t epoch_s);   // after a bd_set_*: the update's own timestamp (every bd_set_* resets it to 0)
+int64_t bd_newest_source_time(void);   // the largest source timestamp set so far (epoch s; 0 none): the server's own clock as far as it has spoken
 void bd_set_invalid(bd_id_t id);
 void bd_invalidate_source(uint8_t source);
 

@@ -19,6 +19,7 @@ PLATFORM_EXT_BSS static bd_meta_t metas[BD_MAX_PATHS];   // same index as entrie
 PLATFORM_EXT_BSS static char path_store[PATH_STORE_BYTES];
 static size_t path_used;
 static uint16_t count;
+static int64_t newest_src_s;   // largest source timestamp set (bd_newest_source_time)
 static void *lock;
 
 #define LOCK() platform_lock(lock)
@@ -32,6 +33,7 @@ void bd_init(void) {
   memset(entries, 0, sizeof entries);
   count = 0;
   path_used = 0;
+  newest_src_s = 0;
   UNLOCK();
 }
 
@@ -88,6 +90,7 @@ void bd_set_number(bd_id_t id, double v, uint8_t source, int64_t now_ms) {
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
     e->sample.src_s = 0;
+    e->sample.invalidated = false;
   }
   UNLOCK();
 }
@@ -103,6 +106,7 @@ void bd_set_position(bd_id_t id, double lat, double lon, uint8_t source, int64_t
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
     e->sample.src_s = 0;
+    e->sample.invalidated = false;
   }
   UNLOCK();
 }
@@ -118,14 +122,23 @@ void bd_set_text(bd_id_t id, const char *s, uint8_t source, int64_t now_ms) {
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
     e->sample.src_s = 0;
+    e->sample.invalidated = false;
   }
   UNLOCK();
+}
+
+int64_t bd_newest_source_time(void) {
+  LOCK();
+  int64_t t = newest_src_s;
+  UNLOCK();
+  return t;
 }
 
 void bd_set_source_time(bd_id_t id, int64_t epoch_s) {
   LOCK();
   entry_t *e = get(id);
   if (e) e->sample.src_s = epoch_s;
+  if (e && epoch_s > newest_src_s) newest_src_s = epoch_s;
   UNLOCK();
 }
 
@@ -139,7 +152,10 @@ void bd_set_invalid(bd_id_t id) {
 void bd_invalidate_source(uint8_t source) {
   LOCK();
   for (uint16_t i = 0; i < count; i++)
-    if (entries[i].sample.source == source) entries[i].sample.valid = false;
+    if (entries[i].sample.source == source && entries[i].sample.valid) {
+      entries[i].sample.valid = false;
+      entries[i].sample.invalidated = true;
+    }
   UNLOCK();
 }
 

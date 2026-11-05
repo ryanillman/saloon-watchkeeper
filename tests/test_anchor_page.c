@@ -7,6 +7,7 @@
 #include "boatdata.h"
 #include "config.h"
 #include "history.h"
+#include "platform.h"
 #include "role.h"
 
 #define T 100000LL
@@ -324,6 +325,88 @@ static void test_page_shows_the_result_on_the_button(void) {
   TEST_ASSERT_EQUAL_STRING("NO PLUGIN", anchor_page_button_text());
 }
 
+// ---- touch events on the real button (the page forwards LVGL events to the controller) ----
+
+static void refresh_at(int64_t t) { anchor_refresh(&(role_binding_t){.units = &cfg.units}, t); }
+static void press(lv_event_code_t code) { lv_obj_send_event(anchor_page_main_button(), code, NULL); }
+
+static void test_event_tap_on_drop_still_drops(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  refresh_at(now);
+  press(LV_EVENT_PRESSED);
+  press(LV_EVENT_RELEASED);
+  press(LV_EVENT_CLICKED);
+  TEST_ASSERT_EQUAL_INT(1, nsent);
+  TEST_ASSERT_EQUAL_STRING("/plugins/hoekens-anchor-alarm/dropAnchor", sent[0].path);
+}
+
+static void test_event_release_after_a_completed_hold_does_not_drop(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  holding(now, 50);
+  refresh_at(now);
+  TEST_ASSERT_EQUAL_STRING("RAISE", anchor_page_button_text());
+  press(LV_EVENT_PRESSED);
+  refresh_at(now + 1600);   // the hold completed: the raise went out
+  TEST_ASSERT_EQUAL_INT(1, nsent);
+  TEST_ASSERT_EQUAL_STRING("/plugins/hoekens-anchor-alarm/raiseAnchor", sent[0].path);
+  bd_set_number(bd_intern("navigation.anchor.position"), NAN, 1, now + 1700);   // the plugin republishes: no anchor
+  refresh_at(now + 1800);
+  TEST_ASSERT_EQUAL_STRING("DROP", anchor_page_button_text());   // the button is a Drop now...
+  press(LV_EVENT_RELEASED);   // ...but the finger lifts at the end of the same press
+  press(LV_EVENT_CLICKED);
+  TEST_ASSERT_EQUAL_INT(1, nsent);   // no drop
+}
+
+static void test_event_release_before_the_hold_completes_sends_nothing(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  holding(now, 50);
+  refresh_at(now);
+  press(LV_EVENT_PRESSED);
+  refresh_at(now + 1000);
+  press(LV_EVENT_RELEASED);
+  press(LV_EVENT_CLICKED);
+  refresh_at(now + 3000);
+  TEST_ASSERT_EQUAL_INT(0, nsent);
+}
+
+static void test_hold_interrupted_by_a_page_rebuild_never_raises(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  holding(now, 50);
+  refresh_at(now);
+  press(LV_EVENT_PRESSED);   // a swipe starts on the button and the shell rebuilds the page under the finger
+  build(SIZE_WIDE, 800, 440);
+  refresh_at(now + 3000);    // the user comes back later: nothing is held
+  TEST_ASSERT_EQUAL_INT(0, nsent);
+  TEST_ASSERT_EQUAL_INT(0, anchor_ctl_state()->hold_pct);
+}
+
+static void test_hold_cancelled_when_the_button_is_deleted(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  holding(now, 50);
+  refresh_at(now);
+  press(LV_EVENT_PRESSED);
+  lv_obj_clean(scr);   // no RELEASED or PRESS_LOST will ever arrive
+  anchor_ctl_update(now + 3000, track, CAP);
+  TEST_ASSERT_EQUAL_INT(0, nsent);
+}
+
+static void test_staged_radius_is_dropped_when_the_page_is_left(void) {
+  build(SIZE_WIDE, 800, 440);
+  int64_t now = platform_millis();
+  holding(now, 50);
+  refresh_at(now);
+  anchor_ctl_step(+1, now);   // tap + and swipe away within 1.5 s
+  build(SIZE_WIDE, 800, 440);   // the page is shown again much later
+  refresh_at(now + 60000 - 1000);
+  TEST_ASSERT_EQUAL_INT(0, nsent);   // the old value must not go out minutes later
+  TEST_ASSERT_FALSE(anchor_ctl_state()->limit_staged);
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(1024, 600);
@@ -351,5 +434,11 @@ int main(void) {
   RUN_TEST(test_no_sd_flag_follows_the_watch);
   RUN_TEST(test_page_builds_in_every_size_and_state);
   RUN_TEST(test_page_shows_the_result_on_the_button);
+  RUN_TEST(test_event_tap_on_drop_still_drops);
+  RUN_TEST(test_event_release_after_a_completed_hold_does_not_drop);
+  RUN_TEST(test_event_release_before_the_hold_completes_sends_nothing);
+  RUN_TEST(test_hold_interrupted_by_a_page_rebuild_never_raises);
+  RUN_TEST(test_hold_cancelled_when_the_button_is_deleted);
+  RUN_TEST(test_staged_radius_is_dropped_when_the_page_is_left);
   return UNITY_END();
 }

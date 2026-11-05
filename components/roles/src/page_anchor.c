@@ -63,6 +63,7 @@ static void on_main(lv_event_t *e) {
     case LV_EVENT_RELEASED:
     case LV_EVENT_PRESS_LOST: anchor_ctl_hold_end(platform_millis()); break;
     case LV_EVENT_CLICKED: anchor_ctl_tap_main(platform_millis()); break;
+    case LV_EVENT_DELETE: anchor_ctl_page_left(); break;   // the shell rebuilt the page mid-press: no RELEASED will come
     default: break;
   }
 }
@@ -70,6 +71,7 @@ static void on_main(lv_event_t *e) {
 void anchor_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b) {
   (void)page;
   (void)b;
+  anchor_ctl_page_left();   // a new page: nothing is held and nothing is staged
   memset(&w, 0, sizeof w);
   lv_obj_update_layout(area);
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area);
@@ -233,3 +235,4 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
 }
 
 const char *anchor_page_button_text(void) { return w.main_lbl ? lv_label_get_text(w.main_lbl) : NULL; }
+lv_obj_t *anchor_page_main_button(void) { return w.main; }

@@ -219,6 +219,37 @@ static void test_view_restoring_reports_server_none(void) {
   TEST_ASSERT_FALSE(view_at(true, true, T0).server_none);   // an anchor is set
 }
 
+static void test_reconnect_with_no_data_yet_is_no_data_not_not_set(void) {
+  full(T0);
+  bd_invalidate_source(1);   // the connection dropped and came back: nothing has been resent yet
+  anchor_view_t v = view_at(false, true, T0 + 5000);
+  TEST_ASSERT_EQUAL(AM_NO_DATA, v.mode);   // not "no anchor": the server has not said anything
+  TEST_ASSERT_FALSE(v.server_none);
+  bd_set_number(ids.position, NAN, 1, T0 + 6000);   // now it says null
+  v = view_at(false, true, T0 + 6000);
+  TEST_ASSERT_EQUAL(AM_NOT_SET, v.mode);
+  TEST_ASSERT_TRUE(v.server_none);
+}
+
+static void test_reconnect_while_restoring_is_not_a_server_none(void) {
+  full(T0);
+  bd_invalidate_source(1);
+  anchor_view_t v = view_at(true, true, T0 + 5000);
+  TEST_ASSERT_EQUAL(AM_RESTORING, v.mode);
+  TEST_ASSERT_FALSE(v.server_none);
+}
+
+static void test_replayed_value_with_an_old_server_timestamp_is_stale(void) {
+  int64_t S = 1793844000;
+  full(T0);
+  num(ids.current_radius, 30, T0, S);        // the server replays what its plugin last said...
+  num(ids.bearing_true, 1.0, T0, S);
+  bd_set_source_time(bd_intern("navigation.datetime"), S + 30);    // its clock is only 30 s ahead: fine
+  TEST_ASSERT_EQUAL(AM_HOLDING, view_at(false, true, T0).mode);
+  bd_set_source_time(bd_intern("navigation.datetime"), S + 200);   // ...but now it has moved on 200 s
+  TEST_ASSERT_EQUAL(AM_NO_DATA, view_at(false, true, T0).mode);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_view_not_set);
@@ -235,5 +266,8 @@ int main(void) {
   RUN_TEST(test_track_starts_at_set_time_and_caps_at_12h);
   RUN_TEST(test_track_unknown_set_time_uses_all_history);
   RUN_TEST(test_max_is_largest_distance);
+  RUN_TEST(test_reconnect_with_no_data_yet_is_no_data_not_not_set);
+  RUN_TEST(test_reconnect_while_restoring_is_not_a_server_none);
+  RUN_TEST(test_replayed_value_with_an_old_server_timestamp_is_stale);
   return UNITY_END();
 }

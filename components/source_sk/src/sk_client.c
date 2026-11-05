@@ -92,7 +92,7 @@ static bool subscribe(bool replace) {
 }
 
 // Sends each queued acknowledge or silence; the server's answer decides the alert's send_failed.
-static void drain_requests(const char *base, const char *token) {
+__attribute__((noinline)) static void drain_requests(const char *base, const char *token) {   // noinline: keep its buffers out of the run loop's frame
   char id[64];
   alert_req_t req;
   while (alerts_next_request(id, &req)) {
@@ -110,7 +110,7 @@ static void drain_requests(const char *base, const char *token) {
 
 // Sends each command the UI queued (see sk_cmd.h). A PUT goes to the REST tree at the dotted path as {"value":N};
 // a POST goes to the server path as given. The answer decides the command's result; nothing is retried.
-static void drain_commands(const char *base, const char *token) {
+__attribute__((noinline)) static void drain_commands(const char *base, const char *token) {   // noinline: its url and body buffers live only while a command is sent
   sk_cmd_t cmd;
   sk_cmd_handle_t h;
   while (sk_cmd_next(&cmd, &h, platform_millis())) {
