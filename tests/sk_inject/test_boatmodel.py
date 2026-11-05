@@ -62,6 +62,38 @@ class BoatModel(unittest.TestCase):
         self.assertEqual(set(p), {"latitude", "longitude"})
         self.assertTrue(-90 < p["latitude"] < 90 and -180 < p["longitude"] < 180)
 
+    NAV_PATHS = ("navigation.headingMagnetic", "navigation.courseOverGroundTrue", "navigation.speedThroughWater",
+                 "environment.wind.directionTrue", "environment.wind.speedApparent",
+                 "environment.wind.angleApparent", "environment.wind.angleTrueWater")
+
+    def test_navigation_inputs_for_derived_data(self):
+        # signalk-derived-data (true wind, set and drift) needs these; angles are radians, speeds m/s
+        for profile in ("underway", "anchor"):
+            v = vals(profile)
+            for p in self.NAV_PATHS:
+                self.assertIsInstance(v[p], float, f"{profile} {p}")
+        v = vals()
+        self.assertAlmostEqual(v["navigation.headingMagnetic"], 0.820, delta=0.05)
+        self.assertAlmostEqual(v["environment.wind.angleApparent"], 0.663, delta=0.05)
+        self.assertAlmostEqual(v["navigation.speedThroughWater"], 3.29, delta=0.2)
+
+    def test_true_wind_agrees_with_apparent_and_boat_speed(self):
+        # the values must be a boat the derived-data plugin could really have computed
+        import math
+        for t in (0, 7000, 31000):
+            v = vals(t=t)
+            a, s = v["environment.wind.angleApparent"], v["environment.wind.speedApparent"]
+            b = v["navigation.speedThroughWater"]
+            twa = math.atan2(s * math.sin(a), s * math.cos(a) - b)
+            self.assertAlmostEqual(v["environment.wind.angleTrueWater"], twa, delta=0.06)
+            self.assertAlmostEqual(v["environment.wind.directionTrue"],
+                                   v["navigation.headingMagnetic"] + twa, delta=0.08)
+
+    def test_anchor_boat_is_not_moving_through_the_water(self):
+        v = vals("anchor")
+        self.assertEqual(v["navigation.speedThroughWater"], 0)
+        self.assertAlmostEqual(v["environment.wind.angleTrueWater"], v["environment.wind.angleApparent"], delta=0.05)
+
     def test_venus_dcpower_only_with_its_group(self):
         # the Summary uses dcPower for LOAD when present, so it is opt-in (docs/testing.md rows assume IN - BATTERY)
         self.assertNotIn("electrical.venus.dcPower", vals())
