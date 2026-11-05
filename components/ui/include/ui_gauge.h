@@ -44,6 +44,8 @@ void ui_readout_set(lv_obj_t *readout, double value, bool valid);
 void ui_readout_set_text(lv_obj_t *readout, const char *text, bool valid);
 // Centres the label and value in the field instead of left-aligning them (under an icon, say).
 void ui_readout_set_centered(lv_obj_t *readout, bool centered);
+// Draws the readout's label and value in this colour instead of dim and foreground (the Navigation page's wind and course fields).
+void ui_readout_set_color(lv_obj_t *readout, lv_color_t color);
 // Replaces the default "<LABEL> FAIL" flag text, for a label too long to repeat (DC LOAD shows LOAD FAIL).
 void ui_field_set_fault_text(lv_obj_t *field, const char *text);
 

@@ -24,6 +24,8 @@ typedef struct {
   uint8_t alert;                 // alert_state_t of the notification on this field
   bool centered;                 // readout: text centred in the field instead of left-aligned
   bool text_mode;                // readout showing a string (ui_readout_set_text)
+  bool tinted;                   // readout: label and value in `tint`
+  lv_color_t tint;
   char text[2][24];
   uint8_t fuel_n;                // dial: tank pointers on the second scale; 0 = no second scale
   char fuel_label[2][12];
@@ -47,10 +49,7 @@ static const lv_font_t *font_for(int32_t px) {
 
 // Digits stay in the normal colour; an alert tints the field's background instead
 // (ui_field_set_alert), and coloured digits would not read on that tint.
-static lv_color_t value_color(const gauge_t *g) {
-  (void)g;
-  return ui_theme()->fg;
-}
+static lv_color_t value_color(const gauge_t *g) { return g->tinted ? g->tint : ui_theme()->fg; }
 
 static void text_at(lv_layer_t *layer, const char *txt, const lv_font_t *f, lv_color_t c,
                     int32_t x, int32_t y, lv_text_align_t align) {
@@ -645,7 +644,7 @@ static void draw_readout(lv_event_t *e) {
   const lv_font_t *lf = font_for(h / 4), *vf = font_for(h * 6 / 10);
   lv_text_align_t al = g->centered ? LV_TEXT_ALIGN_CENTER : LV_TEXT_ALIGN_LEFT;
   int32_t tx = g->centered ? (a.x1 + a.x2) / 2 : a.x1 + 4;
-  text_at(layer, g->name, lf, c->dim, tx, a.y1 + lv_font_get_line_height(lf) / 2, al);
+  text_at(layer, g->name, lf, g->tinted ? g->tint : c->dim, tx, a.y1 + lv_font_get_line_height(lf) / 2, al);
   if (!g->valid[0]) return;
   char v[48];
   if (g->text_mode) snprintf(v, sizeof v, "%s", g->text[0]);
@@ -689,6 +688,13 @@ void ui_readout_set_text(lv_obj_t *o, const char *text, bool valid) {
   g->valid[0] = valid;
   memcpy(g->text[0], next, sizeof next);
   sync_fault(o);
+}
+
+void ui_readout_set_color(lv_obj_t *o, lv_color_t color) {
+  gauge_t *g = G(o);
+  g->tinted = true;
+  g->tint = color;
+  lv_obj_invalidate(o);
 }
 
 void ui_readout_set_centered(lv_obj_t *o, bool centered) {
