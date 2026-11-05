@@ -410,6 +410,62 @@ static void test_wifi_choose_then_password_saves_wifi_keys(void) {
   TEST_ASSERT_EQUAL_STRING("secret12", saved.wifi.password);
 }
 
+// "Other network": the name keyboard hands straight to the password keyboard with no rebuild
+// between, so the first keyboard's textarea must not stay registered as "kb_text".
+static void test_wifi_other_network_then_password(void) {
+  open_setup();
+  click("menu_wifi");
+  click("scan");
+  ui_ap_t aps[] = {{"Boatnet", -50, true}};
+  ui_setup_wifi_results(aps, 1);
+  lv_timer_handler();
+  click("ap_other");
+  lv_obj_t *first = ui_setup_part("kb_text");
+  type_and_ok("Golden");
+  TEST_ASSERT_FALSE(lv_obj_is_valid(first));   // the name keyboard is gone
+  lv_obj_t *second = ui_setup_part("kb_text");
+  TEST_ASSERT_NOT_NULL(second);
+  TEST_ASSERT_TRUE(lv_obj_is_valid(second));   // "kb_text" is the password keyboard's field
+  type_and_ok("secret12");
+  TEST_ASSERT_EQUAL_STRING("Golden", ui_setup_working()->wifi.ssid);
+  TEST_ASSERT_EQUAL_STRING("secret12", ui_setup_working()->wifi.password);
+}
+
+// True when the open keyboard's current page has a key with exactly this text.
+static bool kb_has_key(const char *key) {
+  const char *const *map = lv_keyboard_get_map_array(ui_setup_part("kb"));
+  for (; map[0][0]; map++)
+    if (!strcmp(map[0], key)) return true;
+  return false;
+}
+
+// An IP address is typed without leaving the first page: digits, '.' and ':' together.
+static void test_sk_address_pad_has_digits_and_dot_together(void) {
+  open_setup();
+  click("menu_signalk");
+  click("sk_manual");   // host starts empty or "auto": no name to edit
+  for (const char *k = "0123456789.:"; *k; k++) {
+    char key[2] = {*k, 0};
+    TEST_ASSERT_TRUE_MESSAGE(kb_has_key(key), key);
+  }
+  TEST_ASSERT_TRUE(kb_has_key("abc"));    // a way to the letters, for a hostname
+  TEST_ASSERT_FALSE(kb_has_key("q"));
+  type_and_ok("192.168.0.108");
+  TEST_ASSERT_EQUAL_STRING("192.168.0.108", ui_setup_working()->sk.host);
+  click("edit_host");   // an IP already set: still the pad
+  TEST_ASSERT_TRUE(kb_has_key("."));
+  TEST_ASSERT_FALSE(kb_has_key("q"));
+}
+
+static void test_sk_hostname_opens_on_letters(void) {
+  open_setup();
+  click("menu_signalk");
+  click("sk_manual");
+  type_and_ok("signalk.local");
+  click("edit_host");
+  TEST_ASSERT_TRUE(kb_has_key("q"));      // a name is edited with the letters
+}
+
 static void test_sk_manual_host_saves(void) {
   open_setup();
   click("menu_signalk");
@@ -502,6 +558,9 @@ int main(void) {
   RUN_TEST(test_auto_clears_pins);
   RUN_TEST(test_wifi_scan_lists_sorted);
   RUN_TEST(test_wifi_choose_then_password_saves_wifi_keys);
+  RUN_TEST(test_wifi_other_network_then_password);
+  RUN_TEST(test_sk_address_pad_has_digits_and_dot_together);
+  RUN_TEST(test_sk_hostname_opens_on_letters);
   RUN_TEST(test_sk_manual_host_saves);
   RUN_TEST(test_request_access_button_calls_cb);
   RUN_TEST(test_keyboard_keeps_field_visible_480);
