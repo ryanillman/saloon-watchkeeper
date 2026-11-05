@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""Pushes scripted data into a Signal K server for testing the displays.
+"""Asks the Signal K server for a write token for the boat daemon.
 
-  inject.py access                      ask the server for a write token (approve it in the admin UI)
-  inject.py scenarios/two-engines.json  play a scenario
+  inject.py access      request a token (approve it in the admin UI)
 
+Playback now lives in boat.py (the long-running boat); drive it with tools/scenario.sh.
 The token is kept in tools/sk-inject/.token (not committed).
 """
-import asyncio
-import datetime
 import json
-import math
 import sys
 import time
 import urllib.request
 from pathlib import Path
-
-import websockets
 
 HERE = Path(__file__).resolve().parent
 TOKEN_FILE = HERE / ".token"
@@ -47,63 +42,7 @@ def request_access():
             return
 
 
-def value_at(spec, t, duration):
-    """A scenario value: a number, null, {"from": a, "to": b} ramped over the duration, or any
-    other object (a notification value), which is sent unchanged. "$now" is the current UTC time as an
-    ISO 8601 string (for navigation.datetime).
-    In "after" events, "$stop" stops sending that path."""
-    if spec == "$now":
-        return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    if isinstance(spec, dict) and "from" in spec and "to" in spec:
-        frac = min(1.0, t / duration) if duration else 1.0
-        wobble = spec.get("wobble", 0) * math.sin(t / 1500.0)
-        return spec["from"] + (spec["to"] - spec["from"]) * frac + wobble
-    return spec
-
-
-def delta(values):
-    return {
-        "context": "vessels.self",
-        "updates": [{
-            "source": {"label": "sk-inject"},
-            "values": [{"path": p, "value": v} for p, v in values.items()],
-        }],
-    }
-
-
-async def play(path):
-    sc = json.loads(Path(path).read_text())
-    if not TOKEN_FILE.exists():
-        sys.exit("No token. Run: inject.py access")
-    token = TOKEN_FILE.read_text().strip()
-    duration = sc.get("durationMs", 60000)
-    interval = sc.get("intervalMs", 1000)
-    events = sorted(sc.get("after", []), key=lambda e: e["atMs"])
-    values = dict(sc.get("values", {}))
-    async with websockets.connect(f"ws://{SERVER}/signalk/v1/stream?subscribe=none",
-                                  additional_headers={"Authorization": f"Bearer {token}"}) as ws:
-        start = time.monotonic()
-        while True:
-            t = (time.monotonic() - start) * 1000
-            while events and events[0]["atMs"] <= t:
-                e = events.pop(0)
-                print(f"{t/1000:5.1f}s  {e.get('note', 'event')}")
-                for p, v in e["values"].items():
-                    if v == "$stop":
-                        values.pop(p, None)   # stop sending it: the sender went silent
-                    else:
-                        values[p] = v
-            await ws.send(json.dumps(delta({p: value_at(s, t, duration) for p, s in values.items()})))
-            if t >= duration:
-                break
-            await asyncio.sleep(interval / 1000)
-    print("done")
-
-
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if sys.argv[1:] != ["access"]:
         sys.exit(__doc__)
-    if sys.argv[1] == "access":
-        request_access()
-    else:
-        asyncio.run(play(sys.argv[1]))
+    request_access()
