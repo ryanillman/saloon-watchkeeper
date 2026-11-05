@@ -1,0 +1,16 @@
+{
+  "description": "Twin diesels warming up and coming to cruise over a minute, then holding at the routine values.",
+  "durationMs": 60000,
+  "after": [
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.revolutions", "from": 13.3, "to": 33.0, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.starboard.revolutions", "from": 13.0, "to": 32.8, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.temperature", "from": 300.0, "to": 350.0, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.starboard.temperature", "from": 301.0, "to": 351.0, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.oilPressure", "from": 250000, "to": 330000, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.starboard.oilPressure", "from": 245000, "to": 325000, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.alternatorVoltage", "from": 13.2, "to": 14.1, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.starboard.alternatorVoltage", "from": 13.1, "to": 14.0, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.fuel.rate", "from": 6e-07, "to": 2.2e-06, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.starboard.fuel.rate", "from": 6e-07, "to": 2.1e-06, "overMs": 60000 }
+  ]
+}

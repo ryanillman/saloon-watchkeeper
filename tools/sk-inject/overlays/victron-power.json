@@ -1,0 +1,16 @@
+{
+  "description": "A Victron boat: battery 279, solar 288, charger 276, inverter 275 on shore power, alternator 0. Solar ramps 0-300 W over 60 s. At 30 s the battery starts discharging (negative current, 4 h remaining). At 45 s the solar current goes null (IN and LOAD fail). At 60 s the battery is nearly flat (600 s left, 5 %), which falls in the house battery's alarm zone, so the server raises a low-charge alarm; solar current is restored. At 80 s the battery is restored (95 %).",
+  "durationMs": 90000,
+  "after": [
+    { "atMs": 0, "op": "ramp", "path": "electrical.solar.288.current", "from": 0, "to": 22, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "electrical.solar.288.panelPower", "from": 0, "to": 300, "overMs": 60000 },
+    { "atMs": 30000, "note": "battery discharging, 4 h left", "op": "set", "path": "electrical.batteries.279.current", "value": -15.0 },
+    { "atMs": 30000, "op": "set", "path": "electrical.batteries.279.capacity.timeRemaining", "value": 14400 },
+    { "atMs": 45000, "note": "solar current goes null", "op": "null", "path": "electrical.solar.288.current" },
+    { "atMs": 60000, "note": "battery nearly flat, 600 s left; solar current restored", "op": "set", "path": "electrical.batteries.279.capacity.timeRemaining", "value": 600 },
+    { "atMs": 60000, "op": "set", "path": "electrical.batteries.279.capacity.stateOfCharge", "value": 0.05 },
+    { "atMs": 60000, "op": "set", "path": "electrical.solar.288.current", "value": 14.1 },
+    { "atMs": 80000, "note": "battery restored", "op": "set", "path": "electrical.batteries.279.capacity.timeRemaining", "value": 60000 },
+    { "atMs": 80000, "op": "set", "path": "electrical.batteries.279.capacity.stateOfCharge", "value": 0.95 }
+  ]
+}

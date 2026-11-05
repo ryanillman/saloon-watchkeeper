@@ -1,0 +1,7 @@
+{
+  "description": "Six tanks. Fuel sorts onto the second square page. At 8 s the fuel level is driven into its alarm zone (the server's zones, or defaults if it has none) so GO can be checked. The alarm stays up to the end of the run, then the level returns to normal.",
+  "durationMs": 80000,
+  "after": [
+    { "atMs": 8000, "op": "alarm", "path": "tanks.fuel.0.currentLevel", "state": "alarm" }
+  ]
+}

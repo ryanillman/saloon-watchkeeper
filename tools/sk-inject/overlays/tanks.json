@@ -1,0 +1,12 @@
+{
+  "description": "Six tanks; fresh water drains slowly over a minute. After 20 s the second fresh water sender fails (null). Fuel sits at 55 %.",
+  "durationMs": 60000,
+  "after": [
+    { "atMs": 0, "op": "ramp", "path": "tanks.freshWater.0.currentLevel", "from": 0.72, "to": 0.66, "overMs": 60000 },
+    { "atMs": 0, "op": "ramp", "path": "tanks.freshWater.1.currentLevel", "from": 0.40, "to": 0.34, "overMs": 60000 },
+    { "atMs": 0, "op": "set", "path": "tanks.fuel.0.currentLevel", "value": 0.55 },
+    { "atMs": 0, "op": "set", "path": "tanks.blackWater.0.currentLevel", "value": 0.15 },
+    { "atMs": 0, "op": "set", "path": "tanks.wasteWater.0.currentLevel", "value": 0.30 },
+    { "atMs": 20000, "note": "second fresh water sender fails (null)", "op": "null", "path": "tanks.freshWater.1.currentLevel" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "description": "Three banks: house 279, start 280, nav 281. Shore charger 276 (30 A side), solar 288, start-to-house converter dcdc 1, house-to-nav converter dcdc 2 (with input side), alternator 0 on start (idle). At 30 s the nav bank discharges while the nav converter covers it from house. At 50 s the charger's current goes null (HOUSE IN and LOAD fail, NAV LOAD stays). Restored at 70 s. UNVERIFIED: every path here, in particular dcdc input.voltage/input.current, is a guess until a real Cerbo capture. Needs the power role config in docs/testing.md (banks and links).",
+  "durationMs": 90000,
+  "with": ["three-bank"],
+  "after": [
+    { "atMs": 0, "op": "set", "path": "electrical.chargers.276.current", "value": 6.0 },
+    { "atMs": 0, "op": "set", "path": "electrical.alternators.0.current", "value": 0.0 },
+    { "atMs": 0, "op": "set", "path": "electrical.alternators.0.chargingMode", "value": "off" },
+    { "atMs": 0, "op": "ramp", "path": "electrical.solar.288.current", "from": 0, "to": 20, "overMs": 90000 },
+    { "atMs": 30000, "note": "nav bank discharging; the nav converter covers it from house", "op": "set", "path": "electrical.batteries.281.current", "value": -3.0 },
+    { "atMs": 30000, "op": "set", "path": "electrical.dcdc.2.current", "value": 6.5 },
+    { "atMs": 30000, "op": "set", "path": "electrical.dcdc.2.input.current", "value": 7.1 },
+    { "atMs": 30000, "op": "set", "path": "electrical.batteries.279.current", "value": 4.0 },
+    { "atMs": 50000, "note": "charger current goes null: HOUSE IN and DC LOAD fail, NAV LOAD stays", "op": "null", "path": "electrical.chargers.276.current" },
+    { "atMs": 70000, "note": "charger restored", "op": "set", "path": "electrical.chargers.276.current", "value": 6.0 }
+  ]
+}

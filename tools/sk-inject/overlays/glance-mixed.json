@@ -1,0 +1,12 @@
+{
+  "description": "A quiet evening at anchor for the Glance page: engines stopped, house bank draining slowly, tanks part full. At 2 minutes the house charge goes null, so its tile must turn to NO DATA with no number.",
+  "durationMs": 300000,
+  "profile": "anchor",
+  "after": [
+    { "atMs": 0, "op": "ramp", "path": "electrical.batteries.279.capacity.stateOfCharge", "from": 0.82, "to": 0.78, "overMs": 300000 },
+    { "atMs": 0, "op": "ramp", "path": "electrical.batteries.279.voltage", "from": 12.7, "to": 12.5, "overMs": 300000 },
+    { "atMs": 0, "op": "ramp", "path": "tanks.freshWater.0.currentLevel", "from": 0.64, "to": 0.62, "overMs": 300000 },
+    { "atMs": 0, "op": "ramp", "path": "propulsion.port.temperature", "from": 330.0, "to": 318.0, "overMs": 300000 },
+    { "atMs": 120000, "note": "house charge goes null", "op": "null", "path": "electrical.batteries.279.capacity.stateOfCharge" }
+  ]
+}
