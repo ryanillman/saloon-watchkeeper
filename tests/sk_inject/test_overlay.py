@@ -2,8 +2,8 @@ import unittest
 
 import _path  # noqa: F401
 from boatmodel import load_baseline
-from overlay import (Alarm, Clear, GroupOff, GroupOn, Overlay, OverlayError, Ramp, Set, Silent,
-                     parse_overlay)
+from overlay import (Alarm, Clear, GroupOff, GroupOn, Move, Overlay, OverlayError, Post, Put, Ramp,
+                     Set, Silent, parse_overlay)
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 RPM = "propulsion.port.revolutions"
@@ -69,6 +69,40 @@ class OverlayEngine(unittest.TestCase):
                                "path": "notifications.propulsion.port.temperature",
                                "value": {"state": "alarm"}}), B)
         self.assertIn("notifications", str(cm.exception))
+
+    def test_post_put_move_parse(self):
+        ov = parse_overlay(doc(
+            {"atMs": 1000, "op": "post", "path": "/plugins/anchoralarm/dropAnchor", "body": {"radius": 45}},
+            {"atMs": 1000, "op": "post", "path": "/plugins/anchoralarm/raiseAnchor"},
+            {"atMs": 2000, "op": "put", "path": "navigation.anchor.maxRadius", "value": 45},
+            {"atMs": 3000, "op": "move", "path": "navigation.position",
+             "northM": 20, "eastM": -5, "overMs": 10000}), B)
+        self.assertEqual(ov.step(3000), [
+            Post("/plugins/anchoralarm/dropAnchor", {"radius": 45}),
+            Post("/plugins/anchoralarm/raiseAnchor", None),
+            Put("navigation.anchor.maxRadius", 45),
+            Move("navigation.position", 20.0, -5.0, 10000)])
+
+    def test_post_must_target_a_plugin(self):
+        for bad in ("/signalk/v1/api/vessels/self/navigation/position", "plugins/x/y", "/admin/restart"):
+            with self.assertRaises(OverlayError, msg=bad):
+                parse_overlay(doc({"atMs": 0, "op": "post", "path": bad}), B)
+
+    def test_put_never_targets_notifications(self):
+        with self.assertRaises(OverlayError):
+            parse_overlay(doc({"atMs": 0, "op": "put", "path": "notifications.navigation.anchor",
+                               "value": {"state": "alarm"}}), B)
+
+    def test_put_needs_a_value(self):
+        with self.assertRaises(OverlayError):
+            parse_overlay(doc({"atMs": 0, "op": "put", "path": "navigation.anchor.maxRadius"}), B)
+
+    def test_move_only_on_a_position_path(self):
+        with self.assertRaises(OverlayError):
+            parse_overlay(doc({"atMs": 0, "op": "move", "path": RPM,
+                               "northM": 1, "eastM": 1, "overMs": 1000}), B)
+        with self.assertRaises(OverlayError):
+            parse_overlay(doc({"atMs": 0, "op": "move", "path": "navigation.position"}), B)
 
     def test_unknown_op_rejected(self):
         with self.assertRaises(OverlayError):

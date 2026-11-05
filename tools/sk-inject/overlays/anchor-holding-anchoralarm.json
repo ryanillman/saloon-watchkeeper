@@ -1,0 +1,17 @@
+{
+  "description": "A boat at anchor, for the anchoralarm plugin. Engines are off (the anchor profile). At 0 s the Hoeken plugin's anchor is cleared so only anchoralarm watches. At 2 s the anchor is dropped where the boat is, and at 3 s its limit is set to 45 m by PUT of maxRadius, as the radius buttons do. The boat swings 28-30 m out. From 40 s it drifts to about 52 m, past the limit, and the plugin raises the anchor alarm (the plugin does it, from the position; nothing is written to notifications). From 70 s it is back inside and the plugin clears it. The anchor is raised at 85 s. Needs anchoralarm enabled; set anchor.plugin to anchoralarm in the display config to drive it from the display. anchor-holding does the same for the Hoeken plugin.",
+  "durationMs": 90000,
+  "profile": "anchor",
+  "after": [
+    { "atMs": 0, "note": "only one plugin watches: clear the other's anchor (best effort)", "op": "post", "path": "/plugins/hoekens-anchor-alarm/raiseAnchor" },
+    { "atMs": 0, "note": "clear any anchoralarm anchor left from before (best effort)", "op": "post", "path": "/plugins/anchoralarm/raiseAnchor" },
+    { "atMs": 2000, "note": "drop the anchor here", "op": "post", "path": "/plugins/anchoralarm/dropAnchor", "body": { "radius": 45 } },
+    { "atMs": 3000, "note": "set the limit as the display's radius buttons do", "op": "put", "path": "navigation.anchor.maxRadius", "value": 45 },
+    { "atMs": 3000, "note": "swing out to the NE", "op": "move", "path": "navigation.position", "northM": 21, "eastM": 21, "overMs": 8000 },
+    { "atMs": 20000, "note": "swing to the SE", "op": "move", "path": "navigation.position", "northM": -10, "eastM": 26, "overMs": 10000 },
+    { "atMs": 32000, "note": "swing back to the NE", "op": "move", "path": "navigation.position", "northM": 22, "eastM": 18, "overMs": 8000 },
+    { "atMs": 40000, "note": "drifts to about 52 m, past the 45 m limit: the plugin raises the alarm", "op": "move", "path": "navigation.position", "northM": 34, "eastM": 40, "overMs": 4000 },
+    { "atMs": 70000, "note": "back inside the limit: the plugin clears the alarm", "op": "move", "path": "navigation.position", "northM": 24, "eastM": 22, "overMs": 6000 },
+    { "atMs": 85000, "note": "anchor raised", "op": "post", "path": "/plugins/anchoralarm/raiseAnchor" }
+  ]
+}

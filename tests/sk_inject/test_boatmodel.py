@@ -56,6 +56,12 @@ class BoatModel(unittest.TestCase):
         # the auto palette follows environment.mode (app.c); routine boat = daytime
         self.assertEqual(vals()["environment.mode"], "day")
 
+    def test_position_is_a_lat_lon_object(self):
+        # the anchor plugins read navigation.position; the anchor is dropped where the boat is
+        p = vals()["navigation.position"]
+        self.assertEqual(set(p), {"latitude", "longitude"})
+        self.assertTrue(-90 < p["latitude"] < 90 and -180 < p["longitude"] < 180)
+
     def test_venus_dcpower_only_with_its_group(self):
         # the Summary uses dcPower for LOAD when present, so it is opt-in (docs/testing.md rows assume IN - BATTERY)
         self.assertNotIn("electrical.venus.dcPower", vals())

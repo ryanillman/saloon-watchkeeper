@@ -1,0 +1,16 @@
+{
+  "description": "A boat at anchor, for the Hoeken plugin (the default anchor.plugin). Engines are off (the anchor profile: Hoeken drops its watch if it sees an engine turning). At 0 s the anchoralarm plugin's anchor is cleared so only Hoeken watches. At 2 s the anchor is dropped where the boat is (45 m limit, as the DROP button does), then the boat swings 28-30 m out. From 40 s it drifts to about 52 m, past the limit, and the plugin raises the anchor alarm (the plugin does it, from the position; nothing is written to notifications). From 70 s it is back inside and the plugin clears it. The anchor is raised at 85 s. Needs hoekens-anchor-alarm enabled. anchor-holding-anchoralarm does the same for the anchoralarm plugin.",
+  "durationMs": 90000,
+  "profile": "anchor",
+  "after": [
+    { "atMs": 0, "note": "only one plugin watches: clear the other's anchor (best effort)", "op": "post", "path": "/plugins/anchoralarm/raiseAnchor" },
+    { "atMs": 0, "note": "clear any Hoeken anchor left from before (best effort)", "op": "post", "path": "/plugins/hoekens-anchor-alarm/raiseAnchor" },
+    { "atMs": 2000, "note": "drop the anchor here, 45 m limit", "op": "post", "path": "/plugins/hoekens-anchor-alarm/dropAnchor", "body": { "zone": { "type": "circle", "radius": 45 } } },
+    { "atMs": 3000, "note": "swing out to the NE", "op": "move", "path": "navigation.position", "northM": 21, "eastM": 21, "overMs": 8000 },
+    { "atMs": 20000, "note": "swing to the SE", "op": "move", "path": "navigation.position", "northM": -10, "eastM": 26, "overMs": 10000 },
+    { "atMs": 32000, "note": "swing back to the NE", "op": "move", "path": "navigation.position", "northM": 22, "eastM": 18, "overMs": 8000 },
+    { "atMs": 40000, "note": "drifts to about 52 m, past the 45 m limit: the plugin raises the alarm", "op": "move", "path": "navigation.position", "northM": 34, "eastM": 40, "overMs": 4000 },
+    { "atMs": 70000, "note": "back inside the limit: the plugin clears the alarm", "op": "move", "path": "navigation.position", "northM": 24, "eastM": 22, "overMs": 6000 },
+    { "atMs": 85000, "note": "anchor raised", "op": "post", "path": "/plugins/hoekens-anchor-alarm/raiseAnchor" }
+  ]
+}

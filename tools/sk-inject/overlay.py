@@ -53,6 +53,29 @@ class Clear:
     path: str
 
 
+@dataclass(frozen=True)
+class Post:
+    """POST to a server plugin path, e.g. /plugins/anchoralarm/dropAnchor (what the displays' buttons do)."""
+    path: str
+    body: Optional[dict]
+
+
+@dataclass(frozen=True)
+class Put:
+    """A Signal K PUT of a value to a spec path, e.g. navigation.anchor.maxRadius."""
+    path: str
+    value: Any
+
+
+@dataclass(frozen=True)
+class Move:
+    """Ramp a position path to an offset in metres from its baseline position (the anchor point)."""
+    path: str
+    north_m: float
+    east_m: float
+    over_ms: float
+
+
 class Overlay:
     def __init__(self, description, duration_ms, profile, with_groups, events):
         self.description = description
@@ -110,6 +133,32 @@ def _action(ev, baseline):
         return Alarm(_path(ev, baseline), ev["state"], ev.get("holdMs"))
     if op == "clear":
         return Clear(_path(ev, baseline))
+    if op == "post":
+        p = ev.get("path")
+        if not isinstance(p, str) or not p.startswith("/plugins/") or ".." in p:
+            raise OverlayError("post: path must be a plugin path such as /plugins/anchoralarm/dropAnchor")
+        body = ev.get("body")
+        if body is not None and not isinstance(body, dict):
+            raise OverlayError("post: body must be an object")
+        return Post(p, body)
+    if op == "put":
+        p = ev.get("path")
+        if not isinstance(p, str) or not p:
+            raise OverlayError("put: needs a path")
+        if p.startswith("notifications."):
+            raise OverlayError(f"{p}: overlays never write notifications.*")
+        if "value" not in ev:
+            raise OverlayError("put: needs a value")
+        return Put(p, ev["value"])
+    if op == "move":
+        p = _path(ev, baseline)
+        row = next(r for r in baseline.rows if r["path"] == p)
+        nominal = row["nominal"]
+        if not (isinstance(nominal, dict) and "latitude" in nominal and "longitude" in nominal):
+            raise OverlayError(f"move: {p} is not a position path")
+        if not all(k in ev for k in ("northM", "eastM", "overMs")):
+            raise OverlayError("move: needs northM, eastM and overMs")
+        return Move(p, float(ev["northM"]), float(ev["eastM"]), ev["overMs"])
     raise OverlayError(f"unknown op {op!r}")
 
 

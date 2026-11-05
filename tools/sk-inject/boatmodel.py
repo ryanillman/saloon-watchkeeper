@@ -2,6 +2,7 @@
 
 Pure logic, no I/O beyond loading baseline.json, so it is unit-tested without a server.
 """
+import copy
 import datetime
 import json
 import math
@@ -51,6 +52,8 @@ def _resolve(nominal: Any, row: dict, path: str, t_ms: float) -> Any:
     if nominal == "$now":
         return datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec="milliseconds").replace("+00:00", "Z")
+    if isinstance(nominal, (dict, list)):
+        return copy.deepcopy(nominal)   # an object value (a position): never share the table's copy
     if not isinstance(nominal, (int, float)) or isinstance(nominal, bool):
         return nominal
     v = nominal + row.get("drift", 0) * (t_ms / 60000.0)

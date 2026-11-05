@@ -3,10 +3,13 @@
 The daemon (boat.py) calls tick() each interval and sends the returned values to Signal K. Alarm
 actions come back to the daemon because they need the server (zones); it then calls drive_to().
 """
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from overlay import Alarm, Clear, GroupOff, GroupOn, Ramp, Set, Silent
+from overlay import Alarm, Clear, GroupOff, GroupOn, Move, Post, Put, Ramp, Set, Silent
+
+M_PER_DEG = 111320.0   # metres per degree of latitude (close enough for a test boat)
 
 
 MANUAL = "manual"   # owner of overrides made from the command line: released only by hold or clear
@@ -34,6 +37,27 @@ def _ramp(t0, start, to, over_ms):
             return to
         frac = 1.0 if over_ms <= 0 else min(1.0, max(0.0, (t - t0) / over_ms))
         return start + (to - start) * frac
+    return fn
+
+
+def _offset_m(pos, nominal):
+    """(north, east) metres of pos from nominal; (0, 0) when pos is not a position (a null, say)."""
+    if not (isinstance(pos, dict) and "latitude" in pos and "longitude" in pos):
+        return 0.0, 0.0
+    lat0 = nominal["latitude"]
+    return ((pos["latitude"] - lat0) * M_PER_DEG,
+            (pos["longitude"] - nominal["longitude"]) * M_PER_DEG * math.cos(math.radians(lat0)))
+
+
+def _move(t0, nominal, start, north_m, east_m, over_ms):
+    lat0, lon0 = nominal["latitude"], nominal["longitude"]
+    cos = math.cos(math.radians(lat0))
+
+    def fn(t):
+        frac = 1.0 if over_ms <= 0 else min(1.0, max(0.0, (t - t0) / over_ms))
+        n = start[0] + (north_m - start[0]) * frac
+        e = start[1] + (east_m - start[1]) * frac
+        return {"latitude": lat0 + n / M_PER_DEG, "longitude": lon0 + e / (M_PER_DEG * cos)}
     return fn
 
 
@@ -102,7 +126,7 @@ class BoatState:
             t = now_ms - r.start_ms
             for a in r.overlay.step(t):
                 msgs.append(f"{t / 1000:5.1f}s  {r.name}: {a}")
-                if isinstance(a, Alarm):
+                if isinstance(a, (Alarm, Post, Put)):   # need the server: handed to the daemon
                     alarms.append((r.owner, a))
                 else:
                     self._apply(r, a, now_ms)
@@ -124,6 +148,11 @@ class BoatState:
         elif isinstance(a, Ramp):
             start = a.start if a.start is not None else self.current(a.path, now_ms)
             self._overrides[a.path] = _Override(r.owner, _ramp(now_ms, start, a.to, a.over_ms))
+        elif isinstance(a, Move):
+            nominal = self.baseline.values(now_ms, self.profile, self.groups_on, {})[a.path]
+            start = _offset_m(self.current(a.path, now_ms), nominal)
+            self._overrides[a.path] = _Override(
+                r.owner, _move(now_ms, nominal, start, a.north_m, a.east_m, a.over_ms))
         elif isinstance(a, Silent):
             self._silent[a.path] = r.owner
         elif isinstance(a, GroupOff):

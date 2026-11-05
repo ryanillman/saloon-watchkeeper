@@ -3,9 +3,23 @@ import unittest
 import _path  # noqa: F401
 from boatmodel import load_baseline
 from boatstate import BoatState
-from overlay import Alarm, parse_overlay
+import math
+
+from overlay import Alarm, Post, Put, parse_overlay
 
 B = load_baseline(_path.SKDIR / "baseline.json")
+POS = "navigation.position"
+M_PER_DEG = 111320.0
+
+
+def _north_m(p, lat0):
+    return (p["latitude"] - lat0) * M_PER_DEG
+
+
+def _east_m(p, lat0, lon0):
+    return (p["longitude"] - lon0) * M_PER_DEG * math.cos(math.radians(lat0))
+
+
 RPM = "propulsion.port.revolutions"
 TEMP = "propulsion.port.temperature"
 FUEL = "tanks.fuel.0.currentLevel"
@@ -128,6 +142,51 @@ class BoatStateTests(unittest.TestCase):
         self.assertFalse(s.drive_to(owner, TEMP, 380.0, 10500, ramp_ms=0, hold_ms=None))
         self.assertNotEqual(s.tick(11000)[0][TEMP], 380.0)
         self.assertTrue(s.drive_to("manual", TEMP, 380.0, 11000, ramp_ms=0, hold_ms=None))
+
+    def test_move_ramps_position_offset_from_the_baseline(self):
+        s = BoatState(B)
+        s.start_overlay("t", ov({"atMs": 0, "op": "move", "path": POS,
+                                 "northM": 100, "eastM": 0, "overMs": 10000}), 0)
+        lat0, lon0 = base(s, 0)[POS]["latitude"], base(s, 0)[POS]["longitude"]
+        p = s.tick(0)[0][POS]
+        self.assertAlmostEqual(p["latitude"], lat0, places=9)
+        p = s.tick(5000)[0][POS]
+        self.assertAlmostEqual(_north_m(p, lat0), 50.0, places=3)
+        self.assertAlmostEqual(_east_m(p, lat0, lon0), 0.0, places=3)
+        p = s.tick(9999)[0][POS]
+        self.assertAlmostEqual(_north_m(p, lat0), 100.0, delta=0.05)
+
+    def test_second_move_starts_where_the_first_left_off(self):
+        s = BoatState(B)
+        s.start_overlay("t", ov(
+            {"atMs": 0, "op": "move", "path": POS, "northM": 100, "eastM": 0, "overMs": 1000},
+            {"atMs": 2000, "op": "move", "path": POS, "northM": 100, "eastM": 60, "overMs": 4000},
+            durationMs=20000), 0)
+        lat0, lon0 = base(s, 0)[POS]["latitude"], base(s, 0)[POS]["longitude"]
+        for t in (0, 1000, 2000, 3000):                          # the daemon ticks every second
+            s.tick(t)
+        p = s.tick(4000)[0][POS]                                 # halfway through the second move
+        self.assertAlmostEqual(_north_m(p, lat0), 100.0, places=3)
+        self.assertAlmostEqual(_east_m(p, lat0, lon0), 30.0, places=3)
+
+    def test_position_returns_to_the_baseline_when_the_overlay_ends(self):
+        s = BoatState(B)
+        s.start_overlay("t", ov({"atMs": 0, "op": "move", "path": POS,
+                                 "northM": 100, "eastM": 0, "overMs": 1000}), 0)
+        lat0 = base(s, 0)[POS]["latitude"]
+        s.tick(0)
+        self.assertGreater(_north_m(s.tick(5000)[0][POS], lat0), 99)
+        self.assertAlmostEqual(_north_m(s.tick(10000)[0][POS], lat0), 0.0, places=6)
+
+    def test_requests_are_returned_for_the_daemon(self):
+        s = BoatState(B)
+        s.start_overlay("t", ov(
+            {"atMs": 1000, "op": "post", "path": "/plugins/anchoralarm/dropAnchor", "body": {"radius": 45}},
+            {"atMs": 1000, "op": "put", "path": "navigation.anchor.maxRadius", "value": 45}), 0)
+        self.assertEqual(s.tick(500)[1], [])
+        got = [a for _, a in s.tick(1000)[1]]
+        self.assertEqual(got, [Post("/plugins/anchoralarm/dropAnchor", {"radius": 45}),
+                               Put("navigation.anchor.maxRadius", 45)])
 
     def test_manual_drive_without_overlay(self):
         s = BoatState(B)

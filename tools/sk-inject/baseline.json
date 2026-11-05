@@ -59,6 +59,7 @@
 
     {"path": "navigation.datetime", "group": "nav", "nominal": "$now"},
     {"path": "environment.mode", "group": "nav", "nominal": "day"},
+    {"path": "navigation.position", "group": "nav", "nominal": {"latitude": 48.5343, "longitude": -123.0170}},
 
     {"path": "electrical.venus.dcPower", "group": "venus-system", "nominal": 150, "wobble": 10},
 

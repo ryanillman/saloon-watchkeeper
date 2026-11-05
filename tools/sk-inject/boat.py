@@ -20,10 +20,11 @@ import websockets
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # python -I leaves the script dir off the path
 import control  # noqa: E402
+import skhttp  # noqa: E402
 import zones  # noqa: E402
 from boatmodel import load_baseline  # noqa: E402
 from boatstate import MANUAL, BoatState  # noqa: E402
-from overlay import Alarm, OverlayError, parse_overlay  # noqa: E402
+from overlay import Alarm, OverlayError, Post, parse_overlay  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 TOKEN_FILE = HERE / ".token"
@@ -93,7 +94,7 @@ class Boat:
             for m in msgs:
                 self.log(m)
             for owner, a in alarms:
-                self.spawn(self.alarm(owner, a))
+                self.spawn(self.alarm(owner, a) if isinstance(a, Alarm) else self.request(a))
             await self.send({
                 "context": "vessels.self",
                 "updates": [{"source": {"label": "sk-inject"},
@@ -108,6 +109,22 @@ class Boat:
         t = asyncio.create_task(coro)
         self._tasks.add(t)
         t.add_done_callback(self._tasks.discard)
+
+    # -- requests: what a display's buttons do (drop or raise an anchor, set its radius) ---
+    async def request(self, a):
+        """Send a POST or PUT from an overlay. Best effort: a failure is logged, the overlay carries on."""
+        if isinstance(a, Post):
+            what, call = f"POST {a.path}", (skhttp.post_json, a.path, a.body)
+        else:
+            what, call = f"PUT {a.path}={a.value}", (skhttp.put_value, a.path, a.value)
+        fn, *args = call
+        try:
+            status, body = await asyncio.to_thread(fn, self.server, self.token, *args)
+        except OSError as e:
+            self.log(f"{what}: failed ({e})")
+            return
+        note = "" if 200 <= status < 300 else f"  {' '.join(body.split())[:120]}"
+        self.log(f"{what}: HTTP {status}{note}")
 
     # -- alarms: let the server do the alarming ---------------------------------------
     async def alarm(self, owner, a: Alarm):
