@@ -116,6 +116,19 @@ static void store_value(const char *path, const cJSON *v, int64_t now, int64_t s
     store_notification(path, v, now);
     return;
   }
+  if (!strcmp(path, "environment.current")) {   // set and drift arrive as one object ({setTrue, drift}); the page reads two numbers
+    static const char *const leaf[] = {"environment.current.setTrue", "environment.current.drift"};
+    static const char *const member[] = {"setTrue", "drift"};
+    for (int i = 0; i < 2; i++) {
+      bd_id_t lid = bd_intern(leaf[i]);
+      if (lid == BD_NONE) continue;
+      const cJSON *m = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, member[i]) : NULL;
+      bd_set_number(lid, cJSON_IsNumber(m) ? m->valuedouble : NAN, SK_SOURCE_ID, now);
+      if (src_s) bd_set_source_time(lid, src_s);
+    }
+    bd_intern(path);   // the parent id stays known: it is the id the displays subscribe by
+    return;
+  }
   bd_id_t id = bd_intern(path);
   if (id == BD_NONE) return;
   if (cJSON_IsNumber(v)) {
