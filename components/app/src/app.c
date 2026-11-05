@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "alerts.h"
+#include "anchor_ctl.h"
+#include "anchor_profile.h"
+#include "anchor_watch.h"
 #include "boatdata.h"
 #include "glance_page.h"
 #include "history.h"
@@ -11,6 +14,7 @@
 #include "role.h"
 #include "sk_access.h"
 #include "sk_client.h"
+#include "sk_cmd.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
 #include "ui_clock.h"
@@ -119,6 +123,51 @@ static void start_writer(void) {
   if (!w.started) fprintf(stderr, "config: cannot start the writer task; changes will not be saved\n");
 }
 
+// ---- the Anchor role ----
+
+static anchor_watch_t anchor_watch;   // the boot-restore check and the watch-lost alarm; ticks whenever the role is configured
+
+static bool has_anchor_role(void) {
+  for (uint8_t i = 0; i < a.cfg.role_count; i++)
+    if (!strcmp(a.cfg.roles[i].role, "anchor")) return true;
+  return false;
+}
+
+static uint16_t anchor_submit(const anchor_cmd_t *c, bool replaces_same_path) {
+  sk_cmd_t k = {.put_number = c->put_number, .value = c->value};
+  snprintf(k.path, sizeof k.path, "%s", c->path);
+  snprintf(k.body, sizeof k.body, "%s", c->body);
+  return sk_cmd_submit(&k, replaces_same_path, platform_millis());
+}
+
+static int anchor_result(uint16_t handle) {
+  sk_cmd_result_t r = sk_cmd_result(handle);
+  if (r.state == SKC_PENDING) return ANCHOR_RES_PENDING;
+  if (r.state == SKC_OK) return ANCHOR_RES_OK;
+  switch (r.err) {
+    case SKC_ERR_OFFLINE: return ANCHOR_RES_OFFLINE;
+    case SKC_ERR_NO_ACCESS: return ANCHOR_RES_NO_ACCESS;
+    case SKC_ERR_NO_PLUGIN: return ANCHOR_RES_NO_PLUGIN;
+    default: return ANCHOR_RES_REJECTED;
+  }
+}
+
+static const anchor_ops_t anchor_ops = {anchor_submit, anchor_result};
+
+// (Re)starts the page's controller with the configured plugin; an unknown name (a hand-built config) means Hoeken.
+static void anchor_setup(void) {
+  anchor_plugin_t p = ANCHOR_PLUGIN_HOEKEN;
+  anchor_plugin_from_name(a.cfg.anchor_plugin, &p);
+  anchor_ctl_setup(&anchor_ops, p, &anchor_watch, a.dir[0] ? a.dir : NULL, &a.cfg.units);
+}
+
+static void anchor_tick(int64_t now) {
+  if (!has_anchor_role()) return;
+  anchor_view_t v;
+  anchor_build_view(now, &v, NULL, 0);   // the watch needs only the mode, not the track
+  anchor_watch_tick(&anchor_watch, &v, alerts_source_is_up(), now, a.dir[0] ? a.dir : NULL);
+}
+
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
   alerts_init();
@@ -146,6 +195,9 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
     cfg_defaults(&a.cfg);
     memset(report, 0, sizeof *report);
   }
+  sk_cmd_init();
+  anchor_watch_init(&anchor_watch, a.dir[0] ? a.dir : NULL, platform_millis(), 60000);
+  anchor_setup();
   return &a.cfg;
 }
 
@@ -175,7 +227,7 @@ static void refresh(void *ctx) {
   if (r->def) r->def->refresh(&r->binding, platform_millis());
 }
 
-static size_t bound_ids(sk_sub_t *out, size_t max) {
+size_t app_bound_ids(sk_sub_t *out, size_t max) {
   size_t n = 0;
   for (uint8_t i = 0; i < a.count; i++) {
     role_binding_t *b = &a.roles[i].binding;
@@ -197,6 +249,13 @@ static size_t bound_ids(sk_sub_t *out, size_t max) {
   if (!strcmp(a.cfg.palette, "auto") && n < max) {   // the auto palette follows environment.mode
     bd_id_t mode = bd_intern("environment.mode");
     if (mode != BD_NONE) out[n++] = (sk_sub_t){mode, 0};
+  }
+  if (has_anchor_role()) {
+    anchor_ids_t ids;
+    anchor_ids_bind(&ids);
+    bd_id_t anchor_ids[8];
+    size_t na = anchor_sub_ids(&ids, anchor_ids, 8);
+    for (size_t i = 0; i < na && n < max; i++) out[n++] = (sk_sub_t){anchor_ids[i], 0};
   }
   bd_id_t when = bd_intern("navigation.datetime");   // the strip's clock; it runs on its own between updates
   if (when != BD_NONE && n < max) out[n++] = (sk_sub_t){when, 0};   // on change (about 1 Hz from a GPS): none while the GPS is off
@@ -263,7 +322,7 @@ static void apply_backlight(void) {
 static void rebind_subs(void) {
   if (!a.network) return;
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
-  sk_client_rebind(ids, bound_ids(ids, 256));
+  sk_client_rebind(ids, app_bound_ids(ids, 256));
 }
 
 static void apply_palette(void) {
@@ -542,7 +601,7 @@ void app_start_network(void) {
   prefixes[n_prefix] = NULL;
   sk_parse_set_discovery_prefixes(prefixes);
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
-  size_t n = bound_ids(ids, 256);
+  size_t n = app_bound_ids(ids, 256);
   sk_client_init(&a.cfg.sk, ids, n);
   start_access();
   sk_client_start();
@@ -587,7 +646,9 @@ unsigned app_apply_config(const cfg_t *next) {
   bool wifi = strcmp(a.cfg.wifi.ssid, next->wifi.ssid) || strcmp(a.cfg.wifi.password, next->wifi.password);
   bool was_auto = !strcmp(a.cfg.palette, "auto");
   uint8_t old_count = a.count;
+  bool anchor_plugin = strcmp(a.cfg.anchor_plugin, next->anchor_plugin) != 0;
   a.cfg = *next;
+  if (anchor_plugin) anchor_setup();
   if (display) {
     did |= APPLY_DISPLAY;
     apply_backlight();
@@ -701,7 +762,7 @@ void app_tick(void) {
       }
       if (inst || fuel_new) {   // fuel tanks are not an engine instance, but the dial reads them
         PLATFORM_EXT_BSS static sk_sub_t ids[256];
-        sk_client_rebind(ids, bound_ids(ids, 256));
+        sk_client_rebind(ids, app_bound_ids(ids, 256));
       }
     }
     switch (sk_client_state()) {
@@ -714,6 +775,7 @@ void app_tick(void) {
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   update_clock(platform_millis());
   hist_tick(platform_millis());
+  anchor_tick(platform_millis());
   ui_shell_refresh();
   ui_setup_tick();
 

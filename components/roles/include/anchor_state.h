@@ -17,6 +17,7 @@ typedef struct {
 typedef struct {
   anchor_mode_t mode;
   double distance_m, limit_m, warn_m, bearing_rad, max_m, rode_m;   // NAN when unknown; bearing is vessel to anchor, true
+  bool server_none;      // the live server explicitly reports no anchor (position null), whatever the mode: the boot check reads this
   bool circle;           // false for a sector or polygon watch zone (the radius cannot be adjusted)
   char zone[8];          // the zone's shape when published: "circle", "sector", "polygon"; "" when not
   int64_t set_ago_s;     // seconds from the anchor being set to the latest update (server clock); -1 unknown

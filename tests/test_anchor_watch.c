@@ -200,12 +200,28 @@ static void test_write_failure_turns_off_the_sd_flag(void) {
   TEST_ASSERT_FALSE(w.have_sd);
 }
 
+static void test_restoring_view_with_server_none_alarms_at_once(void) {
+  arm_on_disk(30);
+  anchor_watch_init(&w, dir, 0, 60000);
+  anchor_view_t v = view(AM_RESTORING, 0);   // what the page sees while it waits
+  v.server_none = true;                       // but the live server has said it has no anchor
+  anchor_watch_tick(&w, &v, true, 5000, dir);
+  TEST_ASSERT_TRUE(alarm_up("NOT RESTORED"));
+  v.server_none = false;
+  anchor_watch_init(&w, dir, 0, 60000);
+  alerts_clear(WATCH_ID);
+  anchor_watch_tick(&w, &v, true, 5000, dir);   // no report yet: keeps waiting
+  alert_t a;
+  TEST_ASSERT_FALSE(alerts_get(WATCH_ID, &a));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_not_armed_no_alert);
   RUN_TEST(test_armed_boot_server_reports_none_raises_not_restored);
   RUN_TEST(test_armed_boot_no_data_for_120s_raises_not_restored);
   RUN_TEST(test_restart_gap_does_not_alarm_while_restoring);
+  RUN_TEST(test_restoring_view_with_server_none_alarms_at_once);
   RUN_TEST(test_armed_boot_restored_clears_and_keeps_record);
   RUN_TEST(test_ack_leaves_record_armed);
   RUN_TEST(test_user_clear_disarms_and_writes);

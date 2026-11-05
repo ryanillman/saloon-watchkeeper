@@ -48,7 +48,7 @@ static void clear_alert(anchor_watch_t *w) {
 void anchor_watch_tick(anchor_watch_t *w, const anchor_view_t *v, bool source_live, int64_t now_ms, const char *dir) {
   bool restored = v->mode == AM_HOLDING || v->mode == AM_WARN || v->mode == AM_DRAGGING;   // position, limit and distance
   bool set_fresh = restored || v->mode == AM_NO_LIMIT;
-  bool none = v->mode == AM_NOT_SET && source_live;   // the server, live, says there is no anchor
+  bool none = (v->mode == AM_NOT_SET || v->server_none) && source_live;   // the server, live, says there is no anchor
   bool stale = v->mode == AM_NO_DATA;
 
   if (w->restoring) {

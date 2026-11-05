@@ -41,6 +41,7 @@ bi_test(test_ui_setup ui alerts config)
 bi_test(test_ui_quick ui alerts)
 bi_test(test_app_palette app boatdata config platform)
 bi_test(test_app_apply app boatdata config platform alerts ui)
+bi_test(test_app_anchor app boatdata config platform alerts ui)
 bi_test(test_app_cmd app boatdata config platform alerts ui)
 
 add_test(NAME snapshot_smoke

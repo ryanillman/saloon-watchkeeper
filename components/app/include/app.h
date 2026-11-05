@@ -3,10 +3,15 @@
 #include "config.h"
 #include "lvgl.h"
 #include "platform.h"
+#include "sk_parse.h"
 #include "ui_theme.h"
 
 // Clears boatdata and loads config from dir (NULL = defaults). Returns the config.
 const cfg_t *app_init(const char *config_dir, cfg_report_t *report);
+
+// The paths to subscribe to: every bound role slot, the extras the pages read, and the Anchor role's paths when it is
+// configured. Written to out (at most max); returns how many.
+size_t app_bound_ids(sk_sub_t *out, size_t max);
 
 // Binds every configured role against what boatdata knows now.
 void app_bind(void);

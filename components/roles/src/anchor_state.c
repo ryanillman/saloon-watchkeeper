@@ -63,6 +63,7 @@ void anchor_view_build(const anchor_ids_t *ids, bool restoring, bool source_live
     snprintf(out->zone, sizeof out->zone, "%.7s", zone.text);   // circle, sector, polygon
     out->circle = !strcmp(zone.text, "circle");
   }
+  out->server_none = source_live && !have_pos && pos.rx_ms != 0;   // a null arrived (an invalidated sample keeps its time too, but only a live server counts)
   if (have_dist) out->distance_m = dist.num;
   if (have_bearing) out->bearing_rad = bearing.num;
   if (have_limit) out->limit_m = limit.num;
