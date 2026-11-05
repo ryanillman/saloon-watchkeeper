@@ -419,6 +419,8 @@ static void test_navigation_tile_no_wind_is_no_data(void) {
   tile();
   TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
   TEST_ASSERT_EQUAL_STRING("", t.headline);
+  // The page makes its trend chart only when the tile names a trend while it is built, and the wind may arrive later.
+  TEST_ASSERT_EQUAL_UINT16(bd_find("environment.wind.speedApparent"), t.trend);
 }
 
 static void test_navigation_tile_stale_wind_is_no_data(void) {

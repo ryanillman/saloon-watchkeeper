@@ -16,13 +16,13 @@ void navigation_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out
   nav_view_t v;
   nav_view_build(&ids, now_ms, &v);
   bool server = v.tw_src == NAV_TW_SERVER;
+  bd_id_t id = server ? ids.tw_speed : ids.aws;
+  out->trend = id;   // named even with no wind yet: the page builds the chart only if the tile has a trend at that moment
   if (!server && !v.have_aws) {
     glance_tile_state(out, GT_NO_DATA);
     return;
   }
-  bd_id_t id = server ? ids.tw_speed : ids.aws;
   glance_tile_state(out, glance_path_state(id, 5000, now_ms));
-  out->trend = id;
   const cfg_units_t *u = b->units;
   snprintf(out->headline, sizeof out->headline, "%.0f", units_from_si(Q_SPEED, server ? v.tws : v.aws, u));
   snprintf(out->unit, sizeof out->unit, "%s", units_label(Q_SPEED, u));
