@@ -361,6 +361,13 @@ static void test_source_alert_still_cleared_on_source_down(void) {
   TEST_ASSERT_EQUAL(0, s.count);
 }
 
+static void test_source_is_up_reflects_the_flag(void) {
+  alerts_source_up(false);
+  TEST_ASSERT_FALSE(alerts_source_is_up());
+  alerts_source_up(true);
+  TEST_ASSERT_TRUE(alerts_source_is_up());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_upsert_and_clear);
@@ -389,5 +396,6 @@ int main(void) {
   RUN_TEST(test_local_alert_cleared_by_clear);
   RUN_TEST(test_local_alert_counts_in_buzzer);
   RUN_TEST(test_source_alert_still_cleared_on_source_down);
+  RUN_TEST(test_source_is_up_reflects_the_flag);
   return UNITY_END();
 }
