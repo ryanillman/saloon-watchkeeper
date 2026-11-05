@@ -51,3 +51,8 @@ bi_test(test_ui_shell_gesture ui)
 
 add_test(NAME bi_component_idf
   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_bi_component_idf.cmake)
+
+# The sk-inject boat (tools/sk-inject): pure-Python tests, no Signal K server needed. The system
+# Python, as tools/scenario.sh uses: the IDF virtualenv may be first on PATH.
+add_test(NAME sk_inject_py
+  COMMAND /usr/bin/python3 -W error -I -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/sk_inject)
