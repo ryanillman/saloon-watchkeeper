@@ -3,14 +3,14 @@ import unittest
 
 import _path  # noqa: F401
 from boatmodel import load_baseline
-from overlay import Alarm, parse_overlay
+from overlay import Alarm, Post, parse_overlay
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 DIR = _path.SKDIR / "overlays"
 NAMES = {
     "alarm-coolant", "alarm-fuel-low", "controller-dropout", "coolant-null", "glance-mixed",
     "key-off", "rpm-pickup-fails", "tanks", "three-bank", "two-engines", "victron-power",
-    "warn-tank-low",
+    "warn-tank-low", "anchor-holding", "anchor-holding-anchoralarm",
 }
 
 
@@ -43,6 +43,30 @@ class OverlaysValid(unittest.TestCase):
             ov = parse_overlay(load(name), B)
             acts = ov.step(10 ** 9)
             self.assertIn(Alarm(path, state, None), acts, name)
+
+    def test_anchor_overlays_let_the_plugin_do_the_alarming(self):
+        # the anchor plugins raise the alarm from the position; the overlay only sets up and moves the boat
+        import math
+        for name, drop in (("anchor-holding", "/plugins/hoekens-anchor-alarm/dropAnchor"),
+                           ("anchor-holding-anchoralarm", "/plugins/anchoralarm/dropAnchor")):
+            with self.subTest(overlay=name):
+                ov = parse_overlay(load(name), B)
+                # an anchored boat has its engines off: Hoeken (enableEngineCheck) drops its watch otherwise
+                self.assertEqual(ov.profile, "anchor")
+                acts = ov.step(10 ** 9)
+                self.assertTrue(any(isinstance(a, Post) and a.path == drop for a in acts))
+                # only the commanded plugin may watch: the other one's anchor is cleared first
+                other = "/plugins/anchoralarm/raiseAnchor" if "hoeken" in drop else "/plugins/hoekens-anchor-alarm/raiseAnchor"
+                self.assertIn(Post(other, None), acts)
+                self.assertFalse(any(isinstance(a, Alarm) for a in acts))
+                evs = [(e["atMs"], e) for e in load(name)["after"] if e["op"] == "move"]
+                dist = lambda e: math.hypot(e["northM"], e["eastM"])        # noqa: E731
+                before = [dist(e) for t, e in evs if t < 40000]
+                self.assertTrue(before and all(10 < d < 45 for d in before), "swings stay inside 45 m")
+                at40 = [dist(e) for t, e in evs if t == 40000]
+                self.assertTrue(at40 and at40[0] > 45, "drifts past the limit at 40 s")
+                at70 = [dist(e) for t, e in evs if t == 70000]
+                self.assertTrue(at70 and at70[0] < 45, "back inside at 70 s")
 
     def test_three_bank_enables_its_group(self):
         self.assertEqual(parse_overlay(load("three-bank"), B).with_groups, {"three-bank"})
