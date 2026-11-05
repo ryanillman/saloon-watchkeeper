@@ -270,6 +270,29 @@ static void test_other_objects_still_invalid(void) {
   TEST_ASSERT_FALSE(get("a.b").valid);
 }
 
+static void test_environment_current_is_flattened(void) {
+  feed("{\"updates\":[{\"values\":[{\"path\":\"environment.current\",\"value\":{\"setTrue\":2.4,\"drift\":0.62}}]}]}");
+  bd_sample_t set = get("environment.current.setTrue"), drift = get("environment.current.drift");
+  TEST_ASSERT_TRUE(set.valid);
+  TEST_ASSERT_EQUAL_DOUBLE(2.4, set.num);
+  TEST_ASSERT_EQUAL_UINT8(SK_SOURCE_ID, set.source);
+  TEST_ASSERT_TRUE(drift.valid);
+  TEST_ASSERT_EQUAL_DOUBLE(0.62, drift.num);
+}
+
+static void test_environment_current_null_invalidates_both(void) {
+  feed("{\"updates\":[{\"values\":[{\"path\":\"environment.current\",\"value\":{\"setTrue\":2.4,\"drift\":0.62}}]}]}");
+  feed("{\"updates\":[{\"values\":[{\"path\":\"environment.current\",\"value\":null}]}]}");
+  TEST_ASSERT_FALSE(get("environment.current.setTrue").valid);
+  TEST_ASSERT_FALSE(get("environment.current.drift").valid);
+}
+
+static void test_environment_current_partial(void) {
+  feed("{\"updates\":[{\"values\":[{\"path\":\"environment.current\",\"value\":{\"drift\":0.5}}]}]}");
+  TEST_ASSERT_TRUE(get("environment.current.drift").valid);
+  TEST_ASSERT_FALSE(get("environment.current.setTrue").valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_delta_number);
@@ -301,5 +324,8 @@ int main(void) {
   RUN_TEST(test_delta_timestamp_kept);
   RUN_TEST(test_anchor_watchzone_type_stored_as_text);
   RUN_TEST(test_other_objects_still_invalid);
+  RUN_TEST(test_environment_current_is_flattened);
+  RUN_TEST(test_environment_current_null_invalidates_both);
+  RUN_TEST(test_environment_current_partial);
   return UNITY_END();
 }
