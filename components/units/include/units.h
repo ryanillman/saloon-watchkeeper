@@ -5,7 +5,7 @@
 typedef enum {
   Q_TEMPERATURE, Q_PRESSURE, Q_VOLUME, Q_SPEED, Q_DISTANCE, Q_ROTATION,
   Q_VOLTAGE, Q_CURRENT, Q_RATIO, Q_DURATION, Q_FLOW, Q_POWER,
-  Q_DEPTH,   // water depth and tide height: feet when the distance unit is ft, otherwise metres (never nautical miles)
+  Q_DEPTH,   // water depth and tide height: feet when the depth unit is ft, otherwise metres
   Q_NONE
 } quantity_t;
 

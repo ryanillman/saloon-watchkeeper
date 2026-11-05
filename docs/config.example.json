@@ -4,7 +4,7 @@
   "sources": {
     "signalk": { "host": "auto", "port": 3000 }
   },
-  "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm" },
+  "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm", "depth": "ft" },
   "display": { "palette": "day", "brightness": 80, "utc_offset_min": 0, "start_role": "glance" },
   "anchor": { "plugin": "hoekens-anchor-alarm" },
   "roles": [

@@ -33,7 +33,8 @@
         "pressure": { "enum": ["bar", "psi", "kPa"], "default": "bar" },
         "volume": { "enum": ["L", "gal"], "default": "L" },
         "speed": { "enum": ["kn", "m/s", "km/h"], "default": "kn" },
-        "distance": { "enum": ["nm", "m", "ft"], "default": "nm" }
+        "distance": { "enum": ["nm", "mi", "km"], "default": "nm" },
+        "depth": { "enum": ["ft", "m"], "default": "m" }
       }
     },
     "display": {
