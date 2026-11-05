@@ -1,0 +1,55 @@
+{
+  "description": "Default zone sets for paths with none, matched by fnmatch on the path, first match wins. Written as Signal K meta, so a state's methods are <state>Method. SI units. Zone bounds are lower-inclusive, upper-exclusive; each set is contiguous.",
+  "methods": {
+    "alertMethod": ["visual"],
+    "warnMethod": ["visual"],
+    "alarmMethod": ["visual", "sound"],
+    "emergencyMethod": ["visual", "sound"]
+  },
+  "kinds": [
+    {"pattern": "propulsion.*.temperature", "zones": [
+      {"lower": 250, "upper": 368.15, "state": "nominal", "message": ""},
+      {"lower": 368.15, "upper": 373.15, "state": "alert", "message": "Coolant temperature rising"},
+      {"lower": 373.15, "upper": 450, "state": "alarm", "message": "Coolant high"}]},
+    {"pattern": "propulsion.*.oilPressure", "zones": [
+      {"lower": 0, "upper": 70000, "state": "emergency", "message": "Oil pressure low"},
+      {"lower": 70000, "upper": 600000, "state": "nominal", "message": ""},
+      {"lower": 600000, "upper": 1000000, "state": "alarm", "message": "Oil pressure high"}]},
+    {"pattern": "propulsion.*.revolutions", "zones": [
+      {"lower": 0, "upper": 58, "state": "nominal", "message": ""},
+      {"lower": 58, "upper": 66, "state": "alert", "message": "Engine speed high"},
+      {"lower": 66, "upper": 100, "state": "alarm", "message": "Engine overspeed"}]},
+    {"pattern": "propulsion.*.alternatorVoltage", "zones": [
+      {"lower": 0, "upper": 15.0, "state": "nominal", "message": ""},
+      {"lower": 15.0, "upper": 15.5, "state": "alert", "message": "Alternator voltage high"},
+      {"lower": 15.5, "upper": 20, "state": "alarm", "message": "Alternator overvoltage"}]},
+    {"pattern": "tanks.fuel.*.currentLevel", "zones": [
+      {"lower": 0, "upper": 0.1, "state": "emergency", "message": "Fuel very low"},
+      {"lower": 0.1, "upper": 0.2, "state": "alarm", "message": "Fuel low"},
+      {"lower": 0.2, "upper": 0.3, "state": "alert", "message": "Fuel getting low"},
+      {"lower": 0.3, "upper": 1.01, "state": "nominal", "message": ""}]},
+    {"pattern": "tanks.freshWater.*.currentLevel", "zones": [
+      {"lower": 0, "upper": 0.05, "state": "alarm", "message": "Fresh water empty"},
+      {"lower": 0.05, "upper": 0.15, "state": "warn", "message": "Fresh water low"},
+      {"lower": 0.15, "upper": 1.01, "state": "nominal", "message": ""}]},
+    {"pattern": "tanks.blackWater.*.currentLevel", "zones": [
+      {"lower": 0, "upper": 0.65, "state": "nominal", "message": ""},
+      {"lower": 0.65, "upper": 0.85, "state": "alert", "message": "Black water high"},
+      {"lower": 0.85, "upper": 0.9, "state": "warn", "message": "Black water very high"},
+      {"lower": 0.9, "upper": 1.01, "state": "emergency", "message": "Black water full"}]},
+    {"pattern": "tanks.wasteWater.*.currentLevel", "zones": [
+      {"lower": 0, "upper": 0.65, "state": "nominal", "message": ""},
+      {"lower": 0.65, "upper": 0.85, "state": "alert", "message": "Grey water high"},
+      {"lower": 0.85, "upper": 0.9, "state": "warn", "message": "Grey water very high"},
+      {"lower": 0.9, "upper": 1.01, "state": "emergency", "message": "Grey water full"}]},
+    {"pattern": "electrical.batteries.*.capacity.stateOfCharge", "zones": [
+      {"lower": 0, "upper": 0.1, "state": "alarm", "message": "Battery very low"},
+      {"lower": 0.1, "upper": 0.2, "state": "warn", "message": "Battery low"},
+      {"lower": 0.2, "upper": 1.01, "state": "nominal", "message": ""}]},
+    {"pattern": "electrical.batteries.*.voltage", "zones": [
+      {"lower": 0, "upper": 11.5, "state": "alarm", "message": "Battery voltage low"},
+      {"lower": 11.5, "upper": 12.0, "state": "warn", "message": "Battery voltage getting low"},
+      {"lower": 12.0, "upper": 15.0, "state": "nominal", "message": ""},
+      {"lower": 15.0, "upper": 20, "state": "alarm", "message": "Battery voltage high"}]}
+  ]
+}
