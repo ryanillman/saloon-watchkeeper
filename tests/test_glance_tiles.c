@@ -6,6 +6,7 @@
 #include "anchor_ctl.h"
 #include "anchor_watch.h"
 #include "boatdata.h"
+#include "depth_state.h"
 #include "history.h"
 #include "nav_state.h"
 #include "role.h"
@@ -458,6 +459,157 @@ static void test_navigation_tile_alert_state(void) {
   TEST_ASSERT_EQUAL(GT_WARN, t.state);
 }
 
+// ---- depth and tide ----
+
+#define T_1200 1793793600LL   // 2026-11-04T12:00:00Z
+static void text(const char *path, const char *s) { bd_set_text(bd_intern(path), s, 1, NOW); }
+static void server_clock(int64_t epoch_s) {
+  bd_id_t id = bd_intern("navigation.datetime");
+  text("navigation.datetime", "2026-11-04T12:00:00.000Z");
+  bd_set_source_time(id, epoch_s);
+}
+static void tide(double now_m, const char *high, const char *low) {
+  if (now_m >= 0) num("environment.tide.heightNow", now_m);
+  if (high) text("environment.tide.timeHigh", high);
+  if (low) text("environment.tide.timeLow", low);
+  server_clock(T_1200);
+}
+
+static void test_depth_tile_shows_the_depth_and_what_it_is_below(void) {
+  num("environment.depth.belowKeel", 2.4);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("DEPTH", t.title);
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_STRING("2.4", t.headline);
+  TEST_ASSERT_EQUAL_STRING("m", t.unit);
+  TEST_ASSERT_EQUAL_STRING("BELOW KEEL", t.context[0]);
+  TEST_ASSERT_EQUAL_STRING("", t.context[1]);   // no tide data: nothing about tide
+  TEST_ASSERT_EQUAL(BD_NONE, t.trend);   // history follows one fixed path and the reading shown can change reference
+}
+
+static void test_depth_prefers_the_transducer_and_says_so(void) {
+  num("environment.depth.belowTransducer", 3.0);
+  num("environment.depth.belowKeel", 2.4);
+  num("environment.depth.belowSurface", 3.6);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("3.0", t.headline);
+  TEST_ASSERT_EQUAL_STRING("BELOW TRANSDUCER", t.context[0]);
+}
+
+static void test_depth_falls_back_when_the_preferred_reading_goes_stale_and_names_the_new_one(void) {
+  bd_set_number(bd_intern("environment.depth.belowTransducer"), 3.0, 1, NOW - DEPTH_MAX_AGE_MS - 1);
+  num("environment.depth.belowSurface", 3.6);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("3.6", t.headline);
+  TEST_ASSERT_EQUAL_STRING("BELOW SURFACE", t.context[0]);
+}
+
+static void test_depth_with_no_fresh_reading_is_no_data_and_shows_no_number(void) {
+  bd_set_number(bd_intern("environment.depth.belowKeel"), 2.4, 1, NOW - DEPTH_MAX_AGE_MS - 1);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("NO DATA", t.word);
+  TEST_ASSERT_EQUAL_STRING("", t.headline);
+  TEST_ASSERT_EQUAL_STRING("", t.context[0]);
+}
+
+static void test_depth_with_nothing_bound_is_no_data(void) {
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("", t.headline);
+}
+
+static void test_depth_drops_the_decimal_when_deep_and_converts_to_feet(void) {
+  num("environment.depth.belowKeel", 123.4);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("123", t.headline);
+  num("environment.depth.belowKeel", 3.0);
+  strcpy(cfg.units.distance, "ft");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("9.8", t.headline);
+  TEST_ASSERT_EQUAL_STRING("ft", t.unit);
+}
+
+static void test_depth_state_follows_zones_and_alerts_on_the_path_shown(void) {
+  bd_id_t id = num("environment.depth.belowKeel", 1.5);
+  zone(id, 0, 2, AL_WARN);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);
+  num("environment.depth.belowKeel", 5.0);
+  tile();
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  alarm_on("environment.depth.belowKeel");
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+}
+
+static void test_a_depth_alarm_outranks_no_data(void) {
+  bd_set_number(bd_intern("environment.depth.belowKeel"), 0.8, 1, NOW - DEPTH_MAX_AGE_MS - 1);   // the sounder has gone quiet
+  alarm_on("environment.depth.belowKeel");
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+  TEST_ASSERT_EQUAL_STRING("", t.headline);   // but a stale number is still not shown
+}
+
+static void test_tide_rising_and_falling_with_the_next_event(void) {
+  depth_set_utc_offset(0);
+  num("environment.depth.belowKeel", 2.4);
+  tide(1.8, "2026-11-04T14:32:00.000Z", "2026-11-04T20:50:00.000Z");
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("RISING 1.8 m to HW 14:32", t.context[1]);
+  tide(0.6, "2026-11-04T20:50:00.000Z", "2026-11-04T14:32:00.000Z");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("FALLING 0.6 m to LW 14:32", t.context[1]);
+  TEST_ASSERT_EQUAL_STRING("BELOW KEEL", t.context[0]);   // the depth is still named
+}
+
+static void test_tide_times_are_local_and_heights_follow_the_units(void) {
+  depth_set_utc_offset(60);
+  num("environment.depth.belowKeel", 2.4);
+  tide(1.8, "2026-11-04T14:32:00.000Z", NULL);
+  strcpy(cfg.units.distance, "ft");
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("RISING 5.9 ft to HW 15:32", t.context[1]);
+  depth_set_utc_offset(0);
+}
+
+static void test_tide_without_a_height_or_a_direction_says_only_what_it_knows(void) {
+  depth_set_utc_offset(0);
+  num("environment.depth.belowKeel", 2.4);
+  tide(-1, "2026-11-04T14:32:00.000Z", NULL);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("RISING to HW 14:32", t.context[1]);
+  bd_set_number(bd_intern("environment.tide.heightNow"), 1.8, 1, NOW - TIDE_HEIGHT_MAX_AGE_MS - 1);   // a stale height is not shown
+  tile();
+  TEST_ASSERT_EQUAL_STRING("RISING to HW 14:32", t.context[1]);
+  num("environment.tide.heightNow", 1.8);
+  bd_set_invalid(bd_intern("environment.tide.timeHigh"));   // the plugin stopped: no direction, still the height
+  tile();
+  TEST_ASSERT_EQUAL_STRING("TIDE 1.8 m", t.context[1]);
+}
+
+static void test_tide_never_changes_the_state(void) {
+  num("environment.depth.belowKeel", 2.4);
+  bind("depth");
+  tile();
+  TEST_ASSERT_EQUAL(GT_OK, t.state);   // no tide data at all
+  tide(1.8, "2026-11-04T08:05:00.000Z", "2026-11-04T09:00:00.000Z");   // a stale plugin
+  tile();
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_STRING("TIDE 1.8 m", t.context[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_engine_twin_running_shows_both_rpm_and_ok);
@@ -490,5 +642,17 @@ int main(void) {
   RUN_TEST(test_navigation_tile_stale_wind_is_no_data);
   RUN_TEST(test_navigation_tile_hour_change_and_max);
   RUN_TEST(test_navigation_tile_alert_state);
+  RUN_TEST(test_depth_tile_shows_the_depth_and_what_it_is_below);
+  RUN_TEST(test_depth_prefers_the_transducer_and_says_so);
+  RUN_TEST(test_depth_falls_back_when_the_preferred_reading_goes_stale_and_names_the_new_one);
+  RUN_TEST(test_depth_with_no_fresh_reading_is_no_data_and_shows_no_number);
+  RUN_TEST(test_depth_with_nothing_bound_is_no_data);
+  RUN_TEST(test_depth_drops_the_decimal_when_deep_and_converts_to_feet);
+  RUN_TEST(test_depth_state_follows_zones_and_alerts_on_the_path_shown);
+  RUN_TEST(test_a_depth_alarm_outranks_no_data);
+  RUN_TEST(test_tide_rising_and_falling_with_the_next_event);
+  RUN_TEST(test_tide_times_are_local_and_heights_follow_the_units);
+  RUN_TEST(test_tide_without_a_height_or_a_direction_says_only_what_it_knows);
+  RUN_TEST(test_tide_never_changes_the_state);
   return UNITY_END();
 }

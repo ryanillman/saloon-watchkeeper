@@ -60,6 +60,15 @@
     {"path": "tanks.blackWater.0.currentLevel", "group": "tanks", "nominal": 0.41},
     {"path": "tanks.wasteWater.0.currentLevel", "group": "tanks", "nominal": 0.3},
 
+    {"path": "environment.depth.belowTransducer", "group": "depth", "nominal": 3.1, "wobble": 0.05},
+    {"path": "environment.depth.belowKeel", "group": "depth", "nominal": 2.4, "wobble": 0.05},
+    {"path": "environment.depth.belowSurface", "group": "depth", "nominal": 3.6, "wobble": 0.05},
+    {"path": "environment.tide.heightNow", "group": "tide", "nominal": 1.8, "wobble": 0.02},
+    {"path": "environment.tide.heightHigh", "group": "tide", "nominal": 3.2},
+    {"path": "environment.tide.heightLow", "group": "tide", "nominal": 0.4},
+    {"path": "environment.tide.timeHigh", "group": "tide", "nominal": "$now+152m"},
+    {"path": "environment.tide.timeLow", "group": "tide", "nominal": "$now+530m"},
+
     {"path": "navigation.datetime", "group": "nav", "nominal": "$now"},
     {"path": "environment.mode", "group": "nav", "nominal": "day"},
     {"path": "navigation.position", "group": "nav", "nominal": {"latitude": 48.5343, "longitude": -123.0170}},

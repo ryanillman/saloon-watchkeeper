@@ -9,7 +9,7 @@ ctest --test-dir build/sim --output-on-failure
 tools/check-layering.sh
 ```
 
-`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid). Engine page 1 is also rendered `-alarm` (port coolant alarm banner) and `-alarm-long` (a 96-character emergency message, wrapped to two lines and truncated, with all three buttons still on the banner); `alerts-list.png` shows the alert list open over two alerts. The Glance page is rendered `glance-p0-live.png` (all three tiles, with twelve hours of synthetic history behind the Power trend and the water change) and `glance-p0-fault.png` (the house charge, the port coolant and a water tank sender failed). Every snapshot shows the clock (02:14) and the live source dot.
+`snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid). Engine page 1 is also rendered `-alarm` (port coolant alarm banner) and `-alarm-long` (a 96-character emergency message, wrapped to two lines and truncated, with all three buttons still on the banner); `alerts-list.png` shows the alert list open over two alerts. The Glance page is rendered `glance-p0-live.png` (every tile, with twelve hours of synthetic history behind the Power trend and the water change) and `glance-p0-fault.png` (the house charge, the port coolant and a water tank sender failed). Every snapshot shows the clock (02:14) and the live source dot.
 
 ## The Navigation page and its tile
 
@@ -155,6 +155,19 @@ Needs an anchor plugin on the server (`hoekens-anchor-alarm` or `signalk-anchora
 | Glance tile | The tile follows the page: green `HOLDING` with the plan view, amber `WARN`, red `DRAGGING`, `NO DATA` and `RESTORING` never green. On the 480 board the second context line is dropped |
 
 Unverified until the first bench run: that each plugin republishes `currentRadius` often enough (the stale limit is 90 s), what Hoeken publishes with no anchor set (if nothing, `NOT SET` waits for the first drop), what the display sees for a moment after a server restart, and the plugins' reply to a drop with no GPS position.
+
+## The Depth page and its tile
+
+Depth is not a default role: add `{ "role": "depth" }` to `config.json` (it is in `docs/config.example.json`). `tools/scenario.sh depth-sounder` and `alarm-shallow` play on a boat whose routine values include a sounder (`environment.depth.belowTransducer`, `belowKeel`, `belowSurface`) and a tide plugin (`environment.tide.heightNow`, `heightHigh`, `heightLow`, `timeHigh`, `timeLow`; the times are always ahead of now). The default zones alarm under 1 m and warn under 1.5 m. Compare with the snapshots in `build/sim/snap/` (`depth-p0-<live|tide-partial|surface|fault|no-tide>.png`, and the Depth tile in every `glance-p0-*.png`).
+
+| Check | Expect |
+|---|---|
+| Naming | The page and the tile always say what the number is measured from: `BELOW TRANSDUCER` (preferred), else `BELOW KEEL`, else `BELOW SURFACE`. A reading older than 10 s is skipped, so the name changes with the number and never lies |
+| `depth-sounder` at 10 s | The transducer reading is `null`: the number changes to the keel depth and the line above it to `BELOW KEEL`. The tile's first context line follows |
+| `depth-sounder` at 25 s | Keel and surface fail: the page shows a red cross and `NO DEPTH`; the tile is amber `NO DATA`, no number |
+| Tide | `RISING 1.8 m` (or `FALLING`) on the page with the next high and low and their times in the display's time zone; on the tile (wide boards) `RISING 1.8 m to HW 14:32`. The direction is whichever of the next high or low comes first, by the server's clock. With no clock, or only past times (a stalled plugin), there is no direction, only `TIDE 1.8 m`. A height older than 30 minutes is dropped. A boat with no tide plugin shows no tide block at all |
+| `alarm-shallow` at 10 s | The depth is driven under 1 m: Signal K raises `Shallow water`; banner, buzzer where fitted, the depth value turns red and the tile goes `ALARM`. ACK as for any alarm. At 40 s it clears. Tide never changes the tile's state |
+| 480 board | The tile keeps only the first context line, so it shows the reference (`BELOW KEEL`) and the tide is on the page only |
 
 ## Capturing a boat's server
 

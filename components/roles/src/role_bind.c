@@ -10,7 +10,8 @@ extern const role_def_t role_power;
 extern const role_def_t role_glance;
 extern const role_def_t role_anchor;
 extern const role_def_t role_navigation;
-static const role_def_t *const ROLES[] = {&role_glance, &role_engine, &role_power, &role_tanks, &role_anchor, &role_navigation};
+extern const role_def_t role_depth;
+static const role_def_t *const ROLES[] = {&role_glance, &role_engine, &role_power, &role_tanks, &role_anchor, &role_navigation, &role_depth};
 
 const role_def_t *role_find(const char *name) {
   for (size_t i = 0; i < sizeof ROLES / sizeof ROLES[0]; i++)

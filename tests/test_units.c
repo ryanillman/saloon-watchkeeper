@@ -32,6 +32,17 @@ static void test_ms_to_knots(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.943844, u
 static void test_m_to_nm(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, units_from_si(Q_DISTANCE, 1852, &metric)); }
 static void test_volts_unchanged(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-9, 13.8, units_from_si(Q_VOLTAGE, 13.8, &metric)); }
 
+// Depth is metres unless the distance unit is feet: a boat set to nautical miles still wants metres under the keel.
+static void test_depth_is_metres_unless_feet(void) {
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 3.2, units_from_si(Q_DEPTH, 3.2, &metric));
+  TEST_ASSERT_EQUAL_STRING("m", units_label(Q_DEPTH, &metric));
+  TEST_ASSERT_DOUBLE_WITHIN(1e-4, 10.4987, units_from_si(Q_DEPTH, 3.2, &imperial));
+  TEST_ASSERT_EQUAL_STRING("ft", units_label(Q_DEPTH, &imperial));
+  cfg_units_t m = metric;
+  strcpy(m.distance, "m");
+  TEST_ASSERT_EQUAL_STRING("m", units_label(Q_DEPTH, &m));
+}
+
 static void test_roundtrip_all(void) {
   const cfg_units_t *sets[] = {&metric, &imperial};
   for (int s = 0; s < 2; s++)
@@ -74,6 +85,7 @@ int main(void) {
   RUN_TEST(test_ms_to_knots);
   RUN_TEST(test_m_to_nm);
   RUN_TEST(test_volts_unchanged);
+  RUN_TEST(test_depth_is_metres_unless_feet);
   RUN_TEST(test_roundtrip_all);
   RUN_TEST(test_labels);
   RUN_TEST(test_power_identity_and_label);

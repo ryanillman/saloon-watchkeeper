@@ -1,0 +1,8 @@
+{
+  "description": "Routine boat; at 10 s the depth below the transducer is driven into its alarm zone and Signal K raises the alarm (with sound). The path gets default zones if the server has none. At 40 s the value returns to normal and the server clears it.",
+  "durationMs": 60000,
+  "after": [
+    { "atMs": 10000, "op": "alarm", "path": "environment.depth.belowTransducer", "state": "alarm" },
+    { "atMs": 40000, "op": "clear", "path": "environment.depth.belowTransducer" }
+  ]
+}

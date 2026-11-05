@@ -8,6 +8,7 @@ from overlay import Alarm, Post, Put, parse_overlay
 B = load_baseline(_path.SKDIR / "baseline.json")
 DIR = _path.SKDIR / "overlays"
 NAMES = {
+    "alarm-shallow", "depth-sounder",
     "alarm-coolant", "alarm-fuel-low", "controller-dropout", "coolant-null", "glance-mixed",
     "key-off", "rpm-pickup-fails", "tanks", "three-bank", "two-engines", "victron-power",
     "warn-tank-low", "anchor-holding", "anchor-holding-anchoralarm", "navigation-underway",
@@ -38,7 +39,8 @@ class OverlaysValid(unittest.TestCase):
     def test_alarm_overlays_use_alarm_steps(self):
         want = {"alarm-coolant": ("propulsion.port.temperature", "alarm"),
                 "alarm-fuel-low": ("tanks.fuel.0.currentLevel", "alarm"),
-                "warn-tank-low": ("tanks.freshWater.0.currentLevel", "warn")}
+                "warn-tank-low": ("tanks.freshWater.0.currentLevel", "warn"),
+                "alarm-shallow": ("environment.depth.belowTransducer", "alarm")}
         for name, (path, state) in want.items():
             ov = parse_overlay(load(name), B)
             acts = ov.step(10 ** 9)

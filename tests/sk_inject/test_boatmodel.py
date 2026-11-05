@@ -48,6 +48,23 @@ class BoatModel(unittest.TestCase):
         on = B.default_on("underway") | {"three-bank"}
         self.assertIn("electrical.batteries.280.voltage", vals(on=on))
 
+    def test_tide_times_are_in_the_future_in_signalk_form(self):
+        import datetime
+        v = vals()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for leaf, minutes in (("timeHigh", 152), ("timeLow", 530)):
+            s = v[f"environment.tide.{leaf}"]
+            self.assertRegex(s, r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")   # what the firmware parses: UTC, with the Z
+            when = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            self.assertAlmostEqual((when - now).total_seconds() / 60, minutes, delta=1)
+
+    def test_a_sounder_reports_all_three_depths_and_a_tide_plugin_its_heights(self):
+        v = vals()
+        for leaf in ("belowTransducer", "belowKeel", "belowSurface"):
+            self.assertGreater(v[f"environment.depth.{leaf}"], 1.5)   # above the shallow zones
+        for leaf in ("heightNow", "heightHigh", "heightLow"):
+            self.assertIsInstance(v[f"environment.tide.{leaf}"], float)
+
     def test_now_resolves_to_iso_utc(self):
         s = vals()["navigation.datetime"]
         self.assertTrue(s.endswith("Z") and "T" in s)
