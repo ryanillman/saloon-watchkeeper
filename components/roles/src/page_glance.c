@@ -192,8 +192,17 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
       lv_obj_add_flag(w->fault[i], LV_OBJ_FLAG_HIDDEN);
     }
   }
+  // A tile with a plan view puts its text in a left column and the plan view in a square at the right.
+  int32_t swing_side = t.has_swing ? (tw / 2 - 4 < th - head_y - 10 ? tw / 2 - 4 : th - head_y - 10) : 0;
+  int32_t text_w = t.has_swing ? tw - swing_side - 2 * pad - 4 : 0;
+  if (t.has_swing) ctx_y = head_y + (wide ? 44 : 34);
   w->ctx[0] = label(w->tile, &lv_font_montserrat_14, c->fg, pad, ctx_y);
-  if (wide) w->ctx[1] = label(w->tile, &lv_font_montserrat_14, c->dim, pad, ctx_y + 19);
+  if (wide) w->ctx[1] = label(w->tile, &lv_font_montserrat_14, c->dim, pad, ctx_y + (t.has_swing ? 38 : 19));
+  for (int i = 0; i < 2 && t.has_swing; i++) {
+    if (!w->ctx[i]) continue;
+    lv_obj_set_width(w->ctx[i], text_w);
+    lv_label_set_long_mode(w->ctx[i], LV_LABEL_LONG_WRAP);
+  }
 
   if (t.trend != BD_NONE && !t.bar_count) {
     int32_t axis_h = wide ? 22 : 0;
@@ -231,14 +240,12 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
       lv_label_set_text(w->axis_r, "now");
     }
   }
-  if (t.swing) {   // the Anchor's plan view takes the trend's place: a square in the middle of it
-    int32_t axis_h = wide ? 22 : 0;
-    int32_t room = th - chart_top - axis_h - (wide ? 4 : 8);
-    int32_t side = room < tw - 2 * pad ? room : tw - 2 * pad;
-    if (side < 24) side = 24;
+  if (t.has_swing) {   // the Anchor's plan view takes the trend's place: a square in the middle of it, hidden until it has data
+    int32_t side = swing_side < 24 ? 24 : swing_side;
     w->swing = ui_swing_create(w->tile);
     lv_obj_set_size(w->swing, side, side);
-    lv_obj_set_pos(w->swing, (tw - side) / 2, th - axis_h - (wide ? 4 : 8) - side);
+    lv_obj_set_pos(w->swing, tw - side - 10, th - side - 8);
+    lv_obj_add_flag(w->swing, LV_OBJ_FLAG_HIDDEN);
   }
   w->chart_ms = -2 * CHART_REFRESH_MS;   // draws on the first update
   memset(&w->last, 0, sizeof w->last);
@@ -330,7 +337,7 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
   }
   if (w->headline) {
     bool missing = t.state == GT_NO_DATA && !t.headline[0];
-    bool big = g.sc == SIZE_WIDE && strlen(t.headline) <= 5;
+    bool big = g.sc == SIZE_WIDE && strlen(t.headline) <= 5 && !w->swing;   // a plan view leaves a narrow text column
     if (big != w->big_headline || w->last.state == (gt_state_t)255) {
       lv_obj_set_style_text_font(w->headline, g.sc == SIZE_WIDE ? (big ? &lv_font_montserrat_48 : &lv_font_montserrat_28) : &lv_font_montserrat_28, 0);
       w->big_headline = big;
@@ -364,7 +371,10 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
   set_text(w->ctx[0], t.context[0]);
   if (w->ctx[1]) set_text(w->ctx[1], t.context[1]);
   update_chart(w, &t, now_ms);
-  if (w->swing && t.swing) ui_swing_set(w->swing, t.swing);
+  if (w->swing) {
+    show(w->swing, t.swing != NULL);
+    if (t.swing) ui_swing_set(w->swing, t.swing);
+  }
   w->last = t;
 }
 

@@ -29,6 +29,7 @@ static void anchor_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *
   anchor_view_t v;
   anchor_build_view(now_ms, &v, tile_track, sizeof tile_track / sizeof tile_track[0]);
   out->title = b->def->title;
+  out->has_swing = true;
   const cfg_units_t *u = b->units;
 
   switch (v.mode) {
@@ -62,12 +63,7 @@ static void anchor_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *
   }
   if (!isnan(v.max_m)) {
     anchor_format_distance(a, sizeof a, v.max_m, u, true);
-    if (v.set_ago_s >= 0) {
-      anchor_format_ago(b2, sizeof b2, v.set_ago_s);
-      snprintf(out->context[1], sizeof out->context[1], "max tonight %.9s, set %.8s ago", a, b2);
-    } else {
-      snprintf(out->context[1], sizeof out->context[1], "max tonight %s", a);
-    }
+    snprintf(out->context[1], sizeof out->context[1], "max tonight %s", a);   // the page has the set time
   }
 
   if (v.mode == AM_NOT_SET || v.mode == AM_RESTORING) return;   // nothing to plot

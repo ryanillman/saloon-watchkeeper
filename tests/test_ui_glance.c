@@ -325,6 +325,30 @@ static void test_anchor_tile_draws_the_plan_view_on_every_board(void) {
   }
 }
 
+static void test_anchor_plan_view_appears_when_data_arrives_after_the_page_is_built(void) {
+  static cfg_role_t arc;
+  static role_binding_t ab;
+  static anchor_watch_t aw;
+  memset(&arc, 0, sizeof arc);
+  strcpy(arc.role, "anchor");
+  role_bind(role_find("anchor"), &arc, &cfg.units, &ab);
+  anchor_watch_init(&aw, NULL, 0, 60000);
+  anchor_ctl_setup(NULL, ANCHOR_PLUGIN_HOEKEN, &aw, NULL, &cfg.units);
+  alerts_source_up(true);
+  bd_set_number(bd_intern("navigation.anchor.position"), NAN, 1, NOW);   // no anchor yet
+  glance_source_t one[1] = {{&ab, 0}};
+  glance_set_sources(one, 1);
+  build(800, 440, SIZE_WIDE);
+  TEST_ASSERT_NOT_NULL(glance_part(0, GP_SWING));                       // room is kept for it
+  TEST_ASSERT_TRUE(lv_obj_has_flag(glance_part(0, GP_SWING), LV_OBJ_FLAG_HIDDEN));   // but nothing to draw yet
+  bd_set_position(bd_intern("navigation.anchor.position"), 48.5, -123.0, 1, NOW);
+  num("navigation.anchor.maxRadius", 50);
+  num("navigation.anchor.currentRadius", 30);
+  num("navigation.anchor.bearingTrue", 1.0);
+  role_find("glance")->refresh(&bind_glance, NOW);
+  TEST_ASSERT_FALSE(lv_obj_has_flag(glance_part(0, GP_SWING), LV_OBJ_FLAG_HIDDEN));
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -350,5 +374,6 @@ int main(void) {
   RUN_TEST(test_pick_never_drops_an_alarm_for_a_quiet_tile);
   RUN_TEST(test_pick_when_every_tile_alerts_drops_the_lowest_priority_non_alarm);
   RUN_TEST(test_anchor_tile_draws_the_plan_view_on_every_board);
+  RUN_TEST(test_anchor_plan_view_appears_when_data_arrives_after_the_page_is_built);
   return UNITY_END();
 }

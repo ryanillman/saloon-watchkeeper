@@ -321,6 +321,7 @@ static void test_anchor_tile_states(void) {
   TEST_ASSERT_EQUAL(GT_OFF, t.state);
   TEST_ASSERT_EQUAL_STRING("NOT SET", t.word);
   TEST_ASSERT_NULL(t.swing);
+  TEST_ASSERT_TRUE(t.has_swing);   // the page keeps room for the plan view whatever the data
 
   anchored(30, 50);
   tile();
@@ -374,7 +375,7 @@ static void test_anchor_tile_headline_and_limit_text(void) {
   TEST_ASSERT_EQUAL_STRING("30", t.headline);
   TEST_ASSERT_EQUAL_STRING("m", t.unit);
   TEST_ASSERT_NOT_NULL(strstr(t.context[0], "limit 50 m"));
-  TEST_ASSERT_NOT_NULL(strstr(t.context[1], "max tonight 30 m"));
+  TEST_ASSERT_EQUAL_STRING("max tonight 30 m", t.context[1]);   // short enough for the narrowest tile
   num("navigation.anchor.rodeLength", 12);
   tile();
   TEST_ASSERT_NOT_NULL(strstr(t.context[0], "chain 12 m"));
