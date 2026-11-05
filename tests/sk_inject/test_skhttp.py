@@ -64,6 +64,15 @@ class SkHttp(unittest.TestCase):
         self.assertEqual(auth, "Bearer tok")
         self.assertEqual(json.loads(body), {"value": 45})
 
+    def test_put_can_name_the_source(self):
+        # with two plugins publishing one path the server refuses a PUT that names no source
+        skhttp.put_value(self.server, "tok", "navigation.anchor.maxRadius", 45, source="anchoralarm")
+        self.assertEqual(json.loads(SEEN[0][4]), {"value": 45, "source": "anchoralarm"})
+
+    def test_put_without_a_source_sends_only_the_value(self):
+        skhttp.put_value(self.server, "tok", "navigation.anchor.maxRadius", 45)
+        self.assertEqual(json.loads(SEEN[0][4]), {"value": 45})
+
     def test_error_status_is_returned_not_raised(self):
         STATUS["code"] = 404
         status, _ = skhttp.post_json(self.server, "tok", "/plugins/nope/dropAnchor", {})
