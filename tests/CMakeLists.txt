@@ -60,3 +60,7 @@ add_test(NAME bi_component_idf
 # Python, as tools/scenario.sh uses: the IDF virtualenv may be first on PATH.
 add_test(NAME sk_inject_py
   COMMAND /usr/bin/python3 -W error -I -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/sk_inject)
+
+# The JSON Schema lists the same roles the firmware accepts.
+add_test(NAME config_schema_roles
+  COMMAND /usr/bin/python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/check_schema_roles.py ${CMAKE_CURRENT_SOURCE_DIR}/..)
