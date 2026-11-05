@@ -524,9 +524,12 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.sc = sc;
   for (uint8_t i = 0; i < a.count; i++)   // page counts can depend on the size class
     if (a.roles[i].def && a.roles[i].def->pages) a.views[i].page_count = a.roles[i].def->pages(&a.roles[i].binding, sc);
-  uint8_t start = 0;
-  for (uint8_t i = 0; i < a.count; i++)
+  int start = -1, glance = -1;   // the start role; Glance if there is none; else the first
+  for (uint8_t i = 0; i < a.count; i++) {
     if (!strcmp(a.cfg.roles[i].role, a.cfg.start_role)) start = i;
+    if (!strcmp(a.cfg.roles[i].role, "glance")) glance = i;
+  }
+  if (start < 0) start = glance >= 0 ? glance : 0;
   a.pal = palette_of(a.cfg.palette);
   ui_shell_create(disp, sc, a.pal, a.views, a.count, start);
   a.screen = lv_display_get_screen_active(disp);

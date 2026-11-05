@@ -245,6 +245,14 @@ static void fixture_history(void) {
     for (int i = 0; i < HIST_MINUTES; i++) v[i] = d[k].from + (d[k].to - d[k].from) * (float)i / (HIST_MINUTES - 1) + 0.004f * sinf((float)i / 25.0f);
     hist_backfill(id, v, HIST_MINUTES);
   }
+  {   // the depth under the keel follows the tide of the depth fixture: 2.4 m now, rising to a high 152 min on
+    bd_id_t id = bd_find("environment.depth.belowKeel");
+    if (id != BD_NONE) {
+      const double half = 378.0, high_in = 152.0, h0 = cos(M_PI * -high_in / half);
+      for (int i = 0; i < HIST_MINUTES; i++) v[i] = (float)(2.4 + 1.4 * (cos(M_PI * ((double)(i - (HIST_MINUTES - 1)) - high_in) / half) - h0));
+      hist_backfill(id, v, HIST_MINUTES);
+    }
+  }
 }
 
 static void alert_raise(const char *id, alert_state_t st, const char *msg) {

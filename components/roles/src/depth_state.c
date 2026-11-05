@@ -1,4 +1,5 @@
 #include "depth_state.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -69,3 +70,17 @@ tide_t tide_assess(const bd_sample_t *time_high, const bd_sample_t *time_low, in
 static int16_t utc_offset;
 void depth_set_utc_offset(int16_t minutes) { utc_offset = minutes; }
 int16_t depth_utc_offset(void) { return utc_offset; }
+
+bool tide_deltas(double high_m, int64_t high_s, double low_m, int64_t low_s, int64_t now_s, int32_t step_s, float *out, size_t n) {
+  if (now_s <= 0 || high_s <= now_s || low_s <= now_s) return false;
+  int64_t half = high_s > low_s ? high_s - low_s : low_s - high_s;
+  if (half < 30 * 60 || half > 9 * 3600) return false;
+  double mid = (high_m + low_m) / 2, amp = (high_m - low_m) / 2;
+  // h(t) = mid + amp * cos(pi * (t - t_high) / half): a high at t_high, a low half a tide later or earlier.
+  double h0 = mid + amp * cos(M_PI * (double)(now_s - high_s) / (double)half);
+  for (size_t i = 0; i < n; i++) {
+    int64_t t = now_s + (int64_t)(i + 1) * step_s;
+    out[i] = (float)(mid + amp * cos(M_PI * (double)(t - high_s) / (double)half) - h0);
+  }
+  return true;
+}

@@ -8,11 +8,12 @@ static struct {
   size_class_t sc;
   palette_t pal;
   void (*strip_tap)(void);
-  lv_obj_t *screen, *strip, *tap, *name, *dots, *clock, *src, *status, *content;
+  lv_obj_t *screen, *strip, *tap, *home_btn, *home_icon, *name, *dots, *clock, *src, *status, *content;
   ui_src_t src_state;
   char status_text[24], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
   bool over;
+  uint8_t home;   // the role the home button returns to (page 0)
 } s;
 
 #define SRC_DOT 16   // the source dot's diameter
@@ -59,6 +60,7 @@ static void apply_palette(void) {
   lv_obj_set_style_bg_color(s.strip, c->strip_bg, 0);
   lv_obj_set_style_bg_opa(s.content, LV_OPA_TRANSP, 0);
   lv_obj_set_style_text_color(s.clock, c->fg, 0);
+  lv_obj_set_style_text_color(s.home_icon, c->fg, 0);
   draw_source();
 }
 
@@ -147,7 +149,12 @@ static void on_strip_tap(lv_event_t *e) {
 // forget them so a late caller (the alert markers align to the status label) never touches freed memory.
 static void on_strip_delete(lv_event_t *e) {
   (void)e;
-  s.strip = s.tap = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
+  s.strip = s.tap = s.home_btn = s.home_icon = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
+}
+
+static void on_home(lv_event_t *e) {
+  (void)e;
+  ui_shell_goto(s.home, 0);
 }
 
 void ui_shell_set_strip_tap(void (*fn)(void)) { s.strip_tap = fn; }
@@ -160,6 +167,7 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   for (uint8_t i = 0; i < role_count; i++) pages[i] = roles[i].page_count;
   ui_nav_init(&s.nav, role_count, pages, start_role);
   s.roles = roles;
+  s.home = start_role < role_count ? start_role : 0;
   s.sc = sc;
   s.pal = pal;
 
@@ -182,7 +190,7 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
 
   s.name = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.name, &lv_font_montserrat_20, 0);
-  lv_obj_align(s.name, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_align(s.name, LV_ALIGN_LEFT_MID, strip_h - 4, 0);   // right of the home button
 
   s.dots = lv_obj_create(s.strip);
   lv_obj_remove_style_all(s.dots);
@@ -218,6 +226,19 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_add_flag(s.tap, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s.tap, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(s.tap, on_strip_tap, LV_EVENT_CLICKED, NULL);
+
+  // Home: back to the start role's first page. After the strip tap so it wins where they overlap.
+  s.home_btn = lv_obj_create(s.strip);
+  lv_obj_remove_style_all(s.home_btn);
+  lv_obj_set_size(s.home_btn, strip_h, strip_h);
+  lv_obj_align(s.home_btn, LV_ALIGN_LEFT_MID, -12, 0);
+  lv_obj_add_flag(s.home_btn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s.home_btn, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s.home_btn, on_home, LV_EVENT_CLICKED, NULL);
+  s.home_icon = lv_label_create(s.home_btn);
+  lv_obj_set_style_text_font(s.home_icon, &lv_font_montserrat_20, 0);
+  lv_label_set_text(s.home_icon, LV_SYMBOL_HOME);
+  lv_obj_center(s.home_icon);
 
   s.content = lv_obj_create(s.screen);
   lv_obj_remove_style_all(s.content);
@@ -292,6 +313,7 @@ void ui_shell_set_roles(uint8_t role_count) {
   if (role_count > UI_MAX_ROLES) role_count = UI_MAX_ROLES;
   uint8_t pages[UI_MAX_ROLES] = {0};
   for (uint8_t i = 0; i < role_count; i++) pages[i] = s.roles[i].page_count;
+  if (s.home >= role_count) s.home = 0;
   uint8_t keep = s.nav.role < role_count ? s.nav.role : 0;
   ui_nav_init(&s.nav, role_count, pages, keep);
   rebuild();
@@ -319,3 +341,4 @@ lv_obj_t *ui_shell_dots(void) { return s.dots; }
 lv_obj_t *ui_shell_name(void) { return s.name; }
 lv_obj_t *ui_shell_clock(void) { return s.clock; }
 lv_obj_t *ui_shell_source_dot(void) { return s.src; }
+lv_obj_t *ui_shell_home_button(void) { return s.home_btn; }

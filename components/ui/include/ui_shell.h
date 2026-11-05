@@ -63,3 +63,6 @@ lv_obj_t *ui_shell_strip_tap(void);
 
 // Shows `text` in the status label in place of the app's status until called with NULL.
 void ui_shell_set_status_override(const char *text, lv_color_t color);
+
+// The home button at the left of the strip: goes to the start role's first page. For tests.
+lv_obj_t *ui_shell_home_button(void);
