@@ -112,6 +112,23 @@ class BoatStateTests(unittest.TestCase):
         self.assertNotEqual(v[RPM], 1.0)                           # a ended
         self.assertIsNone(v[TEMP])                                 # b still running
 
+    def test_driven_alarm_is_released_at_overlay_end(self):
+        s = BoatState(B)
+        owner = s.start_overlay("t", ov(), 0)
+        s.drive_to(owner, TEMP, 380.0, 1000, ramp_ms=0, hold_ms=None)   # no hold: lasts to the end
+        self.assertEqual(s.tick(9000)[0][TEMP], 380.0)
+        self.assertNotEqual(s.tick(10000)[0][TEMP], 380.0)
+
+    def test_drive_after_overlay_ended_is_refused(self):
+        # an alarm step reads and writes zones for seconds; its overlay may end meanwhile.
+        # The late drive must not leave an override nothing will ever release.
+        s = BoatState(B)
+        owner = s.start_overlay("t", ov(), 0)
+        s.tick(10000)                                                      # overlay over
+        self.assertFalse(s.drive_to(owner, TEMP, 380.0, 10500, ramp_ms=0, hold_ms=None))
+        self.assertNotEqual(s.tick(11000)[0][TEMP], 380.0)
+        self.assertTrue(s.drive_to("manual", TEMP, 380.0, 11000, ramp_ms=0, hold_ms=None))
+
     def test_manual_drive_without_overlay(self):
         s = BoatState(B)
         s.drive_to("manual", TEMP, 380.0, 0, ramp_ms=0, hold_ms=None)

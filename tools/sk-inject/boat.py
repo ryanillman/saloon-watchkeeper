@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # python -I leaves th
 import control  # noqa: E402
 import zones  # noqa: E402
 from boatmodel import load_baseline  # noqa: E402
-from boatstate import BoatState  # noqa: E402
+from boatstate import MANUAL, BoatState  # noqa: E402
 from overlay import Alarm, OverlayError, parse_overlay  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -139,7 +139,9 @@ class Boat:
         except zones.NoSuchState as e:
             say(f"has zones but none with state '{a.state}' (has: {', '.join(e.states)}); left unchanged")
             return False, out
-        self.state.drive_to(owner, a.path, target, self.now(), ALARM_RAMP_MS, a.hold_ms)
+        if not self.state.drive_to(owner, a.path, target, self.now(), ALARM_RAMP_MS, a.hold_ms):
+            say("its overlay ended before the alarm could start; value left alone")
+            return False, out
         say(f"driving to {target:g} for a '{a.state}' zone")
         raised = await zones.raise_check(self.server, a.path, a.state, ALARM_RAMP_MS / 1000 + RAISE_WAIT_S)
         if raised:
@@ -171,7 +173,7 @@ class Boat:
             return {"ok": True, "durationMs": ov.duration_ms, "description": ov.description}
         if c == "alarm":
             hold = cmd.get("holdMs")
-            raised, msgs = await self.alarm("manual", Alarm(cmd["path"], cmd["state"], hold))
+            raised, msgs = await self.alarm(MANUAL, Alarm(cmd["path"], cmd["state"], hold))
             return {"ok": True, "raised": raised, "messages": msgs}
         if c == "clear":
             self.state.clear(cmd["path"])

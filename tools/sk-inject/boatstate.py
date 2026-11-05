@@ -9,6 +9,9 @@ from typing import Any, Callable, Optional
 from overlay import Alarm, Clear, GroupOff, GroupOn, Ramp, Set, Silent
 
 
+MANUAL = "manual"   # owner of overrides made from the command line: released only by hold or clear
+
+
 @dataclass
 class _Override:
     owner: str
@@ -76,10 +79,17 @@ class BoatState:
         return owner
 
     def drive_to(self, owner, path, target, now_ms, ramp_ms, hold_ms):
-        """Ramp path to target, hold, then fall back to the baseline (hold_ms None = until cleared)."""
+        """Ramp path to target, hold, then fall back to the baseline (hold_ms None = until cleared).
+
+        False, and nothing changed, if owner is an overlay that has already ended: an alarm step
+        takes seconds (zones are read and written first) and nothing would ever release a late drive.
+        """
+        if owner != MANUAL and not any(r.owner == owner for r in self._running):
+            return False
         start = self.current(path, now_ms)
         release = None if hold_ms is None else now_ms + ramp_ms + hold_ms
         self._overrides[path] = _Override(owner, _ramp(now_ms, start, target, ramp_ms), release)
+        return True
 
     def clear(self, path):
         self._overrides.pop(path, None)
