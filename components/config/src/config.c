@@ -58,6 +58,7 @@ void cfg_defaults(cfg_t *c) {
   strcpy(c->units.volume, "L");
   strcpy(c->units.speed, "kn");
   strcpy(c->units.distance, "nm");
+  strcpy(c->units.depth, "m");
   strcpy(c->palette, "auto");
   c->brightness = 80;
   c->utc_offset_min = 0;
@@ -190,7 +191,12 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   unit(u, "pressure", c->units.pressure, sizeof c->units.pressure, (const char *[]){"bar", "psi", "kPa", NULL}, rep);
   unit(u, "volume", c->units.volume, sizeof c->units.volume, (const char *[]){"L", "gal", NULL}, rep);
   unit(u, "speed", c->units.speed, sizeof c->units.speed, (const char *[]){"kn", "m/s", "km/h", NULL}, rep);
-  unit(u, "distance", c->units.distance, sizeof c->units.distance, (const char *[]){"nm", "m", "ft", NULL}, rep);
+  // Before the depth unit existed, distance also chose metres or feet for depth; honour an old file's "m" or "ft".
+  const cJSON *old = cJSON_GetObjectItem(u, "distance");
+  bool legacy = cJSON_IsString(old) && (!strcmp(old->valuestring, "m") || !strcmp(old->valuestring, "ft"));
+  if (legacy && !cJSON_GetObjectItem(u, "depth")) snprintf(c->units.depth, sizeof c->units.depth, "%s", old->valuestring);
+  if (!legacy) unit(u, "distance", c->units.distance, sizeof c->units.distance, (const char *[]){"nm", "mi", "km", NULL}, rep);
+  unit(u, "depth", c->units.depth, sizeof c->units.depth, (const char *[]){"ft", "m", NULL}, rep);
 
   const cJSON *d = cJSON_GetObjectItem(root, "display");
   COPY(c->palette, cJSON_GetObjectItem(d, "palette"));
@@ -468,6 +474,7 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   set_str(u, "volume", c->units.volume);
   set_str(u, "speed", c->units.speed);
   set_str(u, "distance", c->units.distance);
+  set_str(u, "depth", c->units.depth);
   cJSON *d = object(tree, "display");
   set_str(d, "palette", c->palette);
   set_num(d, "brightness", c->brightness);

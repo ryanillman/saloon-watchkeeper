@@ -218,6 +218,30 @@ static void test_long_unit_value_not_truncated_into_a_valid_one(void) {
   TEST_ASSERT_EQUAL_STRING("units.pressure", r.issues[0].key_path);
 }
 
+static void test_distance_and_depth_units(void) {
+  write_file("config.json", "{ \"units\": { \"distance\": \"km\", \"depth\": \"ft\" } }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_STRING("km", c.units.distance);
+  TEST_ASSERT_EQUAL_STRING("ft", c.units.depth);
+  cfg_defaults(&c);
+  TEST_ASSERT_EQUAL_STRING("nm", c.units.distance);
+  TEST_ASSERT_EQUAL_STRING("m", c.units.depth);
+}
+
+// A file from before the depth unit: distance "ft" or "m" meant the depth unit. Honoured, not reported.
+static void test_legacy_distance_ft_sets_depth(void) {
+  write_file("config.json", "{ \"units\": { \"distance\": \"ft\" } }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_STRING("nm", c.units.distance);
+  TEST_ASSERT_EQUAL_STRING("ft", c.units.depth);
+}
+
 static void test_power_primary_round_trip(void) {
   write_file("config.json",
     "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", \"x-note\": \"keep\" } ] }\n");
@@ -625,6 +649,8 @@ int main(void) {
   RUN_TEST(test_save_from_defaults_creates_file);
   RUN_TEST(test_unknown_unit_reported_and_defaulted);
   RUN_TEST(test_long_unit_value_not_truncated_into_a_valid_one);
+  RUN_TEST(test_distance_and_depth_units);
+  RUN_TEST(test_legacy_distance_ft_sets_depth);
   RUN_TEST(test_unknown_roles_survive_save);
   RUN_TEST(test_reordered_roles_keep_their_settings);
   RUN_TEST(test_cfg_set_string);

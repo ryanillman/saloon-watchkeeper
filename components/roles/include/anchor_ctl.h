@@ -35,7 +35,7 @@ typedef struct {
 } anchor_ctl_state_t;
 
 // plugin picks the command routes. watch (may be NULL) gives restoring/no-SD and is cleared on Raise or Drop; dir is
-// where its record lives. units gives the display unit for steps and text (feet when distance is "ft", else metres).
+// where its record lives. units gives the display unit for steps and text (feet when depth is "ft", else metres).
 void anchor_ctl_setup(const anchor_ops_t *ops, anchor_plugin_t plugin, anchor_watch_t *watch, const char *dir,
                       const cfg_units_t *units);
 
@@ -53,7 +53,7 @@ void anchor_ctl_hold_end(int64_t now_ms);     // releasing early cancels
 void anchor_ctl_page_left(void);              // the page is being rebuilt or deleted under the user: cancels a hold and an unsent staged radius
 void anchor_ctl_step(int dir, int64_t now_ms);   // -1 / +1: stage the radius one step (5 m or 15 ft; 5..300 m)
 
-// Text shared by the page and the Glance tile. A distance in metres as the display shows it: feet when units.distance
+// Text shared by the page and the Glance tile. A distance in metres as the display shows it: feet when units.depth
 // is "ft", else metres, no decimals ("--" for NAN); with_unit appends " m" or " ft". `seconds` as "12 min" or "3h12m".
 void anchor_format_distance(char *out, size_t n, double metres, const cfg_units_t *units, bool with_unit);
 const char *anchor_distance_unit(const cfg_units_t *units);   // "m" or "ft"

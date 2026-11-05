@@ -123,10 +123,10 @@ static void speed_text(char *o, size_t n, double si, const cfg_units_t *u) {
   snprintf(o, n, "%.1f %s", units_from_si(Q_SPEED, si, u), units_label(Q_SPEED, u));
 }
 
-// Distances: nautical miles show decimals (0.12 nm across the track, 7.4 nm to go); metres and feet are whole numbers.
+// Distances: decimals in every unit (0.12 nm across the track, 7.4 nm to go).
 static void distance_text(char *o, size_t n, double si, int nm_decimals, const cfg_units_t *u) {
   const char *unit = units_label(Q_DISTANCE, u);
-  snprintf(o, n, "%.*f %s", !strcmp(unit, "nm") ? nm_decimals : 0, units_from_si(Q_DISTANCE, si, u), unit);
+  snprintf(o, n, "%.*f %s", nm_decimals, units_from_si(Q_DISTANCE, si, u), unit);
 }
 
 void navigation_refresh(role_binding_t *b, int64_t now_ms) {

@@ -381,7 +381,7 @@ static void test_anchor_tile_headline_and_limit_text(void) {
   num("navigation.anchor.rodeLength", 12);
   tile();
   TEST_ASSERT_NOT_NULL(strstr(t.context[0], "chain 12 m"));
-  strcpy(cfg.units.distance, "ft");
+  strcpy(cfg.units.depth, "ft");
   tile();
   TEST_ASSERT_EQUAL_STRING("98", t.headline);
   TEST_ASSERT_EQUAL_STRING("ft", t.unit);
@@ -531,7 +531,7 @@ static void test_depth_drops_the_decimal_when_deep_and_converts_to_feet(void) {
   tile();
   TEST_ASSERT_EQUAL_STRING("123", t.headline);
   num("environment.depth.belowKeel", 3.0);
-  strcpy(cfg.units.distance, "ft");
+  strcpy(cfg.units.depth, "ft");
   tile();
   TEST_ASSERT_EQUAL_STRING("9.8", t.headline);
   TEST_ASSERT_EQUAL_STRING("ft", t.unit);
@@ -602,7 +602,7 @@ static void test_tide_times_are_local_and_heights_follow_the_units(void) {
   depth_set_utc_offset(60);
   num("environment.depth.belowKeel", 2.4);
   tide(1.8, "2026-11-04T14:32:00.000Z", NULL);
-  strcpy(cfg.units.distance, "ft");
+  strcpy(cfg.units.depth, "ft");
   bind("depth");
   tile();
   TEST_ASSERT_EQUAL_STRING("RISING 5.9 ft to HW 15:32", t.context[1]);

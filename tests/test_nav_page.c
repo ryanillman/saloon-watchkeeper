@@ -196,11 +196,11 @@ static void test_cross_track_left_reads_L(void) {
 static void test_units_follow_config(void) {
   full();
   strcpy(cfg.units.speed, "m/s");
-  strcpy(cfg.units.distance, "m");
+  strcpy(cfg.units.distance, "km");
   wide();
   TEST_ASSERT_EQUAL_STRING("7.3 m/s", text("aws"));
-  TEST_ASSERT_EQUAL_STRING("222 m R", text("xte"));
-  TEST_ASSERT_EQUAL_STRING("13700 m", text("dtw"));
+  TEST_ASSERT_EQUAL_STRING("0.22 km R", text("xte"));
+  TEST_ASSERT_EQUAL_STRING("13.7 km", text("dtw"));
 }
 
 static void test_square_board_drops_dtw(void) {

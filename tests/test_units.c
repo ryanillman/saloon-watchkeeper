@@ -12,7 +12,7 @@ void setUp(void) {
   strcpy(imperial.temperature, "F");
   strcpy(imperial.pressure, "psi");
   strcpy(imperial.volume, "gal");
-  strcpy(imperial.distance, "ft");
+  strcpy(imperial.depth, "ft");
 }
 void tearDown(void) {}
 
@@ -32,15 +32,26 @@ static void test_ms_to_knots(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.943844, u
 static void test_m_to_nm(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, units_from_si(Q_DISTANCE, 1852, &metric)); }
 static void test_volts_unchanged(void) { TEST_ASSERT_DOUBLE_WITHIN(1e-9, 13.8, units_from_si(Q_VOLTAGE, 13.8, &metric)); }
 
-// Depth is metres unless the distance unit is feet: a boat set to nautical miles still wants metres under the keel.
-static void test_depth_is_metres_unless_feet(void) {
+static void test_miles_and_km(void) {
+  cfg_units_t u = metric;
+  strcpy(u.distance, "mi");
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, units_from_si(Q_DISTANCE, 1609.344, &u));
+  TEST_ASSERT_EQUAL_STRING("mi", units_label(Q_DISTANCE, &u));
+  strcpy(u.distance, "km");
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 2.5, units_from_si(Q_DISTANCE, 2500, &u));
+  TEST_ASSERT_EQUAL_STRING("km", units_label(Q_DISTANCE, &u));
+}
+
+// Depth follows its own unit, whatever the map distance is: nautical miles with feet under the keel.
+static void test_depth_follows_depth_unit(void) {
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 3.2, units_from_si(Q_DEPTH, 3.2, &metric));
   TEST_ASSERT_EQUAL_STRING("m", units_label(Q_DEPTH, &metric));
   TEST_ASSERT_DOUBLE_WITHIN(1e-4, 10.4987, units_from_si(Q_DEPTH, 3.2, &imperial));
   TEST_ASSERT_EQUAL_STRING("ft", units_label(Q_DEPTH, &imperial));
-  cfg_units_t m = metric;
-  strcpy(m.distance, "m");
-  TEST_ASSERT_EQUAL_STRING("m", units_label(Q_DEPTH, &m));
+  cfg_units_t ft_nm = metric;   // nm distance, ft depth
+  strcpy(ft_nm.depth, "ft");
+  TEST_ASSERT_EQUAL_STRING("nm", units_label(Q_DISTANCE, &ft_nm));
+  TEST_ASSERT_EQUAL_STRING("ft", units_label(Q_DEPTH, &ft_nm));
 }
 
 static void test_roundtrip_all(void) {
@@ -85,7 +96,8 @@ int main(void) {
   RUN_TEST(test_ms_to_knots);
   RUN_TEST(test_m_to_nm);
   RUN_TEST(test_volts_unchanged);
-  RUN_TEST(test_depth_is_metres_unless_feet);
+  RUN_TEST(test_miles_and_km);
+  RUN_TEST(test_depth_follows_depth_unit);
   RUN_TEST(test_roundtrip_all);
   RUN_TEST(test_labels);
   RUN_TEST(test_power_identity_and_label);

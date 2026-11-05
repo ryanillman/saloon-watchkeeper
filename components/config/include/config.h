@@ -12,7 +12,8 @@ typedef struct {
   char host[64]; uint16_t port; char token[256];
   char request[128];   // href of a pending access request, resumed after a restart; "" = none
 } cfg_sk_t;   // host "auto" = mDNS
-typedef struct { char temperature[2], pressure[4], volume[4], speed[5], distance[3]; } cfg_units_t;
+// distance: nm mi km (course, cross-track); depth: ft m (water depth, tide, anchor radius)
+typedef struct { char temperature[2], pressure[4], volume[4], speed[5], distance[3], depth[3]; } cfg_units_t;
 typedef struct { char id[24]; char label[12]; } cfg_instance_t;
 typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<instance>.<slot>"
 typedef struct { char slot[24]; bool has_min, has_max; double min, max; } cfg_override_t;

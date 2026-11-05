@@ -25,11 +25,11 @@ static conv_t conv(quantity_t q, const cfg_units_t *u) {
       if (IS(u->speed, "km/h")) return (conv_t){3.6, 0, "km/h"};
       return (conv_t){3600.0 / 1852.0, 0, "kn"};
     case Q_DISTANCE:
-      if (IS(u->distance, "m")) return (conv_t){1.0, 0, "m"};
-      if (IS(u->distance, "ft")) return (conv_t){1.0 / 0.3048, 0, "ft"};
+      if (IS(u->distance, "mi")) return (conv_t){1.0 / 1609.344, 0, "mi"};
+      if (IS(u->distance, "km")) return (conv_t){1.0 / 1000.0, 0, "km"};
       return (conv_t){1.0 / 1852.0, 0, "nm"};
     case Q_DEPTH:
-      return IS(u->distance, "ft") ? (conv_t){1.0 / 0.3048, 0, "ft"} : (conv_t){1.0, 0, "m"};
+      return IS(u->depth, "ft") ? (conv_t){1.0 / 0.3048, 0, "ft"} : (conv_t){1.0, 0, "m"};
     case Q_ROTATION: return (conv_t){60.0, 0, "RPM"};
     case Q_VOLTAGE: return (conv_t){1.0, 0, "V"};
     case Q_CURRENT: return (conv_t){1.0, 0, "A"};

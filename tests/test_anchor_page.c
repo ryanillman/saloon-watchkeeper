@@ -37,7 +37,7 @@ void setUp(void) {
   alerts_init();
   alerts_source_up(true);
   cfg_defaults(&cfg);
-  strcpy(cfg.units.distance, "m");
+  strcpy(cfg.units.depth, "m");
   memset(results, 0, sizeof results);
   memset(sent, 0, sizeof sent);
   nsent = 0;
@@ -117,7 +117,7 @@ static void test_radius_step_5m_clamped_5_to_300(void) {
 }
 
 static void test_radius_step_in_feet_display_units(void) {
-  strcpy(cfg.units.distance, "ft");
+  strcpy(cfg.units.depth, "ft");
   holding(T, 45.72);   // 150 ft
   update(T);
   anchor_ctl_step(+1, T);

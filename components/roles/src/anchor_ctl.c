@@ -42,7 +42,7 @@ static struct {
   anchor_ctl_state_t st;
 } c;
 
-static bool feet(void) { return c.units && !strcmp(c.units->distance, "ft"); }
+static bool feet(void) { return c.units && !strcmp(c.units->depth, "ft"); }
 static double step_m(void) { return feet() ? 15 * 0.3048 : 5; }
 static bool is_set(anchor_mode_t m) { return m == AM_HOLDING || m == AM_WARN || m == AM_DRAGGING || m == AM_NO_LIMIT; }
 
@@ -205,14 +205,14 @@ void anchor_ctl_step(int dir, int64_t now_ms) {
   c.st.shown_limit_m = c.staged_m;
 }
 
-const char *anchor_distance_unit(const cfg_units_t *units) { return units && !strcmp(units->distance, "ft") ? "ft" : "m"; }
+const char *anchor_distance_unit(const cfg_units_t *units) { return units && !strcmp(units->depth, "ft") ? "ft" : "m"; }
 
 void anchor_format_distance(char *out, size_t n, double metres, const cfg_units_t *units, bool with_unit) {
   if (isnan(metres)) {
     snprintf(out, n, "--");
     return;
   }
-  bool ft = units && !strcmp(units->distance, "ft");
+  bool ft = units && !strcmp(units->depth, "ft");
   snprintf(out, n, with_unit ? (ft ? "%.0f ft" : "%.0f m") : "%.0f", ft ? metres / 0.3048 : metres);
 }
 

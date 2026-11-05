@@ -10,7 +10,7 @@
 #include "ui_shell.h"
 
 #define MAX_PARTS 160
-#define MAX_SEGS 8
+#define MAX_SEGS 10
 #define ROW_H 56
 
 typedef struct {
@@ -221,7 +221,9 @@ static void build_display(void) {
   segmented(u.body, "Speed", "unit_speed", un->speed, sizeof un->speed, (const char *const[]){"kn", "m/s", "km/h"},
             (const char *const[]){"kn", "m/s", "km/h"}, 3);
   segmented(u.body, "Distance", "unit_distance", un->distance, sizeof un->distance,
-            (const char *const[]){"nm", "m", "ft"}, (const char *const[]){"nm", "m", "ft"}, 3);
+            (const char *const[]){"nm", "mi", "km"}, (const char *const[]){"nm", "mi", "km"}, 3);
+  segmented(u.body, "Depth", "unit_depth", un->depth, sizeof un->depth,
+            (const char *const[]){"ft", "m"}, (const char *const[]){"ft", "m"}, 2);
   segmented(u.body, "Palette", "palette", u.work.palette, sizeof u.work.palette,
             (const char *const[]){"day", "dusk", "night", "auto"}, (const char *const[]){"DAY", "DUSK", "NIGHT", "AUTO"}, 4);
 
