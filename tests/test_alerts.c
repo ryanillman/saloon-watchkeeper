@@ -288,6 +288,79 @@ static void test_source_ack_clears_send_failed(void) {
   TEST_ASSERT_FALSE(get("a").send_failed);
 }
 
+static void raise_local(const char *id, alert_state_t st, int64_t t) {
+  alert_t a = {0};
+  snprintf(a.id, sizeof a.id, "%s", id);
+  a.state = st;
+  snprintf(a.message, sizeof a.message, "local %s", id);
+  a.audible = true;
+  alerts_upsert_local(&a, t);
+}
+
+static void test_local_alert_survives_source_down(void) {
+  raise("a.b", AL_ALARM, 100);
+  raise_local("navigation.anchor.watch", AL_ALARM, 110);
+  alerts_source_up(false);
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_FALSE(s.source_up);
+  TEST_ASSERT_EQUAL(1, s.count);
+  TEST_ASSERT_EQUAL_STRING("navigation.anchor.watch", s.a[0].id);
+  TEST_ASSERT_TRUE(s.a[0].local);
+}
+
+static void test_local_ack_marks_acked_without_send_failed(void) {
+  for (int up = 0; up < 2; up++) {
+    alerts_init();
+    alerts_source_up(up);
+    raise_local("navigation.anchor.watch", AL_ALARM, 100);
+    alerts_request("navigation.anchor.watch", AL_REQ_ACK);
+    alert_t a = get("navigation.anchor.watch");
+    TEST_ASSERT_TRUE(a.acked);
+    TEST_ASSERT_FALSE(a.send_failed);
+    char id[64];
+    alert_req_t req;
+    TEST_ASSERT_FALSE(alerts_next_request(id, &req));
+  }
+}
+
+static void test_local_silence_same(void) {
+  raise_local("navigation.anchor.watch", AL_ALARM, 100);
+  alerts_request("navigation.anchor.watch", AL_REQ_SILENCE);
+  alert_t a = get("navigation.anchor.watch");
+  TEST_ASSERT_TRUE(a.silenced);
+  TEST_ASSERT_FALSE(a.send_failed);
+  char id[64];
+  alert_req_t req;
+  TEST_ASSERT_FALSE(alerts_next_request(id, &req));
+}
+
+static void test_local_alert_cleared_by_clear(void) {
+  raise_local("navigation.anchor.watch", AL_ALARM, 100);
+  alerts_clear("navigation.anchor.watch");
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL(0, s.count);
+}
+
+static void test_local_alert_counts_in_buzzer(void) {
+  raise_local("navigation.anchor.watch", AL_ALARM, 100);
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_TRUE(alerts_buzzer_on(&s, true, 0));
+  alerts_request("navigation.anchor.watch", AL_REQ_ACK);
+  alerts_snapshot(&s);
+  TEST_ASSERT_FALSE(alerts_buzzer_on(&s, true, 0));
+}
+
+static void test_source_alert_still_cleared_on_source_down(void) {
+  raise("a.b", AL_WARN, 100);
+  alerts_source_up(false);
+  alerts_snapshot_t s;
+  alerts_snapshot(&s);
+  TEST_ASSERT_EQUAL(0, s.count);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_upsert_and_clear);
@@ -310,5 +383,11 @@ int main(void) {
   RUN_TEST(test_ack_on_acked_alarm_sends_nothing);
   RUN_TEST(test_silence_on_silenced_alarm_sends_nothing);
   RUN_TEST(test_source_ack_clears_send_failed);
+  RUN_TEST(test_local_alert_survives_source_down);
+  RUN_TEST(test_local_ack_marks_acked_without_send_failed);
+  RUN_TEST(test_local_silence_same);
+  RUN_TEST(test_local_alert_cleared_by_clear);
+  RUN_TEST(test_local_alert_counts_in_buzzer);
+  RUN_TEST(test_source_alert_still_cleared_on_source_down);
   return UNITY_END();
 }
