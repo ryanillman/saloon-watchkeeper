@@ -41,6 +41,14 @@ static double value_or_nan(bd_id_t id) {
   return number(id, &s) ? s.num : NAN;
 }
 
+// Fresh when received recently AND, once the server has timestamped it, not behind the server's own clock: on a reconnect
+// Signal K replays the last value of every path with its old timestamp, and a dead plugin's value must not look live.
+static bool fresh(const bd_sample_t *s, int64_t now_ms) {
+  if (!bd_is_fresh(s, STALE_MS, now_ms)) return false;
+  int64_t newest = bd_newest_source_time();
+  return s->src_s == 0 || newest == 0 || newest - s->src_s <= STALE_MS / 1000;
+}
+
 // The boat's place relative to the anchor: the anchor lies `dist` away on `bearing` (radians, true), so the boat
 // lies on the reciprocal.
 static anchor_pt_t place(double dist, double bearing) {
@@ -56,14 +64,15 @@ void anchor_view_build(const anchor_ids_t *ids, bool restoring, bool source_live
 
   bd_sample_t pos = {0}, dist = {0}, bearing = {0}, limit = {0}, zone = {0};
   bool have_pos = ids->position != BD_NONE && bd_get(ids->position, &pos) && pos.valid && pos.kind == BD_POSITION;
-  bool have_dist = number(ids->current_radius, &dist) && bd_is_fresh(&dist, STALE_MS, now_ms);
-  bool have_bearing = number(ids->bearing_true, &bearing) && bd_is_fresh(&bearing, STALE_MS, now_ms);
+  bool have_dist = number(ids->current_radius, &dist) && fresh(&dist, now_ms);
+  bool have_bearing = number(ids->bearing_true, &bearing) && fresh(&bearing, now_ms);
   bool have_limit = number(ids->max_radius, &limit);
   if (ids->watch_zone != BD_NONE && bd_get(ids->watch_zone, &zone) && zone.valid && zone.kind == BD_TEXT) {
     snprintf(out->zone, sizeof out->zone, "%.7s", zone.text);   // circle, sector, polygon
     out->circle = !strcmp(zone.text, "circle");
   }
-  out->server_none = source_live && !have_pos && pos.rx_ms != 0;   // a null arrived (an invalidated sample keeps its time too, but only a live server counts)
+  // The live server explicitly sent null: not a sample invalidated when the connection dropped (nothing resent yet).
+  out->server_none = source_live && !have_pos && pos.rx_ms != 0 && !pos.invalidated;
   if (have_dist) out->distance_m = dist.num;
   if (have_bearing) out->bearing_rad = bearing.num;
   if (have_limit) out->limit_m = limit.num;
@@ -72,7 +81,7 @@ void anchor_view_build(const anchor_ids_t *ids, bool restoring, bool source_live
 
   if (restoring && !(have_pos && have_dist && have_limit)) out->mode = AM_RESTORING;
   else if (!source_live) out->mode = AM_NO_DATA;
-  else if (!have_pos) out->mode = AM_NOT_SET;
+  else if (!have_pos) out->mode = pos.invalidated ? AM_NO_DATA : AM_NOT_SET;   // invalidated: the reconnected server has not said yet
   else if (!have_dist) out->mode = AM_NO_DATA;
   else if (!have_limit) out->mode = AM_NO_LIMIT;
   else {

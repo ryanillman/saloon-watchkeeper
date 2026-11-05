@@ -50,6 +50,7 @@ void anchor_build_view(int64_t now_ms, anchor_view_t *v, anchor_pt_t *track, siz
 void anchor_ctl_tap_main(int64_t now_ms);     // a tap on DROP sends the drop; on RAISE it does nothing
 void anchor_ctl_hold_begin(int64_t now_ms);   // pressing RAISE: sends after 1.5 s of holding
 void anchor_ctl_hold_end(int64_t now_ms);     // releasing early cancels
+void anchor_ctl_page_left(void);              // the page is being rebuilt or deleted under the user: cancels a hold and an unsent staged radius
 void anchor_ctl_step(int dir, int64_t now_ms);   // -1 / +1: stage the radius one step (5 m or 15 ft; 5..300 m)
 
 // Text shared by the page and the Glance tile. A distance in metres as the display shows it: feet when units.distance

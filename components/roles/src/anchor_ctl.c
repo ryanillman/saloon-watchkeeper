@@ -34,6 +34,8 @@ static struct {
   int64_t staged_at_ms;
   bool hold, hold_sent;
   int64_t hold_start_ms;
+  bool press_valid;      // a press on the main button is in progress, so the tap that ends it is judged by what it was at press time
+  anchor_btn_t press_btn;
   pending_t pend[CMD_N];
   char msg[16];
   int64_t msg_until_ms;
@@ -163,6 +165,11 @@ const anchor_ctl_state_t *anchor_ctl_state(void) {
 }
 
 void anchor_ctl_tap_main(int64_t now_ms) {
+  if (c.press_valid) {   // LVGL sends CLICKED on release even after a long press: only a press that began on DROP is a Drop
+    bool began_on_drop = c.press_btn == ANCHOR_BTN_DROP;
+    c.press_valid = false;
+    if (!began_on_drop) return;
+  }
   if (!c.st.main_enabled || c.st.button != ANCHOR_BTN_DROP || c.pend[CMD_DROP].active) return;
   double radius = c.st.shown_limit_m;
   if (c.watch) anchor_watch_user_cleared(c.watch, c.dir);   // a new anchor replaces any stuck record
@@ -173,6 +180,8 @@ void anchor_ctl_tap_main(int64_t now_ms) {
 }
 
 void anchor_ctl_hold_begin(int64_t now_ms) {
+  c.press_valid = true;
+  c.press_btn = c.st.button;
   if (!c.st.main_enabled || c.st.button != ANCHOR_BTN_RAISE || c.hold) return;
   c.hold = true;
   c.hold_sent = false;
@@ -211,4 +220,11 @@ void anchor_format_ago(char *out, size_t n, int64_t seconds) {
   long mins = (long)(seconds / 60);
   if (mins < 60) snprintf(out, n, "%ld min", mins);
   else snprintf(out, n, "%ldh%02ldm", mins / 60, mins % 60);
+}
+
+void anchor_ctl_page_left(void) {
+  c.hold = false;
+  c.hold_sent = false;
+  c.press_valid = false;
+  if (c.staged && !c.staged_sent) c.staged = false;   // an unsent radius must not go out minutes later, on return
 }

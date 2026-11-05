@@ -6,6 +6,8 @@
 #include "alerts.h"
 #include "anchor_record.h"
 #include "anchor_state.h"
+#include "boatdata.h"
+#include "history.h"
 #include "anchor_watch.h"
 
 #define WATCH_ID "navigation.anchor.watch"
@@ -215,6 +217,31 @@ static void test_restoring_view_with_server_none_alarms_at_once(void) {
   TEST_ASSERT_FALSE(alerts_get(WATCH_ID, &a));
 }
 
+// Through the real view and boatdata, which the synthetic-view tests above cannot do.
+static void test_reconnect_to_a_server_without_the_anchor_is_watch_lost_not_calm(void) {
+  bd_init();
+  hist_init();
+  anchor_ids_t ids;
+  anchor_ids_bind(&ids);
+  anchor_watch_init(&w, dir, 0, 60000);
+  int64_t t = 1000000;
+  bd_set_position(ids.position, 48.5, -123.0, 1, t);
+  bd_set_number(ids.max_radius, 50, 1, t);
+  bd_set_number(ids.current_radius, 20, 1, t);
+  bd_set_number(ids.bearing_true, 1.0, 1, t);
+  anchor_view_t v;
+  anchor_view_build(&ids, false, true, t, &v, NULL, 0);
+  anchor_watch_tick(&w, &v, true, t, dir);
+  TEST_ASSERT_TRUE(on_disk_armed());
+  bd_invalidate_source(1);   // the server restarted; the plugin never restores the anchor, so nothing is ever resent
+  for (int64_t dt = 1000; dt <= 70000; dt += 1000) {
+    anchor_view_build(&ids, false, true, t + dt, &v, NULL, 0);
+    anchor_watch_tick(&w, &v, true, t + dt, dir);
+  }
+  TEST_ASSERT_TRUE(alarm_up("WATCH LOST"));   // not a calm NOT SET
+  TEST_ASSERT_TRUE(on_disk_armed());          // and the record is not quietly disarmed
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_not_armed_no_alert);
@@ -231,5 +258,6 @@ int main(void) {
   RUN_TEST(test_no_sd_disables_boot_check_but_not_watch_lost);
   RUN_TEST(test_raised_elsewhere_while_watching_disarms_quietly);
   RUN_TEST(test_write_failure_turns_off_the_sd_flag);
+  RUN_TEST(test_reconnect_to_a_server_without_the_anchor_is_watch_lost_not_calm);
   return UNITY_END();
 }
