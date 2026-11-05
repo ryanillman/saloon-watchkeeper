@@ -593,6 +593,20 @@ static void test_cfg_set_anchor_plugin_rejects_unknown(void) {
   TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", out.anchor_plugin);
 }
 
+static void test_navigation_role_known_wind_and_nav_not(void) {
+  write_file("config.json", "{\"roles\":[{\"role\":\"engine\"},{\"role\":\"navigation\"}]}");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_UINT8(2, c.role_count);
+  TEST_ASSERT_EQUAL_STRING("navigation", c.roles[1].role);
+  write_file("config.json", "{\"roles\":[{\"role\":\"engine\"},{\"role\":\"wind\"},{\"role\":\"nav\"}]}");
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(2, r.count);   // both are reported as unknown roles now
+  TEST_ASSERT_EQUAL_UINT8(1, c.role_count);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_utc_offset_default_is_zero);
@@ -637,5 +651,6 @@ int main(void) {
   RUN_TEST(test_anchor_plugin_roundtrip);
   RUN_TEST(test_anchor_plugin_unknown_reports_issue);
   RUN_TEST(test_cfg_set_anchor_plugin_rejects_unknown);
+  RUN_TEST(test_navigation_role_known_wind_and_nav_not);
   return UNITY_END();
 }

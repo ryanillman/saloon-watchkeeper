@@ -12,6 +12,7 @@
     { "role": "engine" },
     { "role": "power" },
     { "role": "tanks" },
-    { "role": "anchor" }
+    { "role": "anchor" },
+    { "role": "navigation" }
   ]
 }

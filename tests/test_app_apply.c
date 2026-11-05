@@ -200,6 +200,26 @@ static void test_alert_role_routes_anchor(void) {
   TEST_ASSERT_EQUAL_INT8(engine, app_alert_role("propulsion.port.temperature"));
 }
 
+static bool subscribes(const sk_sub_t *s, size_t n, const char *path) {
+  bd_id_t id = bd_find(path);
+  for (size_t i = 0; i < n; i++)
+    if (id != BD_NONE && s[i].id == id) return true;
+  return false;
+}
+
+static void test_navigation_role_subscribes_to_its_ids(void) {
+  sk_sub_t s[128];
+  size_t n = app_bound_ids(s, 128);
+  TEST_ASSERT_FALSE(subscribes(s, n, "environment.wind.angleApparent"));   // not configured: nothing to read
+  strcpy(next.roles[next.role_count++].role, "navigation");
+  TEST_ASSERT_EQUAL_UINT(APPLY_ROLES, app_apply_config(&next));
+  n = app_bound_ids(s, 128);
+  TEST_ASSERT_TRUE(subscribes(s, n, "environment.wind.angleApparent"));
+  TEST_ASSERT_TRUE(subscribes(s, n, "navigation.course.calcValues.bearingTrackTrue"));
+  TEST_ASSERT_TRUE(subscribes(s, n, "steering.autopilot.state"));
+  TEST_ASSERT_TRUE(subscribes(s, n, "environment.current"));
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -225,5 +245,6 @@ int main(void) {
   RUN_TEST(test_post_runs_on_tick);
   RUN_TEST(test_apply_keeps_alarm_banner);
   RUN_TEST(test_alert_role_routes_anchor);
+  RUN_TEST(test_navigation_role_subscribes_to_its_ids);
   return UNITY_END();
 }

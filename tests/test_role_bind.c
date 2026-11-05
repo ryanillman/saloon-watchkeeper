@@ -257,6 +257,19 @@ static void test_role_discover_prefixes_multi_group_ids(void) {
   TEST_ASSERT_EQUAL_STRING("solar.288", ids[1]);
 }
 
+static void test_navigation_role_is_registered(void) {
+  const role_def_t *d = role_find("navigation");
+  TEST_ASSERT_NOT_NULL(d);
+  TEST_ASSERT_EQUAL_STRING("NAVIGATION", d->title);
+  TEST_ASSERT_EQUAL_UINT8(1, d->page_count);
+  TEST_ASSERT_NOT_NULL(d->build_page);
+  TEST_ASSERT_NOT_NULL(d->refresh);
+  TEST_ASSERT_NOT_NULL(d->tile);
+  bool listed = false;
+  for (const char *const *n = role_names(); *n; n++) listed = listed || !strcmp(*n, "navigation");
+  TEST_ASSERT_TRUE(listed);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_discovers_two_engines_sorted);
@@ -277,5 +290,6 @@ int main(void) {
   RUN_TEST(test_power_groups_bind);
   RUN_TEST(test_power_soc_capacity_path_and_fallback);
   RUN_TEST(test_depth_zero_group);
+  RUN_TEST(test_navigation_role_is_registered);
   return UNITY_END();
 }

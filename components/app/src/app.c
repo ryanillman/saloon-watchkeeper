@@ -6,6 +6,7 @@
 #include "anchor_ctl.h"
 #include "anchor_profile.h"
 #include "anchor_watch.h"
+#include "nav_state.h"
 #include "boatdata.h"
 #include "glance_page.h"
 #include "history.h"
@@ -127,11 +128,13 @@ static void start_writer(void) {
 
 static anchor_watch_t anchor_watch;   // the boot-restore check and the watch-lost alarm; ticks whenever the role is configured
 
-static bool has_anchor_role(void) {
+static bool has_role(const char *name) {
   for (uint8_t i = 0; i < a.cfg.role_count; i++)
-    if (!strcmp(a.cfg.roles[i].role, "anchor")) return true;
+    if (!strcmp(a.cfg.roles[i].role, name)) return true;
   return false;
 }
+
+static bool has_anchor_role(void) { return has_role("anchor"); }
 
 static uint16_t anchor_submit(const anchor_cmd_t *c, bool replaces_same_path) {
   sk_cmd_t k = {.put_number = c->put_number, .value = c->value};
@@ -256,6 +259,13 @@ size_t app_bound_ids(sk_sub_t *out, size_t max) {
     bd_id_t anchor_ids[8];
     size_t na = anchor_sub_ids(&ids, anchor_ids, 8);
     for (size_t i = 0; i < na && n < max; i++) out[n++] = (sk_sub_t){anchor_ids[i], 0};
+  }
+  if (has_role("navigation")) {
+    nav_ids_t ids;
+    nav_ids_bind(&ids);
+    bd_id_t nav[24];
+    size_t nn = nav_sub_ids(&ids, nav, 24);
+    for (size_t i = 0; i < nn && n < max; i++) out[n++] = (sk_sub_t){nav[i], 0};
   }
   bd_id_t when = bd_intern("navigation.datetime");   // the strip's clock; it runs on its own between updates
   if (when != BD_NONE && n < max) out[n++] = (sk_sub_t){when, 0};   // on change (about 1 Hz from a GPS): none while the GPS is off
