@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "alerts.h"
+#include "anchor_ctl.h"
+#include "anchor_watch.h"
 #include "app.h"
 #include "app_cmd.h"
 #include "boatdata.h"
@@ -183,6 +185,61 @@ static void alerts_show(void) {
   ui_alerts_update(&snap, 0);
 }
 
+
+// The Anchor page and tile in each state. The sim has no server, so the data a plugin would publish is set here: a
+// night at anchor, 150 minutes ago, swinging gently about its limit of 45 m.
+static anchor_watch_t sim_watch;
+
+static void anchor_start(const cfg_t *cfg) {
+  anchor_watch_init(&sim_watch, NULL, 0, 60000);
+  sim_watch.have_sd = true;   // a card is present: no NO SD flag in the pictures
+  anchor_ctl_setup(NULL, ANCHOR_PLUGIN_HOEKEN, &sim_watch, NULL, &cfg->units);
+}
+
+static void anchor_history(void) {
+  static float d[HIST_MINUTES], b[HIST_MINUTES];
+  for (int i = 0; i < HIST_MINUTES; i++) {
+    float t = (float)i / (HIST_MINUTES - 1);
+    d[i] = 29.0f + 7.0f * sinf(t * 26.0f) + 3.0f * sinf(t * 61.0f);
+    b[i] = 2.4f + 1.0f * sinf(t * 9.0f);   // the boat swings about 115 degrees either side
+  }
+  hist_backfill(bd_intern("navigation.anchor.currentRadius"), d, HIST_MINUTES);
+  hist_backfill(bd_intern("navigation.anchor.bearingTrue"), b, HIST_MINUTES);
+}
+
+static void anchor_state(const char *state) {
+  static const char *const paths[] = {"navigation.anchor.position", "navigation.anchor.maxRadius",
+                                      "navigation.anchor.currentRadius", "navigation.anchor.bearingTrue",
+                                      "navigation.anchor.rodeLength"};
+  int64_t now = platform_millis();
+  alerts_source_up(true);
+  alerts_clear("navigation.anchor");
+  sim_watch.restoring = false;
+  for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++) bd_set_invalid(bd_intern(paths[i]));
+  if (!strcmp(state, "restoring")) {
+    sim_watch.restoring = true;
+    return;
+  }
+  if (!strcmp(state, "notset")) {
+    bd_set_number(bd_intern(paths[0]), NAN, SK_SOURCE_ID, now);   // the plugin says null
+    return;
+  }
+  const int64_t set_s = 1793840000;
+  bd_id_t pos = bd_intern(paths[0]), dist = bd_intern(paths[2]);
+  bd_set_position(pos, 48.5343, -123.0170, SK_SOURCE_ID, now);
+  bd_set_source_time(pos, set_s);
+  bd_set_number(bd_intern(paths[1]), 45, SK_SOURCE_ID, now);
+  bd_set_number(dist, !strcmp(state, "dragging") ? 52 : 31, SK_SOURCE_ID, now);
+  bd_set_source_time(dist, set_s + 150 * 60);
+  bd_set_number(bd_intern(paths[3]), 2.4, SK_SOURCE_ID, now);
+  bd_set_number(bd_intern(paths[4]), 12, SK_SOURCE_ID, now);
+  if (!strcmp(state, "warn")) alert_raise("navigation.anchor", AL_WARN, "Anchor near its limit");
+  if (!strcmp(state, "dragging")) alert_raise("navigation.anchor", AL_ALARM, "Anchor dragging");
+  if (!strcmp(state, "nodata")) alerts_source_up(false);   // the connection is gone
+}
+
+static const char *const anchor_states[] = {"notset", "holding", "warn", "dragging", "nodata", "restoring"};
+
 static const char *palette_names[] = {"day", "dusk", "night"};
 
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
@@ -234,6 +291,8 @@ static int run_snapshots(const char *out) {
       fixture_power();
       app_bind();
       fixture_history();
+      anchor_start(cfg);
+      anchor_history();
       char path[640];
       for (uint8_t r = 0; r < cfg->role_count; r++) {
         snprintf(cfg->start_role, sizeof cfg->start_role, "%s", cfg->roles[r].role);
@@ -241,7 +300,8 @@ static int run_snapshots(const char *out) {
         const ui_nav_t *n = ui_shell_nav();
         uint8_t pages = n->page_count[n->role];
         bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks"),
-             power = !strcmp(cfg->roles[r].role, "power"), glance = !strcmp(cfg->roles[r].role, "glance");
+             power = !strcmp(cfg->roles[r].role, "power"), glance = !strcmp(cfg->roles[r].role, "glance"),
+             anchor = !strcmp(cfg->roles[r].role, "anchor");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -278,6 +338,22 @@ static int run_snapshots(const char *out) {
             bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));                     // and a water tank sender
             if (write_page(disp, dir, "-fault", b)) return 1;
             fixture_power();
+            static const char *const tile_states[] = {"holding", "dragging", "nodata"};   // the Anchor tile
+            for (size_t k = 0; k < sizeof tile_states / sizeof tile_states[0]; k++) {
+              anchor_state(tile_states[k]);
+              char suffix[32];
+              snprintf(suffix, sizeof suffix, "-anchor-%s", tile_states[k]);
+              if (write_page(disp, dir, suffix, b)) return 1;
+            }
+            anchor_state("notset");
+          } else if (anchor) {
+            for (size_t k = 0; k < sizeof anchor_states / sizeof anchor_states[0]; k++) {
+              anchor_state(anchor_states[k]);
+              char suffix[32];
+              snprintf(suffix, sizeof suffix, "-%s", anchor_states[k]);
+              if (write_page(disp, dir, suffix, b)) return 1;
+            }
+            anchor_state("notset");
           } else if (tanks) {
             fixture_tanks();
             if (write_page(disp, dir, "-live", b)) return 1;
