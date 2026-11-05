@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include "esp_heap_caps.h"
 #include "esp_mac.h"
@@ -45,6 +46,20 @@ void platform_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 void platform_reboot(void) { esp_restart(); }
 
 size_t platform_min_internal(void) { return heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL); }
+
+size_t platform_largest_internal(void) { return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL); }
+
+size_t platform_stacks(platform_stack_t *out, size_t max) {
+  static const char *const names[] = {"ui", "signalk", "config", "wifiscan", "main", "IDLE0", "IDLE1"};
+  size_t n = 0;
+  for (size_t i = 0; i < sizeof names / sizeof names[0] && n < max; i++) {
+    TaskHandle_t t = xTaskGetHandle(names[i]);   // NULL when that task isn't running
+    if (!t) continue;
+    snprintf(out[n].name, sizeof out[n].name, "%s", names[i]);
+    out[n++].min_free = uxTaskGetStackHighWaterMark(t);   // bytes on ESP-IDF
+  }
+  return n;
+}
 
 void platform_mem(size_t *internal, size_t *psram) {
   *internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);

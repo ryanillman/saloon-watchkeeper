@@ -759,6 +759,9 @@ static void fill_status_now(app_status_t *s) {   // UI task
   platform_mem(&in, &ps);
   s->internal_kb = (unsigned)(in / 1024);
   s->psram_kb = (unsigned)(ps / 1024);
+  s->internal_largest_kb = (unsigned)(platform_largest_internal() / 1024);
+  s->internal_min_kb = (unsigned)(platform_min_internal() / 1024);
+  s->stack_count = (uint8_t)platform_stacks(s->stacks, sizeof s->stacks / sizeof s->stacks[0]);
   s->sd = a.dir[0] != 0;
   snprintf(s->origin, sizeof s->origin, "%s",
            a.origin == CFG_FROM_MAIN ? "main" : a.origin == CFG_FROM_BACKUP ? "backup" : "defaults");

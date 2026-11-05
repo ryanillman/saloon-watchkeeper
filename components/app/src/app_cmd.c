@@ -48,6 +48,11 @@ static int status(app_out_fn out) {
   outf(out, "token: %s", s.token ? "set" : "not set");
   outf(out, "access: %s", s.access);
   outf(out, "ram: internal %u KB, psram %u KB free", s.internal_kb, s.psram_kb);
+  outf(out, "ram: internal largest block %u KB, lowest free since boot %u KB", s.internal_largest_kb, s.internal_min_kb);
+  char stk[128] = "";
+  for (uint8_t i = 0; i < s.stack_count; i++)
+    snprintf(stk + strlen(stk), sizeof stk - strlen(stk), " %s %u", s.stacks[i].name, (unsigned)s.stacks[i].min_free);
+  outf(out, "stacks: least free bytes:%s", s.stack_count ? stk : " n/a");
   outf(out, "sd: %s", s.sd ? "mounted" : "none");
   outf(out, "config: %s", s.origin);
   outf(out, "alerts: %u active, worst %s", s.alerts, s.worst);

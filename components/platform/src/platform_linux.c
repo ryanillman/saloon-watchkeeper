@@ -50,6 +50,14 @@ void platform_reboot(void) { exit(0); }
 
 size_t platform_min_internal(void) { return 0; }
 
+size_t platform_largest_internal(void) { return 0; }
+
+size_t platform_stacks(platform_stack_t *out, size_t max) {
+  (void)out;
+  (void)max;
+  return 0;
+}
+
 void platform_mem(size_t *internal, size_t *psram) {
   *internal = 0;
   *psram = 0;

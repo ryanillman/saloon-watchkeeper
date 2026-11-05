@@ -133,6 +133,64 @@ static void test_meta_roundtrip(void) {
   TEST_ASSERT_FALSE(bd_get_meta(bd_intern("no.meta"), &out));
 }
 
+static void test_full_table_of_long_real_paths_fits(void) {
+  char p[96];
+  for (int i = 0; i < BD_MAX_PATHS; i++) {
+    snprintf(p, sizeof p, "electrical.batteries.house%03d.capacity.stateOfCharge.extra.segment.%d", i, i);
+    TEST_ASSERT_NOT_EQUAL(BD_NONE, bd_intern(p));
+  }
+  TEST_ASSERT_EQUAL_STRING("electrical.batteries.house000.capacity.stateOfCharge.extra.segment.0", bd_path(1));
+}
+
+static void test_path_storage_exhausted_fails_cleanly(void) {
+  char p[256];
+  bd_id_t first = BD_NONE, last_ok = BD_NONE;
+  bool refused = false;
+  for (int i = 0; i < BD_MAX_PATHS; i++) {
+    snprintf(p, sizeof p, "%0200d", i);   // 200 chars each: the path storage runs out before the table does
+    bd_id_t id = bd_intern(p);
+    if (id == BD_NONE) { refused = true; break; }
+    if (first == BD_NONE) first = id;
+    last_ok = id;
+  }
+  TEST_ASSERT_TRUE(refused);
+  TEST_ASSERT_EQUAL_UINT16(last_ok, bd_count());
+  snprintf(p, sizeof p, "%0200d", 0);
+  TEST_ASSERT_EQUAL(first, bd_find(p));
+  TEST_ASSERT_EQUAL_STRING(p, bd_path(first));
+  bd_init();   // a reset gives the storage back
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, bd_intern(p));
+}
+
+static void test_meta_overwrites_and_is_cleared_by_init(void) {
+  bd_id_t id = bd_intern("tank.fuel");
+  bd_meta_t m = {.units = "ratio"}, out;
+  bd_set_meta(id, &m);
+  snprintf(m.units, sizeof m.units, "%s", "L");
+  bd_set_meta(id, &m);
+  TEST_ASSERT_TRUE(bd_get_meta(id, &out));
+  TEST_ASSERT_EQUAL_STRING("L", out.units);
+  bd_init();
+  TEST_ASSERT_EQUAL(id, bd_intern("tank.fuel"));
+  TEST_ASSERT_FALSE(bd_get_meta(id, &out));
+}
+
+static void test_meta_for_every_path(void) {
+  char p[32];
+  bd_meta_t m = {0}, out;
+  for (int i = 0; i < BD_MAX_PATHS; i++) {
+    snprintf(p, sizeof p, "p.%d", i);
+    bd_id_t id = bd_intern(p);
+    m.scale_hi = i;
+    m.has_scale = true;
+    bd_set_meta(id, &m);
+  }
+  for (int i = 0; i < BD_MAX_PATHS; i++) {
+    TEST_ASSERT_TRUE(bd_get_meta((bd_id_t)(i + 1), &out));
+    TEST_ASSERT_EQUAL_DOUBLE(i, out.scale_hi);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_new_path_is_invalid);
@@ -146,5 +204,9 @@ int main(void) {
   RUN_TEST(test_match_single_segment);
   RUN_TEST(test_intern_full_returns_none);
   RUN_TEST(test_meta_roundtrip);
+  RUN_TEST(test_full_table_of_long_real_paths_fits);
+  RUN_TEST(test_path_storage_exhausted_fails_cleanly);
+  RUN_TEST(test_meta_overwrites_and_is_cleared_by_init);
+  RUN_TEST(test_meta_for_every_path);
   return UNITY_END();
 }
