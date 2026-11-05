@@ -547,6 +547,52 @@ static void test_utc_offset_saves_and_keeps_unknown_display_keys(void) {
   TEST_ASSERT_EQUAL_INT16(330, again.utc_offset_min);
 }
 
+static void test_anchor_plugin_default(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", c.anchor_plugin);
+  cfg_t d;
+  cfg_defaults(&d);
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", d.anchor_plugin);
+}
+
+static void test_anchor_plugin_roundtrip(void) {
+  write_file("config.json", "{ \"anchor\": { \"plugin\": \"anchoralarm\" }, \"roles\": [ { \"role\": \"anchor\" } ] }");
+  cfg_t c, back;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_STRING("anchoralarm", c.anchor_plugin);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_EQUAL_STRING("anchoralarm", back.anchor_plugin);
+}
+
+static void test_anchor_plugin_unknown_reports_issue(void) {
+  write_file("config.json", "{ \"anchor\": { \"plugin\": \"nope\" }, \"roles\": [ { \"role\": \"anchor\" } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", c.anchor_plugin);
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_EQUAL_STRING("anchor.plugin", r.issues[0].key_path);
+}
+
+static void test_cfg_set_anchor_plugin_rejects_unknown(void) {
+  write_file("config.json", "{ \"anchor\": { \"plugin\": \"anchoralarm\" }, \"roles\": [ { \"role\": \"anchor\" } ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  char before[1024];
+  snprintf(before, sizeof before, "%s", read_file("config.json"));
+  TEST_ASSERT_FALSE(cfg_set(dir, "anchor.plugin", "bogus", &out, &r));
+  TEST_ASSERT_EQUAL_STRING(before, read_file("config.json"));
+  TEST_ASSERT_TRUE(cfg_set(dir, "anchor.plugin", "hoekens-anchor-alarm", &out, &r));
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", out.anchor_plugin);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_utc_offset_default_is_zero);
@@ -587,5 +633,9 @@ int main(void) {
   RUN_TEST(test_power_banks_without_links_is_valid);
   RUN_TEST(test_rejected_banks_survive_a_save);
   RUN_TEST(test_no_banks_key_changes_nothing);
+  RUN_TEST(test_anchor_plugin_default);
+  RUN_TEST(test_anchor_plugin_roundtrip);
+  RUN_TEST(test_anchor_plugin_unknown_reports_issue);
+  RUN_TEST(test_cfg_set_anchor_plugin_rejects_unknown);
   return UNITY_END();
 }

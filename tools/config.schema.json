@@ -46,6 +46,12 @@
       }
     },
     "buzzer": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } },
+    "anchor": {
+      "type": "object",
+      "properties": {
+        "plugin": { "enum": ["hoekens-anchor-alarm", "anchoralarm"], "default": "hoekens-anchor-alarm", "description": "The Signal K anchor-alarm plugin the Anchor page sends drop, raise and radius commands to. Unknown names are reported and the default is used." }
+      }
+    },
     "roles": {
       "type": "array",
       "description": "Swipe order. Unknown role names are reported and skipped.",
