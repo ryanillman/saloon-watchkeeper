@@ -16,6 +16,10 @@ const ui_colors_t *ui_theme_colors(palette_t p);
 // anything else (day, sunrise, sunset, unknown, NULL) is DAY.
 palette_t palette_from_env_mode(const char *mode);
 
+// The colour of a trend line: `normal`, or (zone_state 2 warn, 3 alarm) the palette's warn or alarm colour lightened so it
+// stands out over the zone's own band.
+lv_color_t ui_zone_line_color(uint8_t zone_state, lv_color_t normal);
+
 // The palette in use; the shell sets it, widgets draw with it.
 void ui_theme_set_current(palette_t p);
 const ui_colors_t *ui_theme(void);

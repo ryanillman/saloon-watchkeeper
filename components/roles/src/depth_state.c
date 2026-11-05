@@ -71,16 +71,39 @@ static int16_t utc_offset;
 void depth_set_utc_offset(int16_t minutes) { utc_offset = minutes; }
 int16_t depth_utc_offset(void) { return utc_offset; }
 
-bool tide_deltas(double high_m, int64_t high_s, double low_m, int64_t low_s, int64_t now_s, int32_t step_s, float *out, size_t n) {
+bool tide_deltas(double high_m, int64_t high_s, double low_m, int64_t low_s, double now_m, int64_t now_s, int32_t step_s, float *out, size_t n) {
   if (now_s <= 0 || high_s <= now_s || low_s <= now_s) return false;
   int64_t half = high_s > low_s ? high_s - low_s : low_s - high_s;
   if (half < 30 * 60 || half > 9 * 3600) return false;
   double mid = (high_m + low_m) / 2, amp = (high_m - low_m) / 2;
   // h(t) = mid + amp * cos(pi * (t - t_high) / half): a high at t_high, a low half a tide later or earlier.
   double h0 = mid + amp * cos(M_PI * (double)(now_s - high_s) / (double)half);
+  // With the measured height the change is from that, not from the curve's idea of now: the curve is only a shape, and
+  // the rise to the high must be the real high less the real height. The difference between the two shows up at
+  // now and fades out by the next event, after which the curve's own heights are used.
+  bool anchored = isfinite(now_m);
+  int64_t next = high_s < low_s ? high_s : low_s;
+  double gap = anchored ? h0 - now_m : 0;
   for (size_t i = 0; i < n; i++) {
     int64_t t = now_s + (int64_t)(i + 1) * step_s;
-    out[i] = (float)(mid + amp * cos(M_PI * (double)(t - high_s) / (double)half) - h0);
+    double h = mid + amp * cos(M_PI * (double)(t - high_s) / (double)half);
+    if (!anchored) out[i] = (float)(h - h0);
+    else out[i] = (float)(h - now_m - (t < next ? gap * (double)(next - t) / (double)(next - now_s) : 0));
   }
   return true;
+}
+
+uint8_t depth_forecast_zone(bd_id_t id, const float *fc, size_t n) {
+  bd_meta_t m;
+  uint8_t worst = 0;
+  if (id == BD_NONE || !bd_get_meta(id, &m)) return 0;
+  for (uint8_t z = 0; z < m.zone_count; z++) {
+    if (m.zones[z].state < 2 || m.zones[z].state <= worst) continue;
+    for (size_t i = 0; i < n; i++)
+      if (fc[i] >= m.zones[z].lower && fc[i] < m.zones[z].upper) {
+        worst = m.zones[z].state >= 3 ? 3 : 2;
+        break;
+      }
+  }
+  return worst;
 }

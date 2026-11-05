@@ -39,3 +39,9 @@ static palette_t current = PALETTE_DAY;
 
 void ui_theme_set_current(palette_t p) { current = p; }
 const ui_colors_t *ui_theme(void) { return ui_theme_colors(current); }
+
+lv_color_t ui_zone_line_color(uint8_t zone_state, lv_color_t normal) {
+  if (zone_state < 2) return normal;
+  const ui_colors_t *c = ui_theme();
+  return lv_color_lighten(zone_state >= 3 ? c->alarm : c->warn, LV_OPA_40);
+}
