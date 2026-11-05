@@ -1,0 +1,7 @@
+{
+  "description": "Both engines running; the port coolant sender fails (null) after 10 s.",
+  "durationMs": 30000,
+  "after": [
+    { "atMs": 10000, "note": "port coolant sender fails (null)", "op": "null", "path": "propulsion.port.temperature" }
+  ]
+}

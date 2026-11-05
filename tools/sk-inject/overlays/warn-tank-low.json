@@ -1,0 +1,7 @@
+{
+  "description": "Tanks live; at 10 s the first fresh water tank is driven into its warn zone and Signal K raises a warning (default zones are created if the server has none).",
+  "durationMs": 60000,
+  "after": [
+    { "atMs": 10000, "op": "alarm", "path": "tanks.freshWater.0.currentLevel", "state": "warn" }
+  ]
+}

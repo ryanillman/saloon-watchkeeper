@@ -1,0 +1,10 @@
+{
+  "description": "Both engines at cruise; at 3 s the port engine controller drops off the bus while running (its values stop arriving).",
+  "durationMs": 15000,
+  "after": [
+    { "atMs": 3000, "note": "port controller silent", "op": "silent", "path": "propulsion.port.revolutions" },
+    { "atMs": 3000, "op": "silent", "path": "propulsion.port.oilPressure" },
+    { "atMs": 3000, "op": "silent", "path": "propulsion.port.temperature" },
+    { "atMs": 3000, "op": "silent", "path": "propulsion.port.alternatorVoltage" }
+  ]
+}

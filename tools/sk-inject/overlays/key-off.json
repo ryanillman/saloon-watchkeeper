@@ -1,0 +1,12 @@
+{
+  "description": "Starboard is shut down and its key turned off: values go to 0 at 3 s, then the controller goes silent at 5 s. Port keeps running.",
+  "durationMs": 20000,
+  "after": [
+    { "atMs": 3000, "note": "starboard stops", "op": "set", "path": "propulsion.starboard.revolutions", "value": 0 },
+    { "atMs": 3000, "op": "set", "path": "propulsion.starboard.oilPressure", "value": 0 },
+    { "atMs": 5000, "note": "starboard key off: controller silent", "op": "silent", "path": "propulsion.starboard.revolutions" },
+    { "atMs": 5000, "op": "silent", "path": "propulsion.starboard.oilPressure" },
+    { "atMs": 5000, "op": "silent", "path": "propulsion.starboard.temperature" },
+    { "atMs": 5000, "op": "silent", "path": "propulsion.starboard.alternatorVoltage" }
+  ]
+}
