@@ -22,6 +22,10 @@
 // Monotonic milliseconds since an arbitrary start point.
 int64_t platform_millis(void);
 
+// "YYYY-MM-DDTHH:MM:SS[.fff]" followed by "Z" or "+hh:mm" / "-hh:mm" to seconds since 1970. False on anything else
+// (including a time with no zone), leaving *epoch_s untouched. Pure.
+bool platform_parse_iso8601(const char *iso, int64_t *epoch_s);
+
 // A plain mutex. Created once, never destroyed in practice.
 void *platform_lock_create(void);
 void platform_lock(void *lock);

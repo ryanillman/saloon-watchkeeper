@@ -5,6 +5,7 @@
 #include <string.h>
 #include "alerts.h"
 #include "cJSON.h"
+#include "platform.h"
 
 static char self_ctx[96];   // e.g. "vessels.urn:mrn:signalk:uuid:..."
 static const char *const *discovery_prefixes;   // NULL = everything
@@ -110,7 +111,7 @@ static void store_notification(const char *path, const cJSON *v, int64_t now) {
   alerts_upsert(&a, now);
 }
 
-static void store_value(const char *path, const cJSON *v, int64_t now) {
+static void store_value(const char *path, const cJSON *v, int64_t now, int64_t src_s) {
   if (!strncmp(path, NOTE_PREFIX, strlen(NOTE_PREFIX))) {
     store_notification(path, v, now);
     return;
@@ -123,14 +124,18 @@ static void store_value(const char *path, const cJSON *v, int64_t now) {
     bd_set_text(id, v->valuestring, SK_SOURCE_ID, now);
   } else {
     const cJSON *lat = cJSON_GetObjectItem(v, "latitude"), *lon = cJSON_GetObjectItem(v, "longitude");
+    const cJSON *type = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, "type") : NULL;
     if (cJSON_IsObject(v) && cJSON_IsNumber(lat) && cJSON_IsNumber(lon)) {
       bd_set_position(id, lat->valuedouble, lon->valuedouble, SK_SOURCE_ID, now);
+    } else if (!strcmp(path, "navigation.anchor.watchZone") && cJSON_IsString(type)) {
+      bd_set_text(id, type->valuestring, SK_SOURCE_ID, now);   // the zone's shape: the page needs to know whether it is a circle
     } else {
       // null, booleans, and other objects are not readings. Mark the field
       // failed, with this source as the writer.
       bd_set_number(id, NAN, SK_SOURCE_ID, now);
     }
   }
+  if (src_s) bd_set_source_time(id, src_s);
 }
 
 void sk_parse_message(const char *json, size_t len, int64_t now) {
@@ -146,9 +151,12 @@ void sk_parse_message(const char *json, size_t len, int64_t now) {
   if (cJSON_IsArray(updates) && is_self(cJSON_GetObjectItem(root, "context"))) {
     const cJSON *u, *e;
     cJSON_ArrayForEach(u, updates) {
+      int64_t src_s = 0;   // the update's own time (the server's clock), 0 when absent or unreadable
+      const cJSON *ts = cJSON_GetObjectItem(u, "timestamp");
+      if (!cJSON_IsString(ts) || !platform_parse_iso8601(ts->valuestring, &src_s)) src_s = 0;
       cJSON_ArrayForEach(e, cJSON_GetObjectItem(u, "values")) {
         const cJSON *p = cJSON_GetObjectItem(e, "path");
-        if (cJSON_IsString(p) && p->valuestring[0]) store_value(p->valuestring, cJSON_GetObjectItem(e, "value"), now);
+        if (cJSON_IsString(p) && p->valuestring[0]) store_value(p->valuestring, cJSON_GetObjectItem(e, "value"), now, src_s);
       }
       cJSON_ArrayForEach(e, cJSON_GetObjectItem(u, "meta")) {
         const cJSON *p = cJSON_GetObjectItem(e, "path");
