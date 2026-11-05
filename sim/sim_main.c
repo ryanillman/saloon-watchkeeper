@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "alerts.h"
 #include "anchor_ctl.h"
+#include "nav_state.h"
 #include "anchor_watch.h"
 #include "app.h"
 #include "app_cmd.h"
@@ -154,7 +155,51 @@ static void set_banks(cfg_role_t *r) {
 }
 
 // Twelve hours of history for the Glance trends: the house charge falling, the water level slowly dropping.
+// The Navigation page in each state (the spec's scenario: heading 047, course 070 with the boat 0.12 nm right of track, the
+// autopilot at 052, apparent wind 38 deg starboard at 14.2 kn, 6.4 kn through the water, server true wind 61 deg at 10 kn,
+// a 1.2 kn current setting 137). Set just before each picture, so every value is fresh when the page refreshes.
+static void fixture_nav(const char *state) {
+  int64_t now = platform_millis();
+  double hdg = 0.8203, ap = 0.9076, awa = 0.6632, twa = 1.0696;
+  if (!strcmp(state, "bugnear")) ap = hdg + 0.03;
+  if (!strcmp(state, "windahead")) awa = 0.05, twa = 0.09;
+  const struct { const char *path; double v; } d[] = {
+    {"navigation.headingTrue", hdg},
+    {"navigation.courseOverGroundTrue", 1.2217},
+    {"navigation.speedOverGround", 3.292},
+    {"navigation.speedThroughWater", 3.292},
+    {"environment.wind.angleApparent", awa},
+    {"environment.wind.speedApparent", 7.305},
+    {"environment.wind.angleTrueWater", twa},
+    {"environment.wind.speedTrue", 5.14},
+    {"navigation.course.calcValues.bearingTrackTrue", 1.2217},
+    {"navigation.course.calcValues.crossTrackError", 222.2},
+    {"navigation.course.calcValues.distance", 13700},
+    {"steering.autopilot.target.headingTrue", ap},
+    {"environment.current.setTrue", 2.391},
+    {"environment.current.drift", 0.617},
+  };
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
+  bd_set_text(bd_intern("steering.autopilot.state"), !strcmp(state, "noap") ? "standby" : "auto", SK_SOURCE_ID, now);
+  if (!strcmp(state, "nocourse")) bd_set_invalid(bd_find("navigation.course.calcValues.bearingTrackTrue"));
+  if (!strcmp(state, "nohdg")) bd_set_invalid(bd_find("navigation.headingTrue"));
+  if (!strcmp(state, "computed")) bd_set_invalid(bd_find("environment.wind.angleTrueWater"));   // the display works it out
+  if (!strcmp(state, "noset")) bd_set_invalid(bd_find("environment.current.drift"));
+}
+
+static const char *const nav_states[] = {"full", "nocourse", "noap", "nohdg", "computed", "noset", "windahead", "bugnear"};
+
 static void fixture_history(void) {
+  {   // twelve hours of wind for the Navigation tile, building from 6 to 10 m/s over the last hour
+    nav_ids_t ids;
+    nav_ids_bind(&ids);
+    static float wind[HIST_MINUTES];
+    for (int i = 0; i < HIST_MINUTES; i++) {
+      float ramp = i < HIST_MINUTES - 60 ? 0.0f : 4.0f * (float)(i - (HIST_MINUTES - 60)) / 59.0f;
+      wind[i] = 6.0f + ramp + 0.6f * sinf((float)i / 40.0f) + 0.15f * sinf((float)i / 4.0f);
+    }
+    hist_backfill(ids.tw_speed, wind, HIST_MINUTES);
+  }
   static float v[HIST_MINUTES];
   const struct { const char *path; float from, to; } d[] = {
     {"electrical.batteries.279.capacity.stateOfCharge", 0.97f, 0.82f},
@@ -289,6 +334,8 @@ static int run_snapshots(const char *out) {
       fixture_engines();
       fixture_tanks();
       fixture_power();
+      fixture_nav("full");
+      strcpy(cfg->roles[cfg->role_count++].role, "navigation");   // not in the default roles
       app_bind();
       fixture_history();
       anchor_start(cfg);
@@ -301,7 +348,7 @@ static int run_snapshots(const char *out) {
         uint8_t pages = n->page_count[n->role];
         bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks"),
              power = !strcmp(cfg->roles[r].role, "power"), glance = !strcmp(cfg->roles[r].role, "glance"),
-             anchor = !strcmp(cfg->roles[r].role, "anchor");
+             anchor = !strcmp(cfg->roles[r].role, "anchor"), navigation = !strcmp(cfg->roles[r].role, "navigation");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -332,6 +379,7 @@ static int run_snapshots(const char *out) {
             fixture_engines();
             fixture_tanks();
             fixture_power();
+            fixture_nav("full");
             if (write_page(disp, dir, "-live", b)) return 1;
             bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));   // the house charge goes
             bd_set_invalid(bd_find("propulsion.port.temperature"));                         // and the port coolant sender
@@ -346,6 +394,13 @@ static int run_snapshots(const char *out) {
               if (write_page(disp, dir, suffix, b)) return 1;
             }
             anchor_state("notset");
+          } else if (navigation) {
+            for (size_t k = 0; k < sizeof nav_states / sizeof nav_states[0]; k++) {
+              fixture_nav(nav_states[k]);
+              char suffix[32];
+              snprintf(suffix, sizeof suffix, "-%s", nav_states[k]);
+              if (write_page(disp, dir, suffix, b)) return 1;
+            }
           } else if (anchor) {
             for (size_t k = 0; k < sizeof anchor_states / sizeof anchor_states[0]; k++) {
               anchor_state(anchor_states[k]);

@@ -24,7 +24,9 @@ foreach(f sim480/day/setup-wifi-keyboard.png sim800/night/setup-wifi.png sim800/
         sim480/day/anchor-p0-notset.png sim480/day/anchor-p0-holding.png sim800/day/anchor-p0-warn.png
         sim800/night/anchor-p0-dragging.png sim1024/day/anchor-p0-nodata.png sim1024/dusk/anchor-p0-restoring.png
         sim480/night/glance-p0-anchor-holding.png sim800/day/glance-p0-anchor-dragging.png
-        sim1024/day/glance-p0-anchor-nodata.png)
+        sim1024/day/glance-p0-anchor-nodata.png
+        sim480/day/navigation-p0-full.png sim800/night/navigation-p0-full.png sim1024/dusk/navigation-p0-nocourse.png
+        sim800/day/navigation-p0-nohdg.png sim480/night/navigation-p0-bugnear.png sim480/day/navigation-p0-computed.png)
   if(NOT EXISTS ${OUT}/${f})
     message(FATAL_ERROR "missing ${f}")
   endif()

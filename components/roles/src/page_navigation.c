@@ -38,11 +38,12 @@ void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   w.wide = sc == SIZE_WIDE;
   int32_t pad = 4;
 
-  int32_t side = w.wide ? H : 376, colw, rx;
+  // The wide rose sits 30 px down: the heading box above it must not cover the autopilot bug on the rim.
+  int32_t side = w.wide ? H - 30 : 376, colw, rx;
   w.rose = ui_rose_create(area);
   lv_obj_set_size(w.rose, side, side);
   rx = (W - side) / 2;
-  lv_obj_set_pos(w.rose, rx, w.wide ? 0 : 36);
+  lv_obj_set_pos(w.rose, rx, w.wide ? 30 : 36);
   colw = w.wide ? rx - 2 * pad : 108;
   int32_t rcol = W - pad - colw;
 
@@ -56,7 +57,7 @@ void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   lv_obj_set_style_text_color(w.set_drift, c->dim, 0);
   lv_label_set_long_mode(w.set_drift, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(w.set_drift, colw);
-  lv_obj_set_pos(w.set_drift, pad, bottom - (w.wide ? 22 : 34));
+  lv_obj_set_pos(w.set_drift, pad, bottom - (w.wide ? 22 : 38));
   int32_t true_y = w.wide ? 164 : bottom - 34 - mid - 4 - big - 4;
   w.twa = field(area, "TRUE", c->nav_true, true, "TWA FAIL", pad, true_y, colw, big);
   w.tws = field(area, "TWS", c->nav_true, true, "TWS FAIL", pad, true_y + big + 4, colw, mid);
