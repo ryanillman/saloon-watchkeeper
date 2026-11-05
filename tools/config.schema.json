@@ -92,6 +92,6 @@
     }
   },
   "$defs": {
-    "roleName": { "enum": ["glance", "engine", "power", "tanks", "anchor", "wind", "nav"] }
+    "roleName": { "enum": ["glance", "engine", "power", "tanks", "anchor", "navigation"] }
   }
 }
