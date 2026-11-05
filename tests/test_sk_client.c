@@ -6,6 +6,8 @@
 #include "boatdata.h"
 #include "history.h"
 #include "sk_client.h"
+#include "platform.h"
+#include "sk_cmd.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
 
@@ -33,6 +35,11 @@ static int rebind_at_poll;   // sk_client_rebind during this poll (0: never)
 static char sent_log[8][512];
 static int overflow_at_poll;   // sk_ws_take_overflow reports a drop after this poll (0: never)
 static bool overflow_taken;
+static char req_method[2][8], req_url[2][256], req_body[2][128];   // what sk_http_request was asked to send, in order
+static int reqs;
+static bool req_transport_ok = true;
+static int req_status = 200;
+static sk_cmd_handle_t cmd_h[2];
 
 bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
   (void)token;
@@ -53,11 +60,17 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
 
 bool sk_http_request(const char *method, const char *url, const char *token, const char *body,
                      int *status, char **resp, size_t *resp_len) {
-  (void)method; (void)url; (void)token; (void)body;
-  *status = 0;
+  (void)token;
+  if (reqs < 2) {
+    snprintf(req_method[reqs], sizeof req_method[0], "%s", method);
+    snprintf(req_url[reqs], sizeof req_url[0], "%s", url);
+    snprintf(req_body[reqs], sizeof req_body[0], "%s", body ? body : "(none)");
+  }
+  reqs++;
+  *status = req_transport_ok ? req_status : 0;
   *resp = NULL;
   *resp_len = 0;
-  return false;
+  return req_transport_ok;
 }
 
 bool sk_ws_connect(const char *url, const char *token, sk_msg_cb c, void *ctx) {
@@ -90,6 +103,14 @@ bool sk_ws_poll(int timeout_ms) {
       const char *n = "{\"updates\":[{\"values\":[{\"path\":\"notifications.a.b\",\"value\":{\"state\":\"alarm\",\"message\":\"m\",\"id\":\"u-9\"}}]}]}";
       cb(n, strlen(n), cb_ctx);
       alerts_request("a.b", AL_REQ_ACK);
+    }
+    if (live_hook == 3) {   // the UI queues a POST and a PUT as the connection goes live
+      sk_cmd_t post = {.put_number = false}, put = {.put_number = true, .value = 30};
+      snprintf(post.path, sizeof post.path, "/plugins/hoekens-anchor-alarm/dropAnchor");
+      snprintf(post.body, sizeof post.body, "{\"zone\":{\"type\":\"circle\",\"radius\":30}}");
+      snprintf(put.path, sizeof put.path, "navigation.anchor.maxRadius");
+      cmd_h[0] = sk_cmd_submit(&post, false, platform_millis());
+      cmd_h[1] = sk_cmd_submit(&put, true, platform_millis());
     }
     const char *d = "{\"updates\":[{\"values\":[{\"path\":\"propulsion.port.revolutions\",\"value\":30}]}]}";
     cb(d, strlen(d), cb_ctx);
@@ -134,6 +155,10 @@ void setUp(void) {
   bd_init();
   alerts_init();
   posts = 0;
+  reqs = 0;
+  req_transport_ok = true;
+  req_status = 200;
+  sk_cmd_init();
   last_post[0] = 0;
   post_status = 200;
   live_hook = 0;
@@ -324,6 +349,37 @@ static void test_rebind_unsubscribes_first(void) {   // the server does not dedu
   TEST_ASSERT_NOT_NULL(strstr(sent_log[2], "propulsion.port.revolutions"));
 }
 
+static void test_client_drains_post_and_put_commands(void) {
+  live_hook = 3;
+  live_polls = 3;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(2, reqs);
+  TEST_ASSERT_EQUAL_STRING("POST", req_method[0]);
+  TEST_ASSERT_EQUAL_STRING("http://localhost:3000/plugins/hoekens-anchor-alarm/dropAnchor", req_url[0]);
+  TEST_ASSERT_EQUAL_STRING("{\"zone\":{\"type\":\"circle\",\"radius\":30}}", req_body[0]);
+  TEST_ASSERT_EQUAL_STRING("PUT", req_method[1]);
+  TEST_ASSERT_EQUAL_STRING("http://localhost:3000/signalk/v1/api/vessels/self/navigation/anchor/maxRadius", req_url[1]);
+  TEST_ASSERT_EQUAL_STRING("{\"value\":30}", req_body[1]);
+  TEST_ASSERT_EQUAL(SKC_OK, sk_cmd_result(cmd_h[0]).state);
+  TEST_ASSERT_EQUAL(SKC_OK, sk_cmd_result(cmd_h[1]).state);
+}
+
+static void test_client_command_failure_is_reported_and_not_retried(void) {
+  live_hook = 3;
+  live_polls = 4;
+  req_status = 404;
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(2, reqs);   // one attempt each over several polls
+  TEST_ASSERT_EQUAL(SKC_ERR_NO_PLUGIN, sk_cmd_result(cmd_h[0]).err);
+}
+
+static void test_client_going_offline_stops_accepting_commands(void) {
+  sk_client_run_once();   // the fake server goes away after the first poll
+  sk_cmd_t c = {0};
+  snprintf(c.path, sizeof c.path, "/p/drop");
+  TEST_ASSERT_EQUAL_UINT16(0, sk_cmd_submit(&c, false, platform_millis()));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_backoff_sequence);
@@ -344,6 +400,9 @@ int main(void) {
   RUN_TEST(test_queued_ack_sent_while_live);
   RUN_TEST(test_post_failure_marks_send_failed);
   RUN_TEST(test_no_post_after_reconnect_for_dropped_request);
+  RUN_TEST(test_client_drains_post_and_put_commands);
+  RUN_TEST(test_client_command_failure_is_reported_and_not_retried);
+  RUN_TEST(test_client_going_offline_stops_accepting_commands);
   RUN_TEST(test_overflow_resubscribes);
   RUN_TEST(test_no_overflow_subscribes_once);
   RUN_TEST(test_rebind_unsubscribes_first);
