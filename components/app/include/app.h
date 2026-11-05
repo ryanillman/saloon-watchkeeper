@@ -34,6 +34,9 @@ const char *app_config_dir(void);
 typedef enum { APPLY_NONE = 0, APPLY_DISPLAY = 1, APPLY_SIGNALK = 2, APPLY_ROLES = 4, APPLY_WIFI = 8 } app_apply_t;
 unsigned app_apply_config(const cfg_t *next);
 
+// The configured role (index) that shows this alert id (a notification path without "notifications."), or -1.
+int8_t app_alert_role(const char *id);
+
 // Runs fn(arg) on the UI task at its next app_tick. With wait_ms > 0 the caller blocks until it
 // has run (false on timeout); never wait from the UI task itself. Up to 8 may be queued.
 typedef void (*app_req_fn)(void *arg);

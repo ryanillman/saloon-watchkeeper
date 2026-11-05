@@ -409,13 +409,15 @@ static void toggle_quick(void) {
   }
 }
 
-// Alert id (a notification path) to the configured role that shows that data, or -1.
-static int8_t alert_role(const char *id) {
+// Alert id (a notification path) to the configured role that shows that data, or -1. A prefix matches the id
+// when it is the whole id ("navigation.anchor", the anchor notification's own id) or is followed by a dot.
+int8_t app_alert_role(const char *id) {
   static const struct { const char *prefix, *role; } map[] = {
-    {"propulsion.", "engine"}, {"electrical.", "power"}, {"tanks.", "tanks"}, {"navigation.anchor.", "anchor"},
+    {"propulsion", "engine"}, {"electrical", "power"}, {"tanks", "tanks"}, {"navigation.anchor", "anchor"},
   };
   for (size_t m = 0; m < sizeof map / sizeof map[0]; m++) {
-    if (strncmp(id, map[m].prefix, strlen(map[m].prefix)) != 0) continue;
+    size_t n = strlen(map[m].prefix);
+    if (strncmp(id, map[m].prefix, n) != 0 || (id[n] != '\0' && id[n] != '.')) continue;
     for (uint8_t i = 0; i < a.count; i++)
       if (!strcmp(a.cfg.roles[i].role, map[m].role)) return (int8_t)i;
     return -1;
@@ -425,7 +427,7 @@ static int8_t alert_role(const char *id) {
 
 // Page inside the role that shows this alarm, not the role's first page.
 static uint8_t alert_page(const char *id) {
-  int8_t role = alert_role(id);
+  int8_t role = app_alert_role(id);
   if (role < 0) return 0;
   const role_def_t *d = a.roles[role].def;
   if (!d || !d->page_for) return 0;
@@ -459,7 +461,7 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.screen = lv_display_get_screen_active(disp);
   a.ui = true;
   ui_shell_set_strip_tap(toggle_quick);
-  ui_alerts_attach(a.screen, ui_shell_strip(), sc, alert_role, alert_page);
+  ui_alerts_attach(a.screen, ui_shell_strip(), sc, app_alert_role, alert_page);
   apply_backlight();
 }
 
