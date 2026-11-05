@@ -183,6 +183,23 @@ static void test_clock_ignores_a_malformed_time(void) {
   TEST_ASSERT_TRUE(clock_hidden());
 }
 
+static int8_t role_index(const char *name) {
+  for (uint8_t i = 0; i < app_config()->role_count; i++)
+    if (!strcmp(app_config()->roles[i].role, name)) return (int8_t)i;
+  return -1;
+}
+
+static void test_alert_role_routes_anchor(void) {
+  int8_t anchor = role_index("anchor"), engine = role_index("engine");
+  TEST_ASSERT_GREATER_OR_EQUAL_INT8(0, anchor);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT8(0, engine);
+  // The notification's own id has no trailing segment: it is exactly "navigation.anchor".
+  TEST_ASSERT_EQUAL_INT8(anchor, app_alert_role("navigation.anchor"));
+  TEST_ASSERT_EQUAL_INT8(anchor, app_alert_role("navigation.anchor.watch"));
+  TEST_ASSERT_EQUAL_INT8(-1, app_alert_role("navigation.anchorage"));
+  TEST_ASSERT_EQUAL_INT8(engine, app_alert_role("propulsion.port.temperature"));
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -207,5 +224,6 @@ int main(void) {
   RUN_TEST(test_apply_wifi_ignores_bytes_after_the_nul);
   RUN_TEST(test_post_runs_on_tick);
   RUN_TEST(test_apply_keeps_alarm_banner);
+  RUN_TEST(test_alert_role_routes_anchor);
   return UNITY_END();
 }
