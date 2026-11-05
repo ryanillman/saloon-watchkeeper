@@ -3,12 +3,16 @@
 Mirrors signalk-server dist/zones.js: a value is in the first zone with lower <= value < upper
 (missing bounds are open); in no zone, or null, it is "normal".
 """
+import asyncio
 import copy
 import fnmatch
 import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+CREATED_FILE = HERE / "zones-created.json"
 _DEFAULTS = json.loads((HERE / "zones-default.json").read_text())
 
 
@@ -63,3 +67,65 @@ def default_zones(path):
             meta["zones"] = copy.deepcopy(kind["zones"])
             return meta
     return None
+
+
+# ---- Signal K server I/O ----------------------------------------------------------------
+
+def _get_json(server, url_path):
+    """GET http://server/url_path as JSON; None on 404. Other failures raise (OSError subclasses)."""
+    try:
+        with urllib.request.urlopen(f"http://{server}{url_path}", timeout=3) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        e.close()
+        if e.code == 404:
+            return None
+        raise
+
+
+def _slash(path):
+    return path.replace(".", "/")
+
+
+def read_zones(server, path):
+    """The zones on a path's meta, or None if it has none (including an empty list or no meta)."""
+    meta = _get_json(server, f"/signalk/v1/api/vessels/self/{_slash(path)}/meta")
+    zs = meta.get("zones") if isinstance(meta, dict) else None
+    return zs or None
+
+
+def meta_delta(path, meta):
+    """A Signal K delta that sets a path's meta; the server starts watching its zones."""
+    return {"context": "vessels.self",
+            "updates": [{"source": {"label": "sk-inject"}, "meta": [{"path": path, "value": meta}]}]}
+
+
+async def raise_check(server, path, state, timeout_s, poll_s=0.5):
+    """True once the server's notification for path has this state, False after timeout_s."""
+    url = f"/signalk/v1/api/vessels/self/notifications/{_slash(path)}"
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while True:
+        try:
+            doc = await asyncio.to_thread(_get_json, server, url)
+        except OSError:
+            doc = None
+        if isinstance(doc, dict) and (doc.get("value") or {}).get("state") == state:
+            return True
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(poll_s)
+
+
+def created_paths(file=CREATED_FILE):
+    try:
+        return json.loads(Path(file).read_text())
+    except FileNotFoundError:
+        return []
+
+
+def record_created(path, file=CREATED_FILE):
+    paths = created_paths(file)
+    if path not in paths:
+        paths.append(path)
+        Path(file).write_text(json.dumps(paths, indent=2) + "\n")
