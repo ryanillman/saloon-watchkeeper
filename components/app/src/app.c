@@ -8,6 +8,7 @@
 #include "anchor_watch.h"
 #include "nav_state.h"
 #include "boatdata.h"
+#include "depth_state.h"
 #include "glance_page.h"
 #include "history.h"
 #include "net.h"
@@ -483,6 +484,7 @@ static void toggle_quick(void) {
 int8_t app_alert_role(const char *id) {
   static const struct { const char *prefix, *role; } map[] = {
     {"propulsion", "engine"}, {"electrical", "power"}, {"tanks", "tanks"}, {"navigation.anchor", "anchor"},
+    {"environment.depth", "depth"},
   };
   for (size_t m = 0; m < sizeof map / sizeof map[0]; m++) {
     size_t n = strlen(map[m].prefix);
@@ -749,6 +751,7 @@ static void update_clock(int64_t now) {
     a.clock_rx_ms = smp.rx_ms;
     if (ui_clock_parse_iso(smp.text, &epoch)) ui_clock_offer(epoch, smp.rx_ms);   // shown once a second value agrees
   }
+  depth_set_utc_offset(a.cfg.utc_offset_min);   // the Depth role shows tide times in the same local time
   char hhmm[6];
   bool up = a.network && sk_client_state() == SK_LIVE;
   ui_shell_set_clock(ui_clock_format(now, a.cfg.utc_offset_min, up, hhmm) ? hhmm : NULL);

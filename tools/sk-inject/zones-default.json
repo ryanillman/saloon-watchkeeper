@@ -46,6 +46,10 @@
       {"lower": 0, "upper": 0.1, "state": "alarm", "message": "Battery very low"},
       {"lower": 0.1, "upper": 0.2, "state": "warn", "message": "Battery low"},
       {"lower": 0.2, "upper": 1.01, "state": "nominal", "message": ""}]},
+    {"pattern": "environment.depth.*", "zones": [
+      {"lower": 0, "upper": 1.0, "state": "alarm", "message": "Shallow water"},
+      {"lower": 1.0, "upper": 1.5, "state": "warn", "message": "Water getting shallow"},
+      {"lower": 1.5, "upper": 500, "state": "nominal", "message": ""}]},
     {"pattern": "electrical.batteries.*.voltage", "zones": [
       {"lower": 0, "upper": 11.5, "state": "alarm", "message": "Battery voltage low"},
       {"lower": 11.5, "upper": 12.0, "state": "warn", "message": "Battery voltage getting low"},

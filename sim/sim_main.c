@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include "alerts.h"
 #include "anchor_ctl.h"
@@ -84,6 +85,39 @@ static void fixture_tanks(void) {
   m.zones[0] = (bd_zone_t){.lower = 0.0, .upper = 0.1, .state = 3};   // alarm below 10 %
   m.zones[1] = (bd_zone_t){.lower = 0.1, .upper = 0.2, .state = 2};   // warn below 20 %
   bd_set_meta(bd_find("tanks.fuel.0.currentLevel"), &m);
+}
+
+// A sounder reporting below the keel and the surface (not the transducer, so the page has to say which it shows), and a
+// tide plugin: rising towards a high at 14:32 UTC, the server's clock at 12:00 UTC.
+static void fixture_depth(bool tide) {
+  const struct { const char *path; double v; } d[] = {
+    {"environment.depth.belowKeel", 2.4}, {"environment.depth.belowSurface", 3.0},
+    {"environment.tide.heightNow", 1.8},  {"environment.tide.heightHigh", 3.2}, {"environment.tide.heightLow", 0.4},
+  };
+  for (size_t i = 0; i < sizeof d / sizeof d[0]; i++)
+    if (tide || strncmp(d[i].path, "environment.tide", 16)) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, platform_millis());
+  bd_meta_t m = {.zone_count = 2};
+  m.zones[0] = (bd_zone_t){.lower = 0.0, .upper = 1.0, .state = 3};   // alarm under 1 m
+  m.zones[1] = (bd_zone_t){.lower = 1.0, .upper = 1.5, .state = 2};   // warn under 1.5 m
+  bd_set_meta(bd_find("environment.depth.belowKeel"), &m);
+  // The other fixtures stamp their own times and the server's clock is the newest of them, so the tide times are
+  // set relative to it: a high in 2 h 32 min and a low in 8 h 50 min.
+  int64_t now_s = bd_newest_source_time();
+  if (now_s == 0) now_s = 1793793600;
+  bd_id_t clock = bd_intern("navigation.datetime");
+  bd_set_text(clock, "2026-11-04T12:00:00.000Z", SK_SOURCE_ID, platform_millis());
+  bd_set_source_time(clock, now_s);
+  if (tide) {
+    const struct { const char *path; int64_t in_s; } ev[] = {{"environment.tide.timeHigh", 152 * 60}, {"environment.tide.timeLow", 530 * 60}};
+    for (size_t i = 0; i < 2; i++) {
+      time_t t = (time_t)(now_s + ev[i].in_s);
+      struct tm tm;
+      char iso[32];
+      gmtime_r(&t, &tm);
+      strftime(iso, sizeof iso, "%Y-%m-%dT%H:%M:%S.000Z", &tm);
+      bd_set_text(bd_intern(ev[i].path), iso, SK_SOURCE_ID, platform_millis());
+    }
+  }
 }
 
 // A Victron boat, as signalk-venus reports it (SI units; ratios; seconds).
@@ -331,11 +365,14 @@ static int run_snapshots(const char *out) {
       cfg_t *cfg = (cfg_t *)app_init(NULL, &rep);
       snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[pal]);
       alerts_source_up(true);
+      if (cfg->role_count < CFG_MAX_ROLES)   // not a default role: add it so it is drawn and has its Glance tile
+        snprintf(cfg->roles[cfg->role_count++].role, sizeof cfg->roles[0].role, "depth");
       fixture_engines();
       fixture_tanks();
       fixture_power();
       fixture_nav("full");
       strcpy(cfg->roles[cfg->role_count++].role, "navigation");   // not in the default roles
+      fixture_depth(true);
       app_bind();
       fixture_history();
       anchor_start(cfg);
@@ -348,7 +385,8 @@ static int run_snapshots(const char *out) {
         uint8_t pages = n->page_count[n->role];
         bool engine = !strcmp(cfg->roles[r].role, "engine"), tanks = !strcmp(cfg->roles[r].role, "tanks"),
              power = !strcmp(cfg->roles[r].role, "power"), glance = !strcmp(cfg->roles[r].role, "glance"),
-             anchor = !strcmp(cfg->roles[r].role, "anchor"), navigation = !strcmp(cfg->roles[r].role, "navigation");
+             anchor = !strcmp(cfg->roles[r].role, "anchor"), navigation = !strcmp(cfg->roles[r].role, "navigation"),
+             depth = !strcmp(cfg->roles[r].role, "depth");
         for (uint8_t p = 0; p < pages; p++) {
           if (engine) {
             fixture_engines();
@@ -380,12 +418,16 @@ static int run_snapshots(const char *out) {
             fixture_tanks();
             fixture_power();
             fixture_nav("full");
+            fixture_depth(true);
             if (write_page(disp, dir, "-live", b)) return 1;
             bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));   // the house charge goes
             bd_set_invalid(bd_find("propulsion.port.temperature"));                         // and the port coolant sender
             bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));                     // and a water tank sender
+            bd_set_invalid(bd_find("environment.depth.belowKeel"));                         // and the sounder
+            bd_set_invalid(bd_find("environment.depth.belowSurface"));
             if (write_page(disp, dir, "-fault", b)) return 1;
             fixture_power();
+            fixture_depth(true);
             static const char *const tile_states[] = {"holding", "dragging", "nodata"};   // the Anchor tile
             for (size_t k = 0; k < sizeof tile_states / sizeof tile_states[0]; k++) {
               anchor_state(tile_states[k]);
@@ -409,6 +451,25 @@ static int run_snapshots(const char *out) {
               if (write_page(disp, dir, suffix, b)) return 1;
             }
             anchor_state("notset");
+          } else if (depth) {
+            fixture_depth(true);
+            if (write_page(disp, dir, "-live", b)) return 1;
+            bd_set_invalid(bd_find("environment.tide.heightNow"));   // the tide plugin stops: the height goes, the next high stays
+            if (write_page(disp, dir, "-tide-partial", b)) return 1;
+            bd_set_invalid(bd_find("environment.depth.belowKeel"));   // the sounder fails: surface depth takes over, named as such
+            if (write_page(disp, dir, "-surface", b)) return 1;
+            bd_set_invalid(bd_find("environment.depth.belowSurface"));
+            if (write_page(disp, dir, "-fault", b)) return 1;
+            // A boat with a sounder and no tide plugin: nothing on the tide paths was ever received (rx_ms 0).
+            static const char *const tide_paths[] = {"heightNow", "heightHigh", "heightLow", "timeHigh", "timeLow"};
+            for (size_t k = 0; k < sizeof tide_paths / sizeof tide_paths[0]; k++) {
+              char tp[48];
+              snprintf(tp, sizeof tp, "environment.tide.%s", tide_paths[k]);
+              bd_set_number(bd_intern(tp), NAN, SK_SOURCE_ID, 0);
+            }
+            fixture_depth(false);
+            if (write_page(disp, dir, "-no-tide", b)) return 1;
+            fixture_depth(true);
           } else if (tanks) {
             fixture_tanks();
             if (write_page(disp, dir, "-live", b)) return 1;

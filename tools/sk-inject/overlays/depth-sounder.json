@@ -1,0 +1,12 @@
+{
+  "description": "Depth and tide, rising. The depth shown is below the transducer. At 10 s the transducer reading fails (null) and the page and tile move to below the keel, naming it. At 25 s the keel and surface readings fail too and depth is NO DATA. At 40 s the tide plugin goes quiet: the height goes stale after 30 minutes, so the page keeps the tide until then.",
+  "durationMs": 60000,
+  "after": [
+    { "atMs": 10000, "note": "transducer reading fails (null): falls back to keel", "op": "null", "path": "environment.depth.belowTransducer" },
+    { "atMs": 25000, "note": "keel and surface fail: no depth", "op": "null", "path": "environment.depth.belowKeel" },
+    { "atMs": 25000, "op": "null", "path": "environment.depth.belowSurface" },
+    { "atMs": 40000, "note": "tide plugin silent", "op": "silent", "path": "environment.tide.heightNow" },
+    { "atMs": 40000, "op": "silent", "path": "environment.tide.timeHigh" },
+    { "atMs": 40000, "op": "silent", "path": "environment.tide.timeLow" }
+  ]
+}

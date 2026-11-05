@@ -48,10 +48,16 @@ class Baseline:
         return out
 
 
+def _iso(when: datetime.datetime) -> str:
+    return when.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def _resolve(nominal: Any, row: dict, path: str, t_ms: float) -> Any:
     if nominal == "$now":
-        return datetime.datetime.now(datetime.timezone.utc).isoformat(
-            timespec="milliseconds").replace("+00:00", "Z")
+        return _iso(datetime.datetime.now(datetime.timezone.utc))
+    if isinstance(nominal, str) and nominal.startswith("$now+") and nominal.endswith("m"):
+        # "$now+152m": that many minutes ahead (a tide plugin's next high or low), always in the future
+        return _iso(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=float(nominal[5:-1])))
     if isinstance(nominal, (dict, list)):
         return copy.deepcopy(nominal)   # an object value (a position): never share the table's copy
     if not isinstance(nominal, (int, float)) or isinstance(nominal, bool):

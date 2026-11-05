@@ -28,6 +28,8 @@ static conv_t conv(quantity_t q, const cfg_units_t *u) {
       if (IS(u->distance, "m")) return (conv_t){1.0, 0, "m"};
       if (IS(u->distance, "ft")) return (conv_t){1.0 / 0.3048, 0, "ft"};
       return (conv_t){1.0 / 1852.0, 0, "nm"};
+    case Q_DEPTH:
+      return IS(u->distance, "ft") ? (conv_t){1.0 / 0.3048, 0, "ft"} : (conv_t){1.0, 0, "m"};
     case Q_ROTATION: return (conv_t){60.0, 0, "RPM"};
     case Q_VOLTAGE: return (conv_t){1.0, 0, "V"};
     case Q_CURRENT: return (conv_t){1.0, 0, "A"};
