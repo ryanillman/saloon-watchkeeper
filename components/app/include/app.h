@@ -2,6 +2,7 @@
 // Startup shared by the simulator and the firmware.
 #include "config.h"
 #include "lvgl.h"
+#include "platform.h"
 #include "ui_theme.h"
 
 // Clears boatdata and loads config from dir (NULL = defaults). Returns the config.
@@ -47,6 +48,8 @@ typedef struct {
   bool token;
   char access[128];          // access request state and message
   unsigned internal_kb, psram_kb;
+  unsigned internal_largest_kb, internal_min_kb;   // largest free block; least free since boot
+  platform_stack_t stacks[8]; uint8_t stack_count;
   bool sd;
   char origin[10];           // "main", "backup", "defaults"
   uint8_t alerts; char worst[10];

@@ -88,7 +88,7 @@ static void test_help_lists_commands(void) {
 static void test_status_has_all_keys(void) {
   TEST_ASSERT_EQUAL_INT(0, run("status"));
   const char *keys[] = {"firmware: test", "board: sim800", "ip:", "rssi:", "signalk:", "token: not set",
-                        "access:", "ram:", "sd: mounted", "config: main", "alerts:"};
+                        "access:", "ram:", "largest", "lowest", "stacks:", "sd: mounted", "config: main", "alerts:"};
   for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out, keys[i]), keys[i]);
 }
 

@@ -41,5 +41,13 @@ void platform_mem(size_t *internal, size_t *psram);
 // platform_mem, read afterwards, misses (Linux: 0).
 size_t platform_min_internal(void);
 
+// Largest single block allocatable from internal RAM: total free minus this is fragmentation (Linux: 0).
+size_t platform_largest_internal(void);
+
+// Stack headroom of the named tasks, as the least free bytes each has ever had (Linux: none). Fills out[]
+// with up to max entries and returns how many.
+typedef struct { char name[12]; uint32_t min_free; } platform_stack_t;
+size_t platform_stacks(platform_stack_t *out, size_t max);
+
 // The device's base MAC address (Linux: a fixed made-up one).
 void platform_mac(uint8_t mac[6]);

@@ -6,12 +6,18 @@
 #include <stdio.h>
 
 typedef struct {
-  char *path;
+  const char *path;   // points into path_store
   bd_sample_t sample;
-  bd_meta_t *meta;   // NULL until a source supplies one
+  bool has_meta;      // false until a source supplies one
 } entry_t;
 
+// Paths and metadata live in fixed PSRAM tables: per-path malloc would take about 270 B of internal RAM
+// each, which a boat with a Cerbo, engines and tanks (100-200 paths) turns into all of lcd7's headroom.
+#define PATH_STORE_BYTES (48 * 1024)   // 512 paths of up to ~90 characters
 PLATFORM_EXT_BSS static entry_t entries[BD_MAX_PATHS];   // id N lives at entries[N - 1]
+PLATFORM_EXT_BSS static bd_meta_t metas[BD_MAX_PATHS];   // same index as entries
+PLATFORM_EXT_BSS static char path_store[PATH_STORE_BYTES];
+static size_t path_used;
 static uint16_t count;
 static void *lock;
 
@@ -23,12 +29,9 @@ static entry_t *get(bd_id_t id) { return (id >= 1 && id <= count) ? &entries[id 
 void bd_init(void) {
   if (!lock) lock = platform_lock_create();
   LOCK();
-  for (uint16_t i = 0; i < count; i++) {
-    free(entries[i].path);
-    free(entries[i].meta);
-  }
   memset(entries, 0, sizeof entries);
   count = 0;
+  path_used = 0;
   UNLOCK();
 }
 
@@ -54,10 +57,16 @@ bd_id_t bd_intern(const char *path) {
     warned = true;
   }
   if (id == BD_NONE && count < BD_MAX_PATHS) {
-    char *copy = strdup(path);
-    if (copy) {
+    size_t n = strlen(path) + 1;
+    if (n <= PATH_STORE_BYTES - path_used) {
+      char *copy = memcpy(path_store + path_used, path, n);
+      path_used += n;
       entries[count].path = copy;
       id = ++count;
+    } else {
+      static bool warned_store;
+      if (!warned_store) printf("boatdata: path storage full (%d B); ignoring %s and later paths\n", PATH_STORE_BYTES, path);
+      warned_store = true;
     }
   }
   UNLOCK();
@@ -141,8 +150,8 @@ void bd_set_meta(bd_id_t id, const bd_meta_t *m) {
   LOCK();
   entry_t *e = get(id);
   if (e) {
-    if (!e->meta) e->meta = malloc(sizeof *e->meta);
-    if (e->meta) *e->meta = *m;
+    metas[id - 1] = *m;
+    e->has_meta = true;
   }
   UNLOCK();
 }
@@ -150,8 +159,8 @@ void bd_set_meta(bd_id_t id, const bd_meta_t *m) {
 bool bd_get_meta(bd_id_t id, bd_meta_t *out) {
   LOCK();
   entry_t *e = get(id);
-  bool ok = e && e->meta;
-  if (ok) *out = *e->meta;
+  bool ok = e && e->has_meta;
+  if (ok) *out = metas[id - 1];
   UNLOCK();
   return ok;
 }
