@@ -1,14 +1,14 @@
 # Saloon Watchkeeper
 
-Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, Tanks, and Anchor work today, with a Glance page that shows one tile per role at a glance; Wind and Navigation are planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
+Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, Tanks, Anchor, and Navigation (an HSI-style compass with the wind, the plotter's course and the autopilot) work today, with a Glance page that shows one tile per role at a glance; depth and tide is planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
 
 It started with a simple annoyance: the display that shows a boat's battery and tank data cost hundreds of dollars and could only show one vendor's data. A general-purpose touch display can do the job for any boat's data.
 
-> **Status: pre-release.** Engine, Power, Tanks, alerts, and the day/dusk/night palettes are working on real hardware. Anchor is built and tested in the simulator but not yet checked on a boat; on-device setup and NMEA 2000 are not done yet. Expect rough edges and changing config.
+> **Status: pre-release.** Engine, Power, Tanks, alerts, and the day/dusk/night palettes are working on real hardware. Anchor and Navigation are built and tested in the simulator but not yet checked on a boat; on-device setup and NMEA 2000 are not done yet. Expect rough edges and changing config.
 
 ## What it does
 
-- **Roles, not layouts.** Each instrument role (Engine, Power, Tanks, Anchor, later Wind and Navigation) already knows what data it shows and how. You choose which roles a display carries and swipe between them: left and right for role, up and down for page. There is no layout editor and no data path to type.
+- **Roles, not layouts.** Each instrument role (Engine, Power, Tanks, Anchor, Navigation, later Depth and tide) already knows what data it shows and how. You choose which roles a display carries and swipe between them: left and right for role, up and down for page. There is no layout editor and no data path to type.
 - **Finds what your boat has.** It discovers engines, battery banks, solar chargers, and tanks on the network, then shows them. You don't map paths by hand.
 - **Data validity, borrowed from avionics.** A missing or stale value never looks like a reading. Following the Garmin G5, a failed field loses its needle, gets a red cross over the value, and carries a `<FIELD> FAIL` label. Neighbouring fields stay live. A dash or a zero is never used for "no data."
 - **Alerts from your network.** Signal K notifications appear as a banner and in a list, and you can acknowledge or silence them from the display. The display shows alarms. It does not make up its own alarm thresholds when the network provides them.

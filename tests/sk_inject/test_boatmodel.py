@@ -94,6 +94,40 @@ class BoatModel(unittest.TestCase):
         self.assertEqual(v["navigation.speedThroughWater"], 0)
         self.assertAlmostEqual(v["environment.wind.angleTrueWater"], v["environment.wind.angleApparent"], delta=0.05)
 
+    def test_course_and_autopilot_groups_are_opt_in(self):
+        # a plotter course and an engaged autopilot are not part of every routine boat: an overlay turns them on
+        course = ("navigation.course.calcValues.bearingTrackTrue", "navigation.course.calcValues.crossTrackError",
+                  "navigation.course.calcValues.distance")
+        ap = ("steering.autopilot.state", "steering.autopilot.target.headingTrue")
+        v = vals()
+        for p in course + ap:
+            self.assertNotIn(p, v)
+        on = B.default_on("underway") | {"course", "autopilot"}
+        v = vals(on=on)
+        for p in course + ap:
+            self.assertIn(p, v)
+        self.assertEqual(v["steering.autopilot.state"], "auto")
+        self.assertAlmostEqual(v["navigation.course.calcValues.bearingTrackTrue"], 1.2217, delta=0.01)
+
+    def test_current_is_an_object_with_set_and_drift(self):
+        # signalk-derived-data publishes environment.current as one object
+        c = vals()["environment.current"]
+        self.assertEqual(set(c), {"setTrue", "drift"})
+        self.assertAlmostEqual(c["setTrue"], 2.391, delta=0.01)
+
+    def test_server_true_wind_speed_agrees_with_apparent_wind_and_boat_speed(self):
+        import math
+        v = vals()
+        a, s, b = v["environment.wind.angleApparent"], v["environment.wind.speedApparent"], v["navigation.speedThroughWater"]
+        self.assertAlmostEqual(v["environment.wind.speedTrue"], math.hypot(s * math.sin(a), s * math.cos(a) - b), delta=0.3)
+
+    def test_variation_is_zero_so_true_heading_is_magnetic(self):
+        # the display makes a true heading from magnetic plus variation; directionTrue above assumes none
+        self.assertEqual(vals()["navigation.magneticVariation"], 0.0)
+
+    def test_sog_is_published(self):
+        self.assertAlmostEqual(vals()["navigation.speedOverGround"], 3.29, delta=0.2)
+
     def test_venus_dcpower_only_with_its_group(self):
         # the Summary uses dcPower for LOAD when present, so it is opt-in (docs/testing.md rows assume IN - BATTERY)
         self.assertNotIn("electrical.venus.dcPower", vals())

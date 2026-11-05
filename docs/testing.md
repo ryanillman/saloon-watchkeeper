@@ -11,6 +11,23 @@ tools/check-layering.sh
 
 `snapshot_smoke` renders every page at each size and palette into `build/sim/snap/`. Engine is rendered with fixture data twice: `-live` and `-fault`. The fault render has the port coolant sender failed. Power is rendered from a Victron fixture (`-live` on every page, and `-fault` on Summary with the solar current invalid). Engine page 1 is also rendered `-alarm` (port coolant alarm banner) and `-alarm-long` (a 96-character emergency message, wrapped to two lines and truncated, with all three buttons still on the banner); `alerts-list.png` shows the alert list open over two alerts. The Glance page is rendered `glance-p0-live.png` (all three tiles, with twelve hours of synthetic history behind the Power trend and the water change) and `glance-p0-fault.png` (the house charge, the port coolant and a water tank sender failed). Every snapshot shows the clock (02:14) and the live source dot.
 
+## The Navigation page and its tile
+
+An HSI-style compass, heading up: the DTK line with the cross-track shift, the COG triangle, the autopilot bug and badge, apparent and true wind outside the rim, set and drift. `tools/scenario.sh up`, then `tools/scenario.sh navigation-underway` (180 s). The boat's routine values include the heading, wind, speed through water and SOG; the overlay adds a plotter course and an engaged autopilot (`course` and `autopilot` groups). The server's true wind and the current are in the baseline too; with `signalk-derived-data` installed the plugin publishes the same paths and the two sources overlap. Compare with the snapshots in `build/sim/snap/` (`navigation-p0-<state>.png`, `glance-p0-live.png`).
+
+| Check | Expect |
+|---|---|
+| Routine | Heading 047, rim marker for apparent wind 38° starboard (yellow, filled) and true wind 61° (orange, hollow); `APPARENT 38° STBD 14.2 kn`, `TRUE 61° STBD 10.0 kn`, `SOG 6.4 kn`, `SET 137° DRIFT 1.2 kn` in small grey type. Courses come only with the overlay |
+| With the overlay (0-30 s) | The magenta DTK line through the centre on 070°, its arrowhead toward the rim, the middle segment shifted left of the others (the boat is right of track by 0.12 nm: one dot), the COG triangle on the inside of the rim at 070°, `COURSE 070°`, `XTE 0.12 nm R`, `DTW` in nm (dropped on the 480 board), the green `AP` badge and `AP HDG 052°` in cyan with the notched cyan bug on the outside of the rim at 052° |
+| 30-50 s | No course: the line, arrowhead, dots and the course, XTE and DTW readouts go; the COG triangle stays |
+| 70-90 s | Autopilot in standby: the `AP` badge, `AP HDG` box and the bug go |
+| 110-130 s | The server stops publishing true wind. The display computes it (angle and speed from apparent wind and speed through water, which gives the same 61° and 10 kn). A boat with no speed through water has no True readout or marker; SOG is never used instead |
+| From 150 s | The heading source stops: `HDG FAIL` over the heading box, the rose dimmed with no numerals, DTK line, COG triangle or bug; the wind markers and readouts stay (they are off the bow) |
+| Night | One red for every nav colour. The shapes still tell the markers apart: filled arrow (apparent wind), hollow arrow (true wind), triangle inside the rim (COG), notched rectangle outside (autopilot) |
+| Glance tile | `NAVIGATION`: true wind speed (apparent, with `APP`, when the server gives none), the change over the last hour, the largest minute sample, the 12 hour trend. Missing wind is `NO DATA` |
+
+Unverified until the first bench run: the sign of `navigation.course.calcValues.crossTrackError` (one constant, `NAV_XTE_RIGHT_POSITIVE` in `nav_state.h`), that the chart plotter or the server's course provider publishes `bearingTrackTrue` on this boat, the autopilot's state strings and target paths (legacy `steering.autopilot` or the v2 API), the exact paths `signalk-derived-data` publishes for true wind and current, whether the notch on the autopilot bug is legible at 19 px, and whether 13 px type is readable on the 480 board. Magnetic variation is 0 in the baseline so the display can make a true heading from `headingMagnetic`.
+
 ## Against a real Signal K server
 
 The test server is a local Signal K (2.35 at the time of writing) on `localhost:3000`.
