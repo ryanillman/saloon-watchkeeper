@@ -51,3 +51,15 @@ void anchor_ctl_tap_main(int64_t now_ms);     // a tap on DROP sends the drop; o
 void anchor_ctl_hold_begin(int64_t now_ms);   // pressing RAISE: sends after 1.5 s of holding
 void anchor_ctl_hold_end(int64_t now_ms);     // releasing early cancels
 void anchor_ctl_step(int dir, int64_t now_ms);   // -1 / +1: stage the radius one step (5 m or 15 ft; 5..300 m)
+
+// Text shared by the page and the Glance tile. A distance in metres as the display shows it: feet when units.distance
+// is "ft", else metres, no decimals ("--" for NAN); with_unit appends " m" or " ft". `seconds` as "12 min" or "3h12m".
+void anchor_format_distance(char *out, size_t n, double metres, const cfg_units_t *units, bool with_unit);
+const char *anchor_distance_unit(const cfg_units_t *units);   // "m" or "ft"
+void anchor_format_ago(char *out, size_t n, int64_t seconds);
+
+// Text shared by the page and the Glance tile. A distance in metres as the display shows it: feet when units.distance
+// is "ft", else metres, no decimals ("--" for NAN); with_unit appends " m" or " ft". `seconds` as "12 min" or "3h12m".
+void anchor_format_distance(char *out, size_t n, double metres, const cfg_units_t *units, bool with_unit);
+const char *anchor_distance_unit(const cfg_units_t *units);   // "m" or "ft"
+void anchor_format_ago(char *out, size_t n, int64_t seconds);

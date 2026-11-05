@@ -8,6 +8,7 @@
 #include "glance_page.h"
 #include "history.h"
 #include "platform.h"
+#include "ui_swing.h"
 #include "ui_shell.h"
 
 #define MAX_SOURCES 12
@@ -23,7 +24,7 @@ typedef struct {
   int64_t chart_ms;             // when the chart was last drawn
   uint16_t points;
   lv_obj_t *tile, *edge, *title, *word, *headline, *unit, *ctx[2], *fault[2];
-  lv_obj_t *chart, *band[MAX_BANDS], *axis_l, *axis_r;
+  lv_obj_t *chart, *band[MAX_BANDS], *axis_l, *axis_r, *swing;
   lv_chart_series_t *ser;
   lv_obj_t *bar[3], *bar_label[3], *bar_pct[3];
 } tile_w_t;
@@ -230,6 +231,15 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
       lv_label_set_text(w->axis_r, "now");
     }
   }
+  if (t.swing) {   // the Anchor's plan view takes the trend's place: a square in the middle of it
+    int32_t axis_h = wide ? 22 : 0;
+    int32_t room = th - chart_top - axis_h - (wide ? 4 : 8);
+    int32_t side = room < tw - 2 * pad ? room : tw - 2 * pad;
+    if (side < 24) side = 24;
+    w->swing = ui_swing_create(w->tile);
+    lv_obj_set_size(w->swing, side, side);
+    lv_obj_set_pos(w->swing, (tw - side) / 2, th - axis_h - (wide ? 4 : 8) - side);
+  }
   w->chart_ms = -2 * CHART_REFRESH_MS;   // draws on the first update
   memset(&w->last, 0, sizeof w->last);
   w->last.state = (gt_state_t)255;   // nothing drawn yet: the first update draws everything
@@ -354,6 +364,7 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
   set_text(w->ctx[0], t.context[0]);
   if (w->ctx[1]) set_text(w->ctx[1], t.context[1]);
   update_chart(w, &t, now_ms);
+  if (w->swing && t.swing) ui_swing_set(w->swing, t.swing);
   w->last = t;
 }
 
@@ -440,6 +451,7 @@ lv_obj_t *glance_part(uint8_t tile, glance_part_t part) {
     case GP_CONTEXT1: return w->ctx[1];
     case GP_FAULT: return w->fault[0];
     case GP_CHART: return w->chart;
+    case GP_SWING: return w->swing;
   }
   return NULL;
 }

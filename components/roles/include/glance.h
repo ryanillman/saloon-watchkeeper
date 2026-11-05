@@ -25,6 +25,7 @@ typedef struct {
   uint8_t bar_count;       // > 0: bars instead of a headline (Tanks)
   char bar_label[3];       // one letter each: W, F, S
   uint8_t bar_pct[3];
+  const void *swing;       // the Anchor's plan view (a ui_swing_data_t that outlives the next call); NULL = none. Drawn in place of a trend
 } glance_tile_t;
 
 gt_state_t glance_worst(const gt_state_t *s, size_t n);   // GT_OFF when n == 0

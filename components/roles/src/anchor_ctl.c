@@ -195,3 +195,20 @@ void anchor_ctl_step(int dir, int64_t now_ms) {
   c.st.limit_staged = true;
   c.st.shown_limit_m = c.staged_m;
 }
+
+const char *anchor_distance_unit(const cfg_units_t *units) { return units && !strcmp(units->distance, "ft") ? "ft" : "m"; }
+
+void anchor_format_distance(char *out, size_t n, double metres, const cfg_units_t *units, bool with_unit) {
+  if (isnan(metres)) {
+    snprintf(out, n, "--");
+    return;
+  }
+  bool ft = units && !strcmp(units->distance, "ft");
+  snprintf(out, n, with_unit ? (ft ? "%.0f ft" : "%.0f m") : "%.0f", ft ? metres / 0.3048 : metres);
+}
+
+void anchor_format_ago(char *out, size_t n, int64_t seconds) {
+  long mins = (long)(seconds / 60);
+  if (mins < 60) snprintf(out, n, "%ld min", mins);
+  else snprintf(out, n, "%ldh%02ldm", mins / 60, mins % 60);
+}

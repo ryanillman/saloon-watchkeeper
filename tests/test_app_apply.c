@@ -107,7 +107,7 @@ static void test_apply_keeps_alarm_banner(void) {
 
 static void test_glance_is_the_first_page_with_a_tile_per_role_that_has_one(void) {
   TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->role);
-  TEST_ASSERT_EQUAL_UINT8(3, glance_tile_count());   // engine, power, tanks; anchor has no role yet
+  TEST_ASSERT_EQUAL_UINT8(4, glance_tile_count());   // engine, power, tanks and anchor
 }
 
 static void test_tapping_a_glance_tile_opens_that_role(void) {
