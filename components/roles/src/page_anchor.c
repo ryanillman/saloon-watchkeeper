@@ -17,8 +17,6 @@ static struct {
   bool wide;
 } w;
 
-static bool feet(const role_binding_t *b) { return b && b->units && !strcmp(b->units->distance, "ft"); }
-
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *f, lv_color_t col, lv_text_align_t align, int32_t x,
                             int32_t y, int32_t width) {
   lv_obj_t *l = lv_label_create(parent);
@@ -139,11 +137,6 @@ void anchor_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
   w.nosd = make_label(area, small, c->warn, LV_TEXT_ALIGN_RIGHT, W - pad - 120, w.wide ? row_y - 2 * pad - 14 : H - strip - 2 * lv_font_get_line_height(small) - 4, 120);
 }
 
-static void dist_text(char *out, size_t n, double m, bool ft) {
-  if (isnan(m)) snprintf(out, n, "--");
-  else snprintf(out, n, ft ? "%.0f ft" : "%.0f m", ft ? m / 0.3048 : m);
-}
-
 static const char *mode_word(anchor_mode_t m) {
   switch (m) {
     case AM_NOT_SET: return "NOT SET";
@@ -182,7 +175,7 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
   const anchor_ctl_state_t *s = anchor_ctl_state();
   if (!w.plot) return;   // controller only: the page is not on screen
   const anchor_view_t *v = &s->view;
-  bool ft = feet(b);
+  const cfg_units_t *u = b ? b->units : NULL;
   char t[40];
 
   ui_swing_state_t st = swing_state(v->mode);
@@ -191,7 +184,7 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
                        .show_n = true};
   ui_swing_set(w.plot, &d);
 
-  dist_text(t, sizeof t, v->distance_m, ft);
+  anchor_format_distance(t, sizeof t, v->distance_m, u, true);
   lv_label_set_text(w.dist_val, t);
   if (isnan(v->bearing_rad)) snprintf(t, sizeof t, "--");
   else snprintf(t, sizeof t, "%.0f\xC2\xB0 T", fmod(v->bearing_rad * 180.0 / M_PI + 360.0, 360.0));
@@ -206,7 +199,7 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
     snprintf(t, sizeof t, "ZONE: %s", zone);
   } else {
     char lim[16];
-    dist_text(lim, sizeof lim, s->shown_limit_m, ft);
+    anchor_format_distance(lim, sizeof lim, s->shown_limit_m, u, true);
     snprintf(t, sizeof t, w.wide ? "LIMIT %s" : "%s", lim);
   }
   lv_label_set_text(w.limit, t);
@@ -226,13 +219,13 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
 
   if (w.info) {   // the wide boards have room for the extras
     char a[24] = "", m[40] = "", r[40] = "", set[40] = "", info[128];
-    if (!isnan(v->max_m)) { dist_text(a, sizeof a, v->max_m, ft); snprintf(m, sizeof m, "MAX %s", a); }
+    if (!isnan(v->max_m)) { anchor_format_distance(a, sizeof a, v->max_m, u, true); snprintf(m, sizeof m, "MAX %s", a); }
     if (v->set_ago_s >= 0) {
-      long mins = (long)(v->set_ago_s / 60);
-      if (mins < 60) snprintf(set, sizeof set, "SET %ld MIN AGO", mins);
-      else snprintf(set, sizeof set, "SET %ldH%02ldM AGO", mins / 60, mins % 60);
+      anchor_format_ago(a, sizeof a, v->set_ago_s);
+      snprintf(set, sizeof set, "SET %s AGO", a);
+      for (char *p = set; *p; p++) *p = (char)(*p >= 'a' && *p <= 'z' ? *p - 32 : *p);
     }
-    if (!isnan(v->rode_m)) { dist_text(a, sizeof a, v->rode_m, ft); snprintf(r, sizeof r, "CHAIN %s", a); }
+    if (!isnan(v->rode_m)) { anchor_format_distance(a, sizeof a, v->rode_m, u, true); snprintf(r, sizeof r, "CHAIN %s", a); }
     snprintf(info, sizeof info, "%s\n%s\n%s", m, set, r);
     lv_label_set_text(w.info, info);
   }

@@ -20,7 +20,7 @@ void glance_set_sources(const glance_source_t *src, uint8_t n);
 size_t glance_pick(const char *const *role_names, const gt_state_t *states, size_t n, size_t max, size_t *out);
 
 // For tests: the parts of the built page.
-typedef enum { GP_TILE, GP_EDGE, GP_TITLE, GP_WORD, GP_HEADLINE, GP_UNIT, GP_CONTEXT0, GP_CONTEXT1, GP_FAULT, GP_CHART } glance_part_t;
+typedef enum { GP_TILE, GP_EDGE, GP_TITLE, GP_WORD, GP_HEADLINE, GP_UNIT, GP_CONTEXT0, GP_CONTEXT1, GP_FAULT, GP_CHART, GP_SWING } glance_part_t;
 uint8_t glance_tile_count(void);                              // tiles on the built page
 lv_obj_t *glance_part(uint8_t tile, glance_part_t part);      // NULL when this board or this tile has no such part
 uint16_t glance_trend_points(uint8_t tile);                   // points the tile's trend currently plots (0 = none)

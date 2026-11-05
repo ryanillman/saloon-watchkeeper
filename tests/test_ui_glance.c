@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "alerts.h"
+#include "anchor_ctl.h"
 #include "glance_page.h"
 #include "history.h"
 #include "platform.h"
@@ -294,6 +295,36 @@ static void test_pick_when_every_tile_alerts_drops_the_lowest_priority_non_alarm
   for (size_t i = 0; i < 6; i++) TEST_ASSERT_NOT_EQUAL_UINT(4, out[i]);   // engine: the lowest-priority warn
 }
 
+// ---- the Anchor tile's plan view ----
+
+static void test_anchor_tile_draws_the_plan_view_on_every_board(void) {
+  static cfg_role_t arc;
+  static role_binding_t ab;
+  static anchor_watch_t aw;
+  memset(&arc, 0, sizeof arc);
+  strcpy(arc.role, "anchor");
+  role_bind(role_find("anchor"), &arc, &cfg.units, &ab);
+  anchor_watch_init(&aw, NULL, 0, 60000);
+  anchor_ctl_setup(NULL, ANCHOR_PLUGIN_HOEKEN, &aw, NULL, &cfg.units);
+  alerts_source_up(true);
+  bd_set_position(bd_intern("navigation.anchor.position"), 48.5, -123.0, 1, NOW);
+  num("navigation.anchor.maxRadius", 50);
+  num("navigation.anchor.currentRadius", 30);
+  num("navigation.anchor.bearingTrue", 1.0);
+  glance_source_t one[1] = {{&ab, 0}};
+  glance_set_sources(one, 1);
+  const struct { int32_t w, h; size_class_t sc; } sizes[] = {{480, 444, SIZE_SQUARE}, {800, 440, SIZE_WIDE}, {1024, 560, SIZE_WIDE}};
+  for (size_t i = 0; i < 3; i++) {
+    lv_obj_clean(scr);
+    build(sizes[i].w, sizes[i].h, sizes[i].sc);
+    TEST_ASSERT_EQUAL_UINT8(1, glance_tile_count());
+    TEST_ASSERT_NOT_NULL(glance_part(0, GP_SWING));
+    TEST_ASSERT_NULL(glance_part(0, GP_CHART));
+    role_find("glance")->refresh(&bind_glance, NOW);
+    lv_refr_now(NULL);
+  }
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -318,5 +349,6 @@ int main(void) {
   RUN_TEST(test_pick_drops_the_lowest_priority_quiet_tile);
   RUN_TEST(test_pick_never_drops_an_alarm_for_a_quiet_tile);
   RUN_TEST(test_pick_when_every_tile_alerts_drops_the_lowest_priority_non_alarm);
+  RUN_TEST(test_anchor_tile_draws_the_plan_view_on_every_board);
   return UNITY_END();
 }

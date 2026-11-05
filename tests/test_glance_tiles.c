@@ -1,7 +1,10 @@
 // The Glance tiles of Engine, Power and Tanks, from bound roles and live samples.
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "alerts.h"
+#include "anchor_ctl.h"
+#include "anchor_watch.h"
 #include "boatdata.h"
 #include "history.h"
 #include "role.h"
@@ -287,6 +290,101 @@ static void test_tanks_water_change_over_six_hours_from_history(void) {
   TEST_ASSERT_EQUAL(w, t.trend);   // tracked for the history; bars are drawn, not a trend line
 }
 
+// ---- Anchor ----
+
+static anchor_watch_t awatch;
+static void anchor_start(bool restoring) {
+  anchor_watch_init(&awatch, NULL, 0, 60000);
+  awatch.restoring = restoring;
+  anchor_ctl_setup(NULL, ANCHOR_PLUGIN_HOEKEN, &awatch, NULL, &cfg.units);
+  alerts_source_up(true);
+  bind("anchor");
+}
+static void anchored(double dist, double limit) {
+  bd_set_position(bd_intern("navigation.anchor.position"), 48.5, -123.0, 1, NOW);
+  num("navigation.anchor.maxRadius", limit);
+  num("navigation.anchor.currentRadius", dist);
+  num("navigation.anchor.bearingTrue", 1.0);
+}
+static void anchor_alert(alert_state_t st) {
+  alert_t a = {0};
+  strcpy(a.id, "navigation.anchor");
+  a.state = st;
+  alerts_upsert(&a, NOW);
+}
+
+static void test_anchor_tile_states(void) {
+  anchor_start(false);
+  bd_set_number(bd_intern("navigation.anchor.position"), NAN, 1, NOW);   // the plugin says no anchor
+  tile();
+  TEST_ASSERT_EQUAL_STRING("ANCHOR", t.title);
+  TEST_ASSERT_EQUAL(GT_OFF, t.state);
+  TEST_ASSERT_EQUAL_STRING("NOT SET", t.word);
+  TEST_ASSERT_NULL(t.swing);
+
+  anchored(30, 50);
+  tile();
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_STRING("HOLDING", t.word);
+  TEST_ASSERT_NOT_NULL(t.swing);
+  anchor_alert(AL_WARN);
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);
+  anchor_alert(AL_ALARM);
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+}
+
+static void test_anchor_tile_never_ok_when_data_missing(void) {
+  anchor_start(false);
+  anchored(30, 50);
+  bd_set_number(bd_intern("navigation.anchor.maxRadius"), NAN, 1, NOW);   // no limit
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("NO LIMIT", t.word);
+  TEST_ASSERT_EQUAL_STRING("30", t.headline);   // the distance is still worth showing
+  anchored(30, 50);
+  alerts_source_up(false);   // the connection is gone
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("NO DATA", t.word);
+  anchor_start(true);   // restoring, nothing shown back yet
+  bd_init();
+  anchor_start(true);
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("RESTORING", t.word);
+}
+
+static void test_anchor_tile_local_watch_alarm_outranks_no_data(void) {
+  anchor_start(false);
+  alerts_source_up(false);
+  alert_t a = {0};
+  strcpy(a.id, ANCHOR_WATCH_ALERT_ID);
+  a.state = AL_ALARM;
+  alerts_upsert_local(&a, NOW);
+  tile();
+  TEST_ASSERT_EQUAL(GT_ALARM, t.state);
+}
+
+static void test_anchor_tile_headline_and_limit_text(void) {
+  anchor_start(false);
+  anchored(30, 50);
+  tile();
+  TEST_ASSERT_EQUAL_STRING("30", t.headline);
+  TEST_ASSERT_EQUAL_STRING("m", t.unit);
+  TEST_ASSERT_NOT_NULL(strstr(t.context[0], "limit 50 m"));
+  TEST_ASSERT_NOT_NULL(strstr(t.context[1], "max tonight 30 m"));
+  num("navigation.anchor.rodeLength", 12);
+  tile();
+  TEST_ASSERT_NOT_NULL(strstr(t.context[0], "chain 12 m"));
+  strcpy(cfg.units.distance, "ft");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("98", t.headline);
+  TEST_ASSERT_EQUAL_STRING("ft", t.unit);
+  TEST_ASSERT_NOT_NULL(strstr(t.context[0], "limit 164 ft"));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_engine_twin_running_shows_both_rpm_and_ok);
@@ -309,5 +407,9 @@ int main(void) {
   RUN_TEST(test_tanks_two_water_tanks_show_the_lowest_and_missing_kinds_have_no_bar);
   RUN_TEST(test_tanks_with_none_is_no_data);
   RUN_TEST(test_tanks_water_change_over_six_hours_from_history);
+  RUN_TEST(test_anchor_tile_states);
+  RUN_TEST(test_anchor_tile_never_ok_when_data_missing);
+  RUN_TEST(test_anchor_tile_local_watch_alarm_outranks_no_data);
+  RUN_TEST(test_anchor_tile_headline_and_limit_text);
   return UNITY_END();
 }
