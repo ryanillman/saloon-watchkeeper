@@ -52,6 +52,16 @@ class BoatModel(unittest.TestCase):
         s = vals()["navigation.datetime"]
         self.assertTrue(s.endswith("Z") and "T" in s)
 
+    def test_environment_mode_is_day_by_default(self):
+        # the auto palette follows environment.mode (app.c); routine boat = daytime
+        self.assertEqual(vals()["environment.mode"], "day")
+
+    def test_venus_dcpower_only_with_its_group(self):
+        # the Summary uses dcPower for LOAD when present, so it is opt-in (docs/testing.md rows assume IN - BATTERY)
+        self.assertNotIn("electrical.venus.dcPower", vals())
+        on = B.default_on("underway") | {"venus-system"}
+        self.assertIn("electrical.venus.dcPower", vals(on=on))
+
     def test_paths_and_groups(self):
         self.assertIn(PORT_RPM, B.paths())
         self.assertIn("electrical.batteries.280.voltage", B.paths())

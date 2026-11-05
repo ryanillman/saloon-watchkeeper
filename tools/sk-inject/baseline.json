@@ -1,6 +1,6 @@
 {
   "description": "Routine values for every Signal K path the displays cover. Units are Signal K SI: K, Pa, Hz (rpm/60), ratio, V, A, W, s, m3/s. A row's \"off\" is its value when its group is off (rows without it keep their nominal). \"drift\" is change per 60 s.",
-  "optionalGroups": ["three-bank"],
+  "optionalGroups": ["three-bank", "venus-system"],
   "profiles": {
     "underway": {},
     "anchor": {
@@ -58,6 +58,9 @@
     {"path": "tanks.wasteWater.0.currentLevel", "group": "tanks", "nominal": 0.3},
 
     {"path": "navigation.datetime", "group": "nav", "nominal": "$now"},
+    {"path": "environment.mode", "group": "nav", "nominal": "day"},
+
+    {"path": "electrical.venus.dcPower", "group": "venus-system", "nominal": 150, "wobble": 10},
 
     {"path": "electrical.batteries.280.voltage", "group": "three-bank", "nominal": 12.8, "wobble": 0.03},
     {"path": "electrical.batteries.280.current", "group": "three-bank", "nominal": 0.5},
