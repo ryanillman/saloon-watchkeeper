@@ -191,6 +191,20 @@ static void test_meta_for_every_path(void) {
   }
 }
 
+static void test_source_time_roundtrip(void) {
+  bd_id_t id = bd_intern("navigation.anchor.currentRadius");
+  bd_set_number(id, 12, 1, 100);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(bd_get(id, &s));
+  TEST_ASSERT_EQUAL_INT64(0, s.src_s);   // an update with no Signal K timestamp
+  bd_set_source_time(id, 1793844817);
+  TEST_ASSERT_TRUE(bd_get(id, &s));
+  TEST_ASSERT_EQUAL_INT64(1793844817, s.src_s);
+  bd_set_number(id, 13, 1, 200);   // a newer value that carries no timestamp must not keep the old one
+  TEST_ASSERT_TRUE(bd_get(id, &s));
+  TEST_ASSERT_EQUAL_INT64(0, s.src_s);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_new_path_is_invalid);
@@ -208,5 +222,6 @@ int main(void) {
   RUN_TEST(test_path_storage_exhausted_fails_cleanly);
   RUN_TEST(test_meta_overwrites_and_is_cleared_by_init);
   RUN_TEST(test_meta_for_every_path);
+  RUN_TEST(test_source_time_roundtrip);
   return UNITY_END();
 }

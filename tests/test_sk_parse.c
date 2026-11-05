@@ -248,6 +248,28 @@ static void test_alert_request_path(void) {
   TEST_ASSERT_FALSE(sk_build_alert_request(&a, AL_REQ_NONE, p, sizeof p));
 }
 
+static void test_delta_timestamp_kept(void) {
+  feed("{\"context\":\"vessels.self\",\"updates\":[{\"timestamp\":\"2026-11-05T02:13:37.578Z\",\"values\":[{\"path\":\"navigation.anchor.currentRadius\",\"value\":12}]}]}");
+  TEST_ASSERT_EQUAL_INT64(1793844817, get("navigation.anchor.currentRadius").src_s);
+  feed("{\"context\":\"vessels.self\",\"updates\":[{\"values\":[{\"path\":\"navigation.anchor.currentRadius\",\"value\":13}]}]}");
+  TEST_ASSERT_EQUAL_INT64(0, get("navigation.anchor.currentRadius").src_s);
+}
+
+static void test_anchor_watchzone_type_stored_as_text(void) {
+  feed("{\"updates\":[{\"values\":[{\"path\":\"navigation.anchor.watchZone\",\"value\":{\"type\":\"circle\",\"radius\":50}}]}]}");
+  bd_sample_t s = get("navigation.anchor.watchZone");
+  TEST_ASSERT_TRUE(s.valid);
+  TEST_ASSERT_EQUAL(BD_TEXT, s.kind);
+  TEST_ASSERT_EQUAL_STRING("circle", s.text);
+  feed("{\"updates\":[{\"values\":[{\"path\":\"navigation.anchor.watchZone\",\"value\":null}]}]}");
+  TEST_ASSERT_FALSE(get("navigation.anchor.watchZone").valid);
+}
+
+static void test_other_objects_still_invalid(void) {
+  feed("{\"updates\":[{\"values\":[{\"path\":\"a.b\",\"value\":{\"type\":\"circle\"}}]}]}");
+  TEST_ASSERT_FALSE(get("a.b").valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_delta_number);
@@ -276,5 +298,8 @@ int main(void) {
   RUN_TEST(test_notification_not_in_boatdata);
   RUN_TEST(test_subscribe_has_notifications_and_fixed_policy);
   RUN_TEST(test_alert_request_path);
+  RUN_TEST(test_delta_timestamp_kept);
+  RUN_TEST(test_anchor_watchzone_type_stored_as_text);
+  RUN_TEST(test_other_objects_still_invalid);
   return UNITY_END();
 }

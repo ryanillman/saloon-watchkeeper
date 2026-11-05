@@ -87,6 +87,7 @@ void bd_set_number(bd_id_t id, double v, uint8_t source, int64_t now_ms) {
     e->sample.valid = isfinite(v);
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
+    e->sample.src_s = 0;
   }
   UNLOCK();
 }
@@ -101,6 +102,7 @@ void bd_set_position(bd_id_t id, double lat, double lon, uint8_t source, int64_t
     e->sample.valid = isfinite(lat) && isfinite(lon);
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
+    e->sample.src_s = 0;
   }
   UNLOCK();
 }
@@ -115,7 +117,15 @@ void bd_set_text(bd_id_t id, const char *s, uint8_t source, int64_t now_ms) {
     e->sample.valid = true;
     e->sample.rx_ms = now_ms;
     e->sample.source = source;
+    e->sample.src_s = 0;
   }
+  UNLOCK();
+}
+
+void bd_set_source_time(bd_id_t id, int64_t epoch_s) {
+  LOCK();
+  entry_t *e = get(id);
+  if (e) e->sample.src_s = epoch_s;
   UNLOCK();
 }
 

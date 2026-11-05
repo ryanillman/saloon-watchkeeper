@@ -21,9 +21,22 @@ static void test_lock_roundtrip(void) {
   platform_unlock(l);
 }
 
+static void test_parse_iso8601(void) {
+  int64_t t = 7;
+  TEST_ASSERT_TRUE(platform_parse_iso8601("2026-11-05T02:13:37.578Z", &t));
+  TEST_ASSERT_EQUAL_INT64(1793844817, t);
+  TEST_ASSERT_TRUE(platform_parse_iso8601("2026-11-05T02:00:00Z", &t));
+  TEST_ASSERT_EQUAL_INT64(1793844000, t);
+  t = 7;
+  TEST_ASSERT_FALSE(platform_parse_iso8601("2026-11-05T02:00:00", &t));   // no zone
+  TEST_ASSERT_EQUAL_INT64(7, t);
+  TEST_ASSERT_FALSE(platform_parse_iso8601(NULL, &t));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_millis_is_monotonic);
   RUN_TEST(test_lock_roundtrip);
+  RUN_TEST(test_parse_iso8601);
   return UNITY_END();
 }
