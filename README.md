@@ -1,10 +1,10 @@
 # Saloon Watchkeeper
 
-Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, and Tanks work today, with a Glance page that shows one tile per role at a glance; Anchor, Wind, and Navigation are planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
+Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, Tanks, and Anchor work today, with a Glance page that shows one tile per role at a glance; Wind and Navigation are planned. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
 
 It started with a simple annoyance: the display that shows a boat's battery and tank data cost hundreds of dollars and could only show one vendor's data. A general-purpose touch display can do the job for any boat's data.
 
-> **Status: pre-release.** Engine, Power, Tanks, alerts, and the day/dusk/night palettes are working on real hardware. Anchor, on-device setup, and NMEA 2000 are not done yet. Expect rough edges and changing config.
+> **Status: pre-release.** Engine, Power, Tanks, alerts, and the day/dusk/night palettes are working on real hardware. Anchor is built and tested in the simulator but not yet checked on a boat; on-device setup and NMEA 2000 are not done yet. Expect rough edges and changing config.
 
 ## What it does
 
@@ -57,7 +57,7 @@ idf.py -B build/square4 -p /dev/ttyACM0 flash monitor
 
 ## Configure
 
-Settings live in `/config.json` on the display's SD card: Wi-Fi, the Signal K server (the default `auto` finds it by mDNS), units, palette, and the ordered list of roles. Start from [docs/config.example.json](docs/config.example.json). `tools/config.schema.json` is the JSON Schema.
+Settings live in `/config.json` on the display's SD card: Wi-Fi, the Signal K server (the default `auto` finds it by mDNS), units, palette, the ordered list of roles, and which Signal K anchor-alarm plugin the Anchor page talks to (`anchor.plugin`: `hoekens-anchor-alarm`, the default, or `anchoralarm`). Start from [docs/config.example.json](docs/config.example.json). `tools/config.schema.json` is the JSON Schema.
 
 If your Signal K server requires a token, put it in the `sources.signalk` section of the config. A device access request and on-device setup screens are planned (milestone 5a).
 

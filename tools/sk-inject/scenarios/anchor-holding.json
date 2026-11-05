@@ -1,0 +1,31 @@
+{
+  "description": "A boat at anchor: position, 45 m limit, 12 m of chain, swinging about 30 m out. At 40 s it drifts past the limit and the anchor alarm is raised (with sound); at 70 s it is back inside and the alarm clears. INTERIM: the alarm is written directly, as the other scenarios do, until the scenario rework in TODO.md lets the zones raise it. With a real anchor plugin enabled on the same server the sources compete on these paths; disable the plugin or accept the arbitration.",
+  "durationMs": 90000,
+  "intervalMs": 1000,
+  "values": {
+    "navigation.position": { "latitude": 48.5343, "longitude": -123.0170 },
+    "navigation.anchor.position": { "latitude": 48.5340, "longitude": -123.0175 },
+    "navigation.anchor.maxRadius": 45,
+    "navigation.anchor.rodeLength": 12,
+    "navigation.anchor.currentRadius": { "from": 28, "to": 32, "wobble": 4 },
+    "navigation.anchor.bearingTrue": { "from": 2.2, "to": 2.8, "wobble": 0.15 }
+  },
+  "after": [
+    {
+      "atMs": 40000,
+      "note": "drifts past the limit; the anchor alarm is raised",
+      "values": {
+        "navigation.anchor.currentRadius": 52,
+        "notifications.navigation.anchor": { "state": "alarm", "method": ["visual", "sound"], "message": "Anchor dragging" }
+      }
+    },
+    {
+      "atMs": 70000,
+      "note": "back inside the limit; the alarm clears (null)",
+      "values": {
+        "navigation.anchor.currentRadius": 33,
+        "notifications.navigation.anchor": null
+      }
+    }
+  ]
+}
