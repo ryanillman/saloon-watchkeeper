@@ -14,7 +14,10 @@
         "electrical.batteries.279.capacity.timeRemaining": 100800,
         "electrical.solar.288.panelPower": 0,
         "electrical.solar.288.current": 0,
-        "electrical.chargers.276.current": 0
+        "electrical.chargers.276.current": 0,
+        "navigation.speedThroughWater": 0,
+        "environment.wind.angleTrueWater": 0.6632,
+        "environment.wind.directionTrue": 1.4835
       }
     }
   },
@@ -60,6 +63,13 @@
     {"path": "navigation.datetime", "group": "nav", "nominal": "$now"},
     {"path": "environment.mode", "group": "nav", "nominal": "day"},
     {"path": "navigation.position", "group": "nav", "nominal": {"latitude": 48.5343, "longitude": -123.0170}},
+    {"path": "navigation.headingMagnetic", "group": "nav", "nominal": 0.8203, "wobble": 0.01},
+    {"path": "navigation.courseOverGroundTrue", "group": "nav", "nominal": 1.2217, "wobble": 0.01},
+    {"path": "navigation.speedThroughWater", "group": "nav", "nominal": 3.292},
+    {"path": "environment.wind.angleApparent", "group": "nav", "nominal": 0.6632, "wobble": 0.02},
+    {"path": "environment.wind.speedApparent", "group": "nav", "nominal": 7.305, "wobble": 0.15},
+    {"path": "environment.wind.angleTrueWater", "group": "nav", "nominal": 1.0696, "wobble": 0.02},
+    {"path": "environment.wind.directionTrue", "group": "nav", "nominal": 1.8899, "wobble": 0.02},
 
     {"path": "electrical.venus.dcPower", "group": "venus-system", "nominal": 150, "wobble": 10},
 
