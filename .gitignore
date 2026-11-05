@@ -13,3 +13,6 @@ __pycache__/
 # Design specs and implementation plans: kept locally, not published
 docs/specs/
 docs/superpowers/
+
+# Local task list, not published
+TODO.md
