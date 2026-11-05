@@ -205,6 +205,20 @@ static void test_max_is_largest_distance(void) {
   TEST_ASSERT_EQUAL_DOUBLE(45, v.max_m);
 }
 
+static void test_view_restoring_reports_server_none(void) {
+  anchor_view_t v = view_at(true, true, T0);   // never published: nothing to report yet
+  TEST_ASSERT_EQUAL(AM_RESTORING, v.mode);
+  TEST_ASSERT_FALSE(v.server_none);
+  bd_set_number(ids.position, NAN, 1, T0);     // the plugin says null: it has no anchor
+  v = view_at(true, true, T0);
+  TEST_ASSERT_EQUAL(AM_RESTORING, v.mode);     // the page still waits (and lets the user clear the record)
+  TEST_ASSERT_TRUE(v.server_none);
+  v = view_at(true, false, T0);                // not connected: whatever was there says nothing
+  TEST_ASSERT_FALSE(v.server_none);
+  full(T0);
+  TEST_ASSERT_FALSE(view_at(true, true, T0).server_none);   // an anchor is set
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_view_not_set);
@@ -213,6 +227,7 @@ int main(void) {
   RUN_TEST(test_view_no_limit);
   RUN_TEST(test_view_restoring);
   RUN_TEST(test_view_zone_shape);
+  RUN_TEST(test_view_restoring_reports_server_none);
   RUN_TEST(test_view_optional_values);
   RUN_TEST(test_sub_ids);
   RUN_TEST(test_track_polar_to_xy_radians);
