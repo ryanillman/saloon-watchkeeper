@@ -55,6 +55,17 @@ static void part(const char *name, lv_obj_t *o) {
   u.parts[u.n_parts++].obj = o;
 }
 
+// Forgets a part whose object is being deleted, so a lookup never returns a freed pointer.
+static void unpart(const char *name) {
+  for (uint8_t i = 0; i < u.n_parts; i++) {
+    if (strcmp(u.parts[i].name, name)) continue;
+    memmove(&u.parts[i], &u.parts[i + 1], (u.n_parts - i - 1) * sizeof u.parts[0]);
+    u.n_parts--;
+    if (u.n_parts_frame > i) u.n_parts_frame--;
+    return;
+  }
+}
+
 lv_obj_t *ui_setup_part(const char *name) {
   if (!open_now()) return NULL;
   for (uint8_t i = 0; i < u.n_parts; i++)
@@ -515,6 +526,8 @@ static void kb_close(void) {
   if (!u.kb_box) return;
   lv_obj_delete_async(u.kb_box);   // inside one of the keyboard's own events
   u.kb_box = NULL;
+  unpart("kb_text");   // the next keyboard registers its own; a stale entry would be found first
+  unpart("kb");
 }
 
 static void on_kb(lv_event_t *e) {
@@ -528,9 +541,33 @@ static void on_kb(lv_event_t *e) {
   if (code == LV_EVENT_READY && done) done(t, arg);
 }
 
+typedef enum { KB_TEXT, KB_NUMBER, KB_ADDRESS } kb_kind_t;
+
+// Server address page: digits, '.' and ':' together, so an IP is typed without changing pages.
+// "abc" is handled by LVGL (it switches to the lowercase letters, for a hostname).
+static const char *const address_map[] = {
+    "1", "2", "3", LV_SYMBOL_BACKSPACE, "\n",
+    "4", "5", "6", LV_SYMBOL_OK, "\n",
+    "7", "8", "9", "abc", "\n",
+    ".", "0", ":", LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_CLOSE, ""};
+static const lv_buttonmatrix_ctrl_t address_ctrl[] = {
+    2, 2, 2, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 3,
+    2, 2, 2, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 3,
+    2, 2, 2, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 3,
+    2, 2, 2, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 1, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 1, LV_KEYBOARD_CTRL_BUTTON_FLAGS | 1};
+
+// An empty value, "auto", or something that looks like an IP is edited on the address page;
+// a hostname is edited with letters.
+static kb_kind_t address_kind(const char *host) {
+  if (!host[0] || !strcmp(host, "auto")) return KB_ADDRESS;
+  for (const char *c = host; *c; c++)
+    if (!((*c >= '0' && *c <= '9') || *c == '.' || *c == ':')) return KB_TEXT;
+  return KB_ADDRESS;
+}
+
 // The field being edited sits at the top; the keyboard takes the bottom of setup's area,
 // so the text is never under the keys.
-static void kb_open(const char *prompt, const char *initial, bool password, bool numeric, uint32_t max_len,
+static void kb_open(const char *prompt, const char *initial, bool password, kb_kind_t kind, uint32_t max_len,
                     void (*done)(const char *, uintptr_t), uintptr_t arg) {
   const ui_colors_t *c = ui_theme();
   kb_close();
@@ -560,7 +597,12 @@ static void kb_open(const char *prompt, const char *initial, bool password, bool
   part("kb_text", ta);
   lv_obj_t *kb = lv_keyboard_create(u.kb_box);
   lv_keyboard_set_textarea(kb, ta);
-  if (numeric) lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_NUMBER);
+  if (kind == KB_NUMBER) {
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_NUMBER);
+  } else if (kind == KB_ADDRESS) {
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_USER_1, address_map, address_ctrl);
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_USER_1);
+  }
   int32_t kh = h - 104;   // everything below the field
   if (kh > 320) kh = 320;
   lv_obj_set_size(kb, w, kh);
@@ -610,7 +652,7 @@ static void choose_network(const char *ssid, bool secure) {
   }
   char prompt[64];
   snprintf(prompt, sizeof prompt, "Password for %s", ssid);
-  kb_open(prompt, "", true, false, sizeof u.work.wifi.password - 1, wifi_password_done, 0);
+  kb_open(prompt, "", true, KB_TEXT, sizeof u.work.wifi.password - 1, wifi_password_done, 0);
 }
 
 static void on_ap(lv_event_t *e) {
@@ -625,7 +667,7 @@ static void other_ssid_done(const char *t, uintptr_t arg) {
 
 static void on_other(lv_event_t *e) {
   (void)e;
-  kb_open("Network name", "", false, false, sizeof u.work.wifi.ssid - 1, other_ssid_done, 0);
+  kb_open("Network name", "", false, KB_TEXT, sizeof u.work.wifi.ssid - 1, other_ssid_done, 0);
 }
 
 static void on_scan(lv_event_t *e) {
@@ -696,14 +738,14 @@ static void on_sk_auto(lv_event_t *e) {
 static void on_edit_host(lv_event_t *e) {
   (void)e;
   bool aut = !strcmp(u.work.sk.host, "auto");
-  kb_open("Server address", aut ? "" : u.work.sk.host, false, false, sizeof u.work.sk.host - 1, host_done, 0);
+  kb_open("Server address", aut ? "" : u.work.sk.host, false, address_kind(u.work.sk.host), sizeof u.work.sk.host - 1, host_done, 0);
 }
 
 static void on_edit_port(lv_event_t *e) {
   (void)e;
   char p[8];
   snprintf(p, sizeof p, "%u", (unsigned)u.work.sk.port);
-  kb_open("Port", p, false, true, 5, port_done, 0);
+  kb_open("Port", p, false, KB_NUMBER, 5, port_done, 0);
 }
 
 static void on_request_access(lv_event_t *e) {
@@ -756,7 +798,7 @@ static void on_label(lv_event_t *e) {
   uintptr_t k = (uintptr_t)lv_event_get_user_data(e);
   char prompt[48];
   snprintf(prompt, sizeof prompt, "Label for %s", u.rows[k].id);
-  kb_open(prompt, u.rows[k].label, false, false, sizeof u.rows[k].label - 1, label_done, k);
+  kb_open(prompt, u.rows[k].label, false, KB_TEXT, sizeof u.rows[k].label - 1, label_done, k);
 }
 
 // Discovery re-reads the Signal K tree every 20 s and says so each time. Only a different answer

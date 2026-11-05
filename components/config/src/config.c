@@ -1,4 +1,5 @@
 #include "config.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -467,14 +468,23 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   write_roles(tree, c);
 
   char *text = cJSON_Print(tree);
-  if (!text) return false;
+  if (!text) {
+    fprintf(stderr, "config: save failed: cJSON_Print out of memory\n");
+    return false;
+  }
   char tmp[160], main_[160], bak[160];
   snprintf(tmp, sizeof tmp, "%s/config.tmp", dir);
   snprintf(main_, sizeof main_, "%s/config.json", dir);
   snprintf(bak, sizeof bak, "%s/config.bak.json", dir);
   FILE *f = fopen(tmp, "w");
-  bool ok = f && fputs(text, f) >= 0 && fputs("\n", f) >= 0 && fflush(f) == 0 && fsync(fileno(f)) == 0;
-  if (f) ok = (fclose(f) == 0) && ok;
+  if (!f) fprintf(stderr, "config: save failed: fopen %s: %s\n", tmp, strerror(errno));
+  bool ok = f != NULL;
+  if (ok && fputs(text, f) < 0) { fprintf(stderr, "config: save failed: write: %s\n", strerror(errno)); ok = false; }
+  if (ok && fputs("\n", f) < 0) { fprintf(stderr, "config: save failed: write: %s\n", strerror(errno)); ok = false; }
+  if (ok && fflush(f) != 0) { fprintf(stderr, "config: save failed: fflush: %s\n", strerror(errno)); ok = false; }
+  if (ok && fsync(fileno(f)) != 0) { fprintf(stderr, "config: save failed: fsync: %s\n", strerror(errno)); ok = false; }
+  if (f && fclose(f) != 0) { fprintf(stderr, "config: save failed: fclose: %s\n", strerror(errno)); ok = false; }
+  size_t text_len = strlen(text);
   cJSON_free(text);
   if (!ok) {
     remove(tmp);
@@ -483,8 +493,14 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   // FAT will not rename over an existing file, so clear the old backup first.
   // A power cut after this point leaves config.bak.json for cfg_load to find.
   remove(bak);
-  rename(main_, bak);
-  return rename(tmp, main_) == 0;
+  if (rename(main_, bak) != 0 && errno != ENOENT)
+    fprintf(stderr, "config: rename %s -> %s: %s\n", main_, bak, strerror(errno));
+  if (rename(tmp, main_) != 0) {
+    fprintf(stderr, "config: save failed: rename %s -> %s: %s (the old config is in %s)\n", tmp, main_, strerror(errno), bak);
+    return false;
+  }
+  fprintf(stderr, "config: saved %s (%u bytes)\n", main_, (unsigned)text_len);
+  return true;
 }
 
 

@@ -12,13 +12,35 @@ static const char *TAG = "wifi";
 static volatile bool up, joining;   // joining: an SSID is set, so reconnect after a drop
 static esp_netif_t *sta;
 
+static const char *reason_name(uint8_t r) {
+  switch (r) {
+    case WIFI_REASON_AUTH_EXPIRE: return "auth expired";
+    case WIFI_REASON_AUTH_LEAVE: return "auth leave";
+    case WIFI_REASON_ASSOC_LEAVE: return "left by AP/self";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4-way handshake timeout (wrong password?)";
+    case WIFI_REASON_BEACON_TIMEOUT: return "beacon timeout (signal lost)";
+    case WIFI_REASON_NO_AP_FOUND: return "no AP with that SSID found";
+    case WIFI_REASON_AUTH_FAIL: return "auth failed (wrong password?)";
+    case WIFI_REASON_ASSOC_FAIL: return "association failed";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "handshake timeout (wrong password?)";
+    case WIFI_REASON_CONNECTION_FAIL: return "connection failed";
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD: return "AP found but auth mode too weak";
+    default: return "";
+  }
+}
+
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
   (void)arg;
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
     if (joining) esp_wifi_connect();
   } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+    const wifi_event_sta_disconnected_t *d = data;
+    ESP_LOGW(TAG, "disconnected: reason %u %s%s", d->reason, reason_name(d->reason), joining ? "; retrying" : "");
     up = false;
     if (joining) esp_wifi_connect();
+  } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+    const wifi_event_sta_connected_t *c = data;
+    ESP_LOGI(TAG, "associated with %.*s on channel %u", c->ssid_len, (const char *)c->ssid, c->channel);
   } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
     ip_event_got_ip_t *e = data;
     ESP_LOGI(TAG, "got IP " IPSTR, IP2STR(&e->ip_info.ip));
@@ -28,9 +50,13 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
 
 static void set_station(const cfg_wifi_t *w) {
   wifi_config_t wc = {0};
+  if (strlen(w->ssid) > sizeof wc.sta.ssid || strlen(w->password) > sizeof wc.sta.password)
+    ESP_LOGW(TAG, "SSID (%u chars) or password (%u chars) too long; truncated", (unsigned)strlen(w->ssid), (unsigned)strlen(w->password));
   strncpy((char *)wc.sta.ssid, w->ssid, sizeof wc.sta.ssid);
   strncpy((char *)wc.sta.password, w->password, sizeof wc.sta.password);
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
+  esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+  ESP_LOGI(TAG, "station config: ssid \"%s\", password %u chars: %s", w->ssid, (unsigned)strlen(w->password), esp_err_to_name(err));
+  ESP_ERROR_CHECK(err);
   joining = w->ssid[0] != 0;
 }
 
@@ -57,6 +83,7 @@ void net_wifi_start(const cfg_wifi_t *w) {
 }
 
 void net_wifi_restart(const cfg_wifi_t *w) {
+  ESP_LOGI(TAG, "restart requested");
   joining = false;   // the disconnect below must not reconnect to the old network
   esp_wifi_disconnect();
   up = false;

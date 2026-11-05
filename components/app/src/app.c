@@ -82,6 +82,8 @@ static void config_writer(void *arg) {
       take = true;
     }
     platform_unlock(w.lock);
+    if (take) fprintf(stderr, "config: saving to %s (wifi \"%s\", signalk %s:%u, token %s)\n", dir, w_work->wifi.ssid,
+                      w_work->sk.host, (unsigned)w_work->sk.port, w_work->sk.token[0] ? "set" : "empty");
     if (take && !cfg_save(dir, w_work)) fprintf(stderr, "config: cannot save %s\n", dir);
     platform_lock(w.lock);
     bool set = w.set_pending;
@@ -476,14 +478,22 @@ static void session_token(void *arg) {
 static void on_access_token(const char *token) {
   cfg_report_t err;
   unsigned bits;
-  if (app_config_set("sources.signalk.token", token, &err, &bits)) printf("signalk: access approved; token saved\n");
-  else if (app_post(session_token, (void *)token, 2000)) printf("signalk: access approved; token in use until restart (not saved: %s)\n", err.issues[0].message);
+  if (app_config_set("sources.signalk.token", token, &err, &bits)) {
+    printf("signalk: access approved; token saved\n");
+  } else {
+    fprintf(stderr, "signalk: token not saved: %s\n", err.count ? err.issues[0].message : "?");
+    if (app_post(session_token, (void *)token, 2000))
+      printf("signalk: access approved; token in use until restart (not saved: %s)\n", err.issues[0].message);
+    else fprintf(stderr, "signalk: token could not be applied either (UI task did not answer)\n");
+  }
 }
 
 static void on_access_href(const char *href) {
   cfg_report_t err;
   unsigned bits;
-  app_config_set("sources.signalk.request", href, &err, &bits);   // no SD card: not resumable after a restart
+  if (!app_config_set("sources.signalk.request", href, &err, &bits))
+    fprintf(stderr, "signalk: could not store the access request: %s\n", err.count ? err.issues[0].message : "?");
+  // no SD card: not resumable after a restart
 }
 
 static void start_access(void) {
@@ -572,7 +582,7 @@ unsigned app_apply_config(const cfg_t *next) {
   bool sk = strcmp(a.cfg.sk.host, next->sk.host) || a.cfg.sk.port != next->sk.port ||
             strcmp(a.cfg.sk.token, next->sk.token);   // a stored access-request href is not a reason to reconnect
   bool roles = !same_roles(&a.cfg, next);
-  bool wifi = memcmp(&a.cfg.wifi, &next->wifi, sizeof a.cfg.wifi) != 0;
+  bool wifi = strcmp(a.cfg.wifi.ssid, next->wifi.ssid) || strcmp(a.cfg.wifi.password, next->wifi.password);
   bool was_auto = !strcmp(a.cfg.palette, "auto");
   uint8_t old_count = a.count;
   a.cfg = *next;
@@ -783,6 +793,7 @@ static void apply_and_save(void *arg) {   // UI task
 }
 
 static void refuse(cfg_report_t *err, const char *key, const char *msg) {
+  fprintf(stderr, "config: set %s refused: %s\n", key, msg);
   memset(err, 0, sizeof *err);
   err->count = 1;
   snprintf(err->issues[0].key_path, sizeof err->issues[0].key_path, "%s", key);
@@ -814,6 +825,7 @@ bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsig
   }
   if (!w.set_ok) {
     *err = w.set_err;
+    fprintf(stderr, "config: set %s failed: %s\n", path, err->count ? err->issues[0].message : "?");
     return false;
   }
   apply_req_t r = {w.set_out, 0, true};

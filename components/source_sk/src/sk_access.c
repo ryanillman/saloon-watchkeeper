@@ -21,6 +21,18 @@ static struct {
   void (*on_href)(const char *);
 } s;
 
+// First bytes of a reply, one line, for the log (never a token: only request replies pass here).
+static void log_reply(const char *what, bool ok, int status, const char *resp) {
+  char snip[121] = "";
+  if (resp) {
+    snprintf(snip, sizeof snip, "%s", resp);
+    for (char *p = snip; *p; p++)
+      if (*p == '\n' || *p == '\r') *p = ' ';
+  }
+  if (ok) fprintf(stderr, "signalk: access %s: HTTP %d %s\n", what, status, snip);
+  else fprintf(stderr, "signalk: access %s: no response (connect/send/read failed)\n", what);
+}
+
 static void take(void) {
   if (!s.lock) s.lock = platform_lock_create();
   platform_lock(s.lock);
@@ -83,7 +95,9 @@ static void send_request(const char *base, int64_t now) {
   size_t len = 0;
   int status = 0;
   snprintf(url, sizeof url, "%s/signalk/v1/access/requests", base);
+  fprintf(stderr, "signalk: access request POST %s\n", url);
   bool ok = body && sk_http_request("POST", url, NULL, body, &status, &resp, &len);
+  log_reply("request", ok, status, resp);
   free(body);
   cJSON *r = ok && resp ? cJSON_Parse(resp) : NULL;
   const cJSON *href = cJSON_GetObjectItem(r, "href");
@@ -124,6 +138,8 @@ static void check_request(const char *base, int64_t now) {
   size_t len = 0;
   int status = 0;
   bool ok = sk_http_request("GET", url, NULL, NULL, &status, &resp, &len);
+  if (ok && resp && strstr(resp, "\"token\"")) fprintf(stderr, "signalk: access check: HTTP %d (reply holds a token; not logged)\n", status);
+  else log_reply("check", ok, status, resp);
   cJSON *r = ok && resp ? cJSON_Parse(resp) : NULL;
   const cJSON *st = cJSON_GetObjectItem(r, "state");
   const cJSON *ar = cJSON_GetObjectItem(r, "accessRequest");

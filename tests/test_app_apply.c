@@ -64,6 +64,17 @@ static void test_apply_wifi(void) {
   TEST_ASSERT_EQUAL_UINT(APPLY_WIFI, app_apply_config(&next));
 }
 
+// Bytes after the string's NUL are not part of the setting: a config parsed from the file and
+// one typed in setup differ there, and that must not drop and rejoin the network.
+static void test_apply_wifi_ignores_bytes_after_the_nul(void) {
+  strcpy(next.wifi.ssid, "Net");
+  strcpy(next.wifi.password, "secret");
+  TEST_ASSERT_EQUAL_UINT(APPLY_WIFI, app_apply_config(&next));
+  strcpy(next.wifi.ssid + 4, "junk");
+  strcpy(next.wifi.password + 7, "junk");
+  TEST_ASSERT_EQUAL_UINT(APPLY_NONE, app_apply_config(&next));
+}
+
 static int ran;
 static void bump(void *arg) { ran += *(int *)arg; }
 
@@ -193,6 +204,7 @@ int main(void) {
   RUN_TEST(test_apply_exclude_rebinds);
   RUN_TEST(test_apply_fewer_roles_resizes_navigation);
   RUN_TEST(test_apply_wifi);
+  RUN_TEST(test_apply_wifi_ignores_bytes_after_the_nul);
   RUN_TEST(test_post_runs_on_tick);
   RUN_TEST(test_apply_keeps_alarm_banner);
   return UNITY_END();
