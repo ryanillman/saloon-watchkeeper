@@ -7,6 +7,7 @@
 #include "anchor_watch.h"
 #include "boatdata.h"
 #include "history.h"
+#include "nav_state.h"
 #include "role.h"
 #include "unity.h"
 
@@ -386,6 +387,75 @@ static void test_anchor_tile_headline_and_limit_text(void) {
   TEST_ASSERT_NOT_NULL(strstr(t.context[0], "limit 164 ft"));
 }
 
+// ---- the Navigation tile ----
+
+static void test_navigation_tile_true_wind_headline(void) {
+  num("environment.wind.angleApparent", 0.66);
+  num("environment.wind.speedApparent", 7.3);
+  num("environment.wind.angleTrueWater", 1.07);
+  num("environment.wind.speedTrue", 5.14);   // 10 kn
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("NAVIGATION", t.title);
+  TEST_ASSERT_EQUAL_STRING("10", t.headline);
+  TEST_ASSERT_EQUAL_STRING("kn", t.unit);
+  TEST_ASSERT_EQUAL(GT_OK, t.state);
+  TEST_ASSERT_EQUAL_UINT16(bd_find("environment.wind.speedTrue"), t.trend);
+  TEST_ASSERT_NULL(strstr(t.context[0], "APP"));
+}
+
+static void test_navigation_tile_falls_to_apparent(void) {
+  num("environment.wind.angleApparent", 0.66);
+  num("environment.wind.speedApparent", 7.305);   // 14.2 kn, and no speed through the water to compute from
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("14", t.headline);
+  TEST_ASSERT_NOT_NULL(strstr(t.context[0], "APP"));
+  TEST_ASSERT_EQUAL_UINT16(bd_find("environment.wind.speedApparent"), t.trend);
+}
+
+static void test_navigation_tile_no_wind_is_no_data(void) {
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("", t.headline);
+}
+
+static void test_navigation_tile_stale_wind_is_no_data(void) {
+  bd_set_number(bd_intern("environment.wind.speedApparent"), 7.3, 1, NOW - 6000);
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
+  TEST_ASSERT_EQUAL_STRING("", t.headline);
+}
+
+static void test_navigation_tile_hour_change_and_max(void) {
+  nav_ids_t ids;
+  nav_ids_bind(&ids);   // tracks the two wind speeds
+  num("environment.wind.angleTrueWater", 1.07);
+  num("environment.wind.speedTrue", 10.0);
+  hist_tick(NOW);
+  float vals[61];
+  for (int i = 0; i < 61; i++) vals[i] = 4.0f + 0.1f * (float)i;   // 4 m/s an hour ago, 10 m/s now
+  hist_backfill(ids.tw_speed, vals, 61);
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL_STRING("+12 kn / 1 h", t.context[0]);   // 6 m/s
+  TEST_ASSERT_EQUAL_STRING("max 19 kn", t.context[1]);      // 10 m/s
+}
+
+static void test_navigation_tile_alert_state(void) {
+  num("environment.wind.angleTrueWater", 1.07);
+  num("environment.wind.speedTrue", 5.14);
+  alert_t a = {0};
+  snprintf(a.id, sizeof a.id, "environment.wind.speedTrue");
+  a.state = AL_WARN;
+  alerts_upsert(&a, NOW);
+  bind("navigation");
+  tile();
+  TEST_ASSERT_EQUAL(GT_WARN, t.state);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_engine_twin_running_shows_both_rpm_and_ok);
@@ -412,5 +482,11 @@ int main(void) {
   RUN_TEST(test_anchor_tile_never_ok_when_data_missing);
   RUN_TEST(test_anchor_tile_local_watch_alarm_outranks_no_data);
   RUN_TEST(test_anchor_tile_headline_and_limit_text);
+  RUN_TEST(test_navigation_tile_true_wind_headline);
+  RUN_TEST(test_navigation_tile_falls_to_apparent);
+  RUN_TEST(test_navigation_tile_no_wind_is_no_data);
+  RUN_TEST(test_navigation_tile_stale_wind_is_no_data);
+  RUN_TEST(test_navigation_tile_hour_change_and_max);
+  RUN_TEST(test_navigation_tile_alert_state);
   return UNITY_END();
 }
