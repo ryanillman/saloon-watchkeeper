@@ -5,6 +5,7 @@
 #include "alerts.h"
 #include "platform.h"
 #include "sk_access.h"
+#include "sk_cmd.h"
 #include "sk_parse.h"
 #include "history.h"
 #include "sk_history.h"
@@ -107,6 +108,33 @@ static void drain_requests(const char *base, const char *token) {
   }
 }
 
+// Sends each command the UI queued (see sk_cmd.h). A PUT goes to the REST tree at the dotted path as {"value":N};
+// a POST goes to the server path as given. The answer decides the command's result; nothing is retried.
+static void drain_commands(const char *base, const char *token) {
+  sk_cmd_t cmd;
+  sk_cmd_handle_t h;
+  while (sk_cmd_next(&cmd, &h, platform_millis())) {
+    char url[320], body[64];
+    const char *method = "POST", *payload = cmd.body[0] ? cmd.body : NULL;
+    if (cmd.put_number) {
+      size_t n = (size_t)snprintf(url, sizeof url, "%s/signalk/v1/api/vessels/self/", base);
+      for (const char *p = cmd.path; *p && n < sizeof url - 1; p++) url[n++] = *p == '.' ? '/' : *p;
+      url[n] = 0;
+      snprintf(body, sizeof body, "{\"value\":%g}", cmd.value);
+      method = "PUT";
+      payload = body;
+    } else {
+      snprintf(url, sizeof url, "%s%s", base, cmd.path);
+    }
+    int status = 0;
+    char *resp = NULL;
+    size_t resp_len = 0;
+    bool ok = sk_http_request(method, url, token, payload, &status, &resp, &resp_len);
+    free(resp);
+    sk_cmd_finish(h, ok, status);
+  }
+}
+
 // Reads the REST snapshot; counts a discovery only when it parsed.
 static void discover(const char *url, const char *token) {
   char *body = NULL;
@@ -169,6 +197,7 @@ void sk_client_run_once(void) {
   if (sk_ws_connect(url, token, on_message, NULL) && subscribe(false)) {
     c.attempt = 0;
     set_state(SK_LIVE);
+    sk_cmd_set_connected(true);
     alerts_source_up(true);
     printf("signalk: live at %s:%u\n", host, port);
     // Trends fill in from the server's history after a boot or a reconnect (never a fault). One path per request, one
@@ -191,6 +220,7 @@ void sk_client_run_once(void) {
       // change, so a lost one would never come back: resubscribe to get them resent.
       if (sk_ws_take_overflow() && !subscribe(true)) break;
       drain_requests(base, token);
+      drain_commands(base, token);
       if (platform_millis() >= fill_retry_ms && sk_history_backfill(base, token) == SK_HIST_NO_ANSWER)
         fill_retry_ms = platform_millis() + 30000;
       sk_access_poll(base, platform_millis());
@@ -202,6 +232,7 @@ void sk_client_run_once(void) {
   }
   if (sk_client_state() == SK_LIVE) printf("signalk: connection closed\n");
   sk_ws_close();
+  sk_cmd_set_connected(false);
   alerts_source_up(false);
   bd_invalidate_source(SK_SOURCE_ID);   // nothing from this server can be trusted now
   set_state(SK_BACKOFF);
