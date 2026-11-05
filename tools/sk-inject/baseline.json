@@ -1,6 +1,6 @@
 {
   "description": "Routine values for every Signal K path the displays cover. Units are Signal K SI: K, Pa, Hz (rpm/60), ratio, V, A, W, s, m3/s. A row's \"off\" is its value when its group is off (rows without it keep their nominal). \"drift\" is change per 60 s.",
-  "optionalGroups": ["three-bank", "venus-system"],
+  "optionalGroups": ["three-bank", "venus-system", "course", "autopilot"],
   "profiles": {
     "underway": {},
     "anchor": {
@@ -65,11 +65,22 @@
     {"path": "navigation.position", "group": "nav", "nominal": {"latitude": 48.5343, "longitude": -123.0170}},
     {"path": "navigation.headingMagnetic", "group": "nav", "nominal": 0.8203, "wobble": 0.01},
     {"path": "navigation.courseOverGroundTrue", "group": "nav", "nominal": 1.2217, "wobble": 0.01},
+    {"path": "navigation.speedOverGround", "group": "nav", "nominal": 3.292, "wobble": 0.05},
+    {"path": "navigation.magneticVariation", "group": "nav", "nominal": 0.0},
     {"path": "navigation.speedThroughWater", "group": "nav", "nominal": 3.292},
     {"path": "environment.wind.angleApparent", "group": "nav", "nominal": 0.6632, "wobble": 0.02},
     {"path": "environment.wind.speedApparent", "group": "nav", "nominal": 7.305, "wobble": 0.15},
     {"path": "environment.wind.angleTrueWater", "group": "nav", "nominal": 1.0696, "wobble": 0.02},
+    {"path": "environment.wind.speedTrue", "group": "nav", "nominal": 5.13, "wobble": 0.1},
+    {"path": "environment.current", "group": "nav", "nominal": {"setTrue": 2.391, "drift": 0.617}},
     {"path": "environment.wind.directionTrue", "group": "nav", "nominal": 1.8899, "wobble": 0.02},
+
+    {"path": "navigation.course.calcValues.bearingTrackTrue", "group": "course", "nominal": 1.2217},
+    {"path": "navigation.course.calcValues.crossTrackError", "group": "course", "nominal": 222.2, "wobble": 15},
+    {"path": "navigation.course.calcValues.distance", "group": "course", "nominal": 13700, "drift": -200},
+
+    {"path": "steering.autopilot.state", "group": "autopilot", "nominal": "auto"},
+    {"path": "steering.autopilot.target.headingTrue", "group": "autopilot", "nominal": 0.9076},
 
     {"path": "electrical.venus.dcPower", "group": "venus-system", "nominal": 150, "wobble": 10},
 

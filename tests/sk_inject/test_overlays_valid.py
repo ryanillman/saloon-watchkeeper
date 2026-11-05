@@ -10,7 +10,7 @@ DIR = _path.SKDIR / "overlays"
 NAMES = {
     "alarm-coolant", "alarm-fuel-low", "controller-dropout", "coolant-null", "glance-mixed",
     "key-off", "rpm-pickup-fails", "tanks", "three-bank", "two-engines", "victron-power",
-    "warn-tank-low", "anchor-holding", "anchor-holding-anchoralarm",
+    "warn-tank-low", "anchor-holding", "anchor-holding-anchoralarm", "navigation-underway",
 }
 
 
@@ -19,7 +19,7 @@ def load(name):
 
 
 class OverlaysValid(unittest.TestCase):
-    def test_names_are_the_twelve_old_scenarios(self):
+    def test_names_are_the_known_overlays(self):
         self.assertEqual({p.stem for p in DIR.glob("*.json")}, NAMES)
 
     def test_every_overlay_parses_against_the_baseline(self):
@@ -82,3 +82,27 @@ class OverlaysValid(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NavigationUnderway(unittest.TestCase):
+    def test_runs_with_a_course_and_an_autopilot(self):
+        ov = parse_overlay(load("navigation-underway"), B)
+        self.assertEqual(ov.with_groups, {"course", "autopilot"})
+        self.assertEqual(ov.profile, None)   # underway: the routine boat
+
+    def test_phases_take_things_away_and_give_them_back(self):
+        doc = load("navigation-underway")
+        steps = [(e["atMs"], e["op"], e.get("path")) for e in doc["after"]]
+        dtk = "navigation.course.calcValues.bearingTrackTrue"
+        self.assertIn((30000, "null", dtk), steps)
+        self.assertIn((50000, "clear", dtk), steps)
+        self.assertIn((70000, "set", "steering.autopilot.state"), steps)   # standby
+        self.assertIn((90000, "clear", "steering.autopilot.state"), steps)
+        for p in ("environment.wind.speedTrue", "environment.wind.angleTrueWater"):   # the display computes true wind
+            self.assertIn((110000, "null", p), steps)
+            self.assertIn((130000, "clear", p), steps)
+        self.assertIn((150000, "silent", "navigation.headingMagnetic"), steps)   # the heading fails until the end
+
+    def test_it_never_writes_notifications(self):
+        for ev in load("navigation-underway")["after"]:
+            self.assertFalse(str(ev.get("path", "")).startswith("notifications."))

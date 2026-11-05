@@ -1,0 +1,16 @@
+{
+  "description": "Underway for the Navigation page (needs signalk-derived-data, or the baseline's own true wind and current): heading 047, COG and DTK 070, the boat 0.12 nm right of track, the autopilot at 052, apparent wind 38 deg starboard at 14.2 kn, 6.4 kn through the water, set 137 drift 1.2 kn. At 30 s the plotter course goes (the magenta line, its arrowhead and the course readouts disappear; the COG triangle stays) and returns at 50 s. At 70 s the autopilot goes to standby (the AP badge and bug go) and engages again at 90 s. At 110 s the server's true wind goes and the display computes it from the apparent wind and the speed through water (the same 61 deg and 10 kn); it returns at 130 s. At 150 s the heading stops: HDG FAIL, the rose is dimmed, the wind markers stay; this lasts to the end.",
+  "durationMs": 180000,
+  "with": ["course", "autopilot"],
+  "after": [
+    { "atMs": 30000, "note": "the plotter course is cleared", "op": "null", "path": "navigation.course.calcValues.bearingTrackTrue" },
+    { "atMs": 50000, "note": "a course is set again", "op": "clear", "path": "navigation.course.calcValues.bearingTrackTrue" },
+    { "atMs": 70000, "note": "the autopilot goes to standby", "op": "set", "path": "steering.autopilot.state", "value": "standby" },
+    { "atMs": 90000, "note": "the autopilot engages", "op": "clear", "path": "steering.autopilot.state" },
+    { "atMs": 110000, "note": "the server stops publishing true wind: the display computes it", "op": "null", "path": "environment.wind.speedTrue" },
+    { "atMs": 110000, "op": "null", "path": "environment.wind.angleTrueWater" },
+    { "atMs": 130000, "note": "true wind is back", "op": "clear", "path": "environment.wind.speedTrue" },
+    { "atMs": 130000, "op": "clear", "path": "environment.wind.angleTrueWater" },
+    { "atMs": 150000, "note": "the heading source fails and stays failed to the end", "op": "silent", "path": "navigation.headingMagnetic" }
+  ]
+}
