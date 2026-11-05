@@ -3,7 +3,7 @@ import unittest
 
 import _path  # noqa: F401
 from boatmodel import load_baseline
-from overlay import Alarm, Post, parse_overlay
+from overlay import Alarm, Post, Put, parse_overlay
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 DIR = _path.SKDIR / "overlays"
@@ -67,6 +67,13 @@ class OverlaysValid(unittest.TestCase):
                 self.assertTrue(at40 and at40[0] > 45, "drifts past the limit at 40 s")
                 at70 = [dist(e) for t, e in evs if t == 70000]
                 self.assertTrue(at70 and at70[0] < 45, "back inside at 70 s")
+
+    def test_anchoralarm_overlay_names_the_source_of_its_radius_put(self):
+        # both plugins publish navigation.anchor.maxRadius; the server refuses a PUT that names no source
+        puts = [a for a in parse_overlay(load("anchor-holding-anchoralarm"), B).step(10 ** 9)
+                if isinstance(a, Put)]
+        self.assertEqual([(p.path, p.source) for p in puts],
+                         [("navigation.anchor.maxRadius", "anchoralarm")])
 
     def test_three_bank_enables_its_group(self):
         self.assertEqual(parse_overlay(load("three-bank"), B).with_groups, {"three-bank"})

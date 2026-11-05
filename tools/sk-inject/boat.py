@@ -116,14 +116,14 @@ class Boat:
         if isinstance(a, Post):
             what, call = f"POST {a.path}", (skhttp.post_json, a.path, a.body)
         else:
-            what, call = f"PUT {a.path}={a.value}", (skhttp.put_value, a.path, a.value)
+            what, call = f"PUT {a.path}={a.value}", (skhttp.put_value, a.path, a.value, a.source)
         fn, *args = call
         try:
             status, body = await asyncio.to_thread(fn, self.server, self.token, *args)
         except OSError as e:
             self.log(f"{what}: failed ({e})")
             return
-        note = "" if 200 <= status < 300 else f"  {' '.join(body.split())[:120]}"
+        note = "" if 200 <= status < 300 else f"  {' '.join(body.split())[:300]}"
         self.log(f"{what}: HTTP {status}{note}")
 
     # -- alarms: let the server do the alarming ---------------------------------------

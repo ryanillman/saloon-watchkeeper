@@ -28,7 +28,13 @@ def post_json(server, token, path, body):
     return _send("POST", server, token, path, body or {})
 
 
-def put_value(server, token, path, value):
-    """PUT {"value": value} to a Signal K path given dotted, relative to vessels.self."""
+def put_value(server, token, path, value, source=None):
+    """PUT {"value": value} to a Signal K path given dotted, relative to vessels.self.
+
+    source names the publisher when several publish the path; the server answers 400 without it.
+    """
+    body = {"value": value}
+    if source is not None:
+        body["source"] = source
     return _send("PUT", server, token,
-                 f"/signalk/v1/api/vessels/self/{path.replace('.', '/')}", {"value": value})
+                 f"/signalk/v1/api/vessels/self/{path.replace('.', '/')}", body)

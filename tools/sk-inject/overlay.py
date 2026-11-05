@@ -65,6 +65,7 @@ class Put:
     """A Signal K PUT of a value to a spec path, e.g. navigation.anchor.maxRadius."""
     path: str
     value: Any
+    source: Optional[str] = None   # needed when more than one source publishes the path (two anchor plugins)
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,10 @@ def _action(ev, baseline):
             raise OverlayError(f"{p}: overlays never write notifications.*")
         if "value" not in ev:
             raise OverlayError("put: needs a value")
-        return Put(p, ev["value"])
+        src = ev.get("source")
+        if src is not None and not isinstance(src, str):
+            raise OverlayError("put: source must be a string")
+        return Put(p, ev["value"], src)
     if op == "move":
         p = _path(ev, baseline)
         row = next(r for r in baseline.rows if r["path"] == p)

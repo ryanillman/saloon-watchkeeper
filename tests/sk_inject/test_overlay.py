@@ -83,6 +83,11 @@ class OverlayEngine(unittest.TestCase):
             Put("navigation.anchor.maxRadius", 45),
             Move("navigation.position", 20.0, -5.0, 10000)])
 
+    def test_put_may_name_a_source(self):
+        ov = parse_overlay(doc({"atMs": 0, "op": "put", "path": "navigation.anchor.maxRadius",
+                                "value": 45, "source": "anchoralarm"}), B)
+        self.assertEqual(ov.step(0), [Put("navigation.anchor.maxRadius", 45, "anchoralarm")])
+
     def test_post_must_target_a_plugin(self):
         for bad in ("/signalk/v1/api/vessels/self/navigation/position", "plugins/x/y", "/admin/restart"):
             with self.assertRaises(OverlayError, msg=bad):

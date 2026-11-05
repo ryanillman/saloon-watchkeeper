@@ -6,7 +6,7 @@
     { "atMs": 0, "note": "only one plugin watches: clear the other's anchor (best effort)", "op": "post", "path": "/plugins/hoekens-anchor-alarm/raiseAnchor" },
     { "atMs": 0, "note": "clear any anchoralarm anchor left from before (best effort)", "op": "post", "path": "/plugins/anchoralarm/raiseAnchor" },
     { "atMs": 2000, "note": "drop the anchor here", "op": "post", "path": "/plugins/anchoralarm/dropAnchor", "body": { "radius": 45 } },
-    { "atMs": 3000, "note": "set the limit as the display's radius buttons do", "op": "put", "path": "navigation.anchor.maxRadius", "value": 45 },
+    { "atMs": 3000, "note": "set the limit as the display's radius buttons do", "op": "put", "path": "navigation.anchor.maxRadius", "value": 45, "source": "anchoralarm" },
     { "atMs": 3000, "note": "swing out to the NE", "op": "move", "path": "navigation.position", "northM": 21, "eastM": 21, "overMs": 8000 },
     { "atMs": 20000, "note": "swing to the SE", "op": "move", "path": "navigation.position", "northM": -10, "eastM": 26, "overMs": 10000 },
     { "atMs": 32000, "note": "swing back to the NE", "op": "move", "path": "navigation.position", "northM": 22, "eastM": 18, "overMs": 8000 },
