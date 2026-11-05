@@ -58,7 +58,7 @@ static void merge(entry_t *e) {
   e->a.silenced = e->l_sil || e->s_sil;
 }
 
-void alerts_upsert(const alert_t *in, int64_t now_ms) {
+static void upsert(const alert_t *in, int64_t now_ms, bool local) {
   ensure_lock();
   LOCK();
   int i = find(in->id);
@@ -90,7 +90,8 @@ void alerts_upsert(const alert_t *in, int64_t now_ms) {
   snprintf(e->a.id, sizeof e->a.id, "%s", in->id);
   e->a.state = in->state;
   snprintf(e->a.message, sizeof e->a.message, "%s", in->message);
-  snprintf(e->a.ref, sizeof e->a.ref, "%s", in->ref);
+  snprintf(e->a.ref, sizeof e->a.ref, "%s", local ? "" : in->ref);
+  e->a.local = local;
   e->a.audible = in->audible;
   e->s_ack = in->acked;
   e->s_sil = in->silenced;
@@ -98,6 +99,9 @@ void alerts_upsert(const alert_t *in, int64_t now_ms) {
   merge(e);
   UNLOCK();
 }
+
+void alerts_upsert(const alert_t *in, int64_t now_ms) { upsert(in, now_ms, false); }
+void alerts_upsert_local(const alert_t *in, int64_t now_ms) { upsert(in, now_ms, true); }
 
 void alerts_clear(const char *id) {
   ensure_lock();
@@ -112,7 +116,10 @@ void alerts_source_up(bool up) {
   LOCK();
   source_up = up;
   if (!up) {
-    count = 0;
+    uint8_t kept = 0;   // a local alert is the display's own: the source going away is what it reports
+    for (int i = 0; i < count; i++)
+      if (list[i].a.local) list[kept++] = list[i];
+    count = kept;
     qhead = qcount = 0;
   }
   UNLOCK();
@@ -170,6 +177,11 @@ void alerts_request(const char *id, alert_req_t req) {
   if (req == AL_REQ_ACK) e->l_ack = true;
   else e->l_sil = true;
   merge(e);
+  if (e->a.local) {   // nothing to send: the source never heard of it
+    e->a.send_failed = false;
+    UNLOCK();
+    return;
+  }
   if (!source_up || e->a.ref[0] == '\0') {
     e->a.send_failed = true;
     UNLOCK();

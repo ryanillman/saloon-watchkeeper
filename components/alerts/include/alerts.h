@@ -13,6 +13,7 @@ typedef struct {
   bool acked, silenced;
   char ref[40];           // source's notification id (Signal K UUID), "" if none
   bool send_failed;       // the last acknowledge or silence did not reach the source
+  bool local;             // raised on this display, not by the source: survives the source going down, acknowledged locally only
   int64_t since_ms;
 } alert_t;
 typedef struct { alert_t a[ALERTS_MAX]; uint8_t count; bool source_up; } alerts_snapshot_t;   // sorted: most severe first, then newest
@@ -23,6 +24,10 @@ void alerts_init(void);
 // the same state repeated keeps the local flags. When the list is full the least severe entry
 // is dropped for a more severe newcomer; an equal or lesser newcomer is not added.
 void alerts_upsert(const alert_t *in, int64_t now_ms);
+// A display-raised alert (the source cannot report its own loss). Same rules as alerts_upsert, but it survives
+// alerts_source_up(false), has no ref, and an acknowledge or silence stays local: nothing is queued and
+// send_failed is never set. Cleared by alerts_clear or an upsert with AL_NORMAL.
+void alerts_upsert_local(const alert_t *in, int64_t now_ms);
 void alerts_clear(const char *id);
 void alerts_source_up(bool up);                 // false clears the list and the request queue
 void alerts_snapshot(alerts_snapshot_t *out);
