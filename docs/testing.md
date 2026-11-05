@@ -111,6 +111,26 @@ Play `tools/scenario.sh glance-mixed` (or `two-engines` for the clock), then che
 5. **Small board.** On the 480x480 board the second context line and the axis labels are dropped. Judge from across the saloon whether the 14 px context line is readable; if not, drop it there too.
 6. **Night.** The night palette is red only: OK is the dim red, a warning or alarm the bright red, and the state word always says which.
 
+## The Anchor page, its tile and the watch
+
+Needs an anchor plugin on the server (`hoekens-anchor-alarm` or `signalk-anchoralarm-plugin`; set `anchor.plugin` in `config.json` to match, default `hoekens-anchor-alarm`), a position (a GPS, or `tools/sk-inject` publishing `navigation.position`), and the display's token with write access. `tools/scenario.sh anchor-holding` plays a boat at anchor without a plugin. Compare with the snapshots in `build/sim/snap/` (`anchor-p0-<state>.png`, `glance-p0-anchor-<state>.png`).
+
+| Check | Expect |
+|---|---|
+| No anchor, plugin up | `NOT SET`, grey; the button reads DROP and the limit shows 30 m. Tap `+` twice: 40 m, amber, nothing sent. Tap DROP: `dropAnchor` is sent with radius 40; within seconds the plugin publishes the anchor and the page goes to `HOLDING`, green, with the ring and the boat |
+| Radius | With an anchor set, `+`: the limit turns amber at once and 1.5 s after the last tap the plugin shows the new value and the colour returns to normal. Hoeken: a `setZone` with the radius; anchoralarm: a PUT of `maxRadius`. A polygon or sector zone (Hoeken): `ZONE: POLYGON`, `-` and `+` disabled, Drop and Raise still work |
+| Raise | Press and hold RAISE: a bar fills the button over 1.5 s and the raise is sent when it fills. Letting go early cancels. The page returns to `NOT SET` |
+| Dragging | `anchor-holding` at 40 s (or move the position): `DRAGGING`, red ring, the banner and buzzer; ACK moves it to the bell. The boat dot stays on the plot, the scale growing to keep it in view. At 70 s the alarm clears |
+| Track | After a few minutes the plot shows the swing since the anchor was set. With a plugin that republishes the anchor position continuously the set time may read as just now and the track will be short: note which plugin does |
+| Wrong plugin or no access | `NO PLUGIN` (404) when the configured plugin is not installed; `NO ACCESS` for a token without write; `OFFLINE` with the server down. Shown on the button for 5 s. A plugin that answers 200 but publishes nothing: `NOT CONFIRMED` after 10 s |
+| Missing data | Stop the plugin: after 90 s `NO DATA`, grey, controls dimmed; after 60 s more the buzzer and `ANCHOR WATCH LOST` on the banner. The alarm clears when data returns |
+| Restart | Restart the Signal K server with an anchor set (both plugins restore it): the page shows `NO DATA` while it is down, then `HOLDING`. `ANCHOR WATCH LOST` appears only if it stays down past 60 s |
+| Power cut | Power-cycle the display with an anchor set: `RESTORING` after boot, then `HOLDING` once the plugin shows the anchor. With the anchor raised on the server first (plugin's own page, display off): `ANCHOR WATCH NOT RESTORED` as soon as the server answers, ACK silences it, the record stays; hold RAISE to clear it. With the server off for over 120 s the same alarm |
+| No SD card | `NO SD` on the page; the boot check is off, `ANCHOR WATCH LOST` still works |
+| Glance tile | The tile follows the page: green `HOLDING` with the plan view, amber `WARN`, red `DRAGGING`, `NO DATA` and `RESTORING` never green. On the 480 board the second context line is dropped |
+
+Unverified until the first bench run: that each plugin republishes `currentRadius` often enough (the stale limit is 90 s), what Hoeken publishes with no anchor set (if nothing, `NOT SET` waits for the first drop), what the display sees for a moment after a server restart, and the plugins' reply to a drop with no GPS position.
+
 ## Capturing a boat's server
 
 Power reads the signalk-venus default paths. To compare them with a real Cerbo, run this on any computer that can reach the boat's Signal K server:
