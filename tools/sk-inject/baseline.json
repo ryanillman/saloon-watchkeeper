@@ -1,0 +1,77 @@
+{
+  "description": "Routine values for every Signal K path the displays cover. Units are Signal K SI: K, Pa, Hz (rpm/60), ratio, V, A, W, s, m3/s. A row's \"off\" is its value when its group is off (rows without it keep their nominal). \"drift\" is change per 60 s.",
+  "optionalGroups": ["three-bank"],
+  "profiles": {
+    "underway": {},
+    "anchor": {
+      "groupsOff": ["engine.port", "engine.starboard", "alternator"],
+      "overrides": {
+        "propulsion.port.temperature": 320.0,
+        "propulsion.starboard.temperature": 320.0,
+        "electrical.batteries.279.capacity.stateOfCharge": 0.8,
+        "electrical.batteries.279.voltage": 12.6,
+        "electrical.batteries.279.current": -5.0,
+        "electrical.batteries.279.capacity.timeRemaining": 100800,
+        "electrical.solar.288.panelPower": 0,
+        "electrical.solar.288.current": 0,
+        "electrical.chargers.276.current": 0
+      }
+    }
+  },
+  "rows": [
+    {"path": "propulsion.port.revolutions", "group": "engine.port", "nominal": 33.0, "wobble": 0.5, "off": 0},
+    {"path": "propulsion.port.temperature", "group": "engine.port", "nominal": 350.0, "wobble": 1.0},
+    {"path": "propulsion.port.oilPressure", "group": "engine.port", "nominal": 330000, "wobble": 8000, "off": 0},
+    {"path": "propulsion.port.alternatorVoltage", "group": "engine.port", "nominal": 14.1, "wobble": 0.05, "off": 0},
+    {"path": "propulsion.port.runTime", "group": "engine.port", "nominal": 4410000, "drift": 60},
+    {"path": "propulsion.port.fuel.rate", "group": "engine.port", "nominal": 2.2e-06, "wobble": 2e-07, "off": 0},
+    {"path": "propulsion.starboard.revolutions", "group": "engine.starboard", "nominal": 32.8, "wobble": 0.5, "off": 0},
+    {"path": "propulsion.starboard.temperature", "group": "engine.starboard", "nominal": 351.0, "wobble": 1.0},
+    {"path": "propulsion.starboard.oilPressure", "group": "engine.starboard", "nominal": 325000, "wobble": 8000, "off": 0},
+    {"path": "propulsion.starboard.alternatorVoltage", "group": "engine.starboard", "nominal": 14.0, "wobble": 0.05, "off": 0},
+    {"path": "propulsion.starboard.runTime", "group": "engine.starboard", "nominal": 4395600, "drift": 60},
+    {"path": "propulsion.starboard.fuel.rate", "group": "engine.starboard", "nominal": 2.1e-06, "wobble": 2e-07, "off": 0},
+
+    {"path": "electrical.batteries.279.voltage", "group": "house", "nominal": 13.4, "wobble": 0.05},
+    {"path": "electrical.batteries.279.current", "group": "house", "nominal": 12.0, "wobble": 1.0},
+    {"path": "electrical.batteries.279.capacity.stateOfCharge", "group": "house", "nominal": 0.82},
+    {"path": "electrical.batteries.279.capacity.timeRemaining", "group": "house", "nominal": null},
+    {"path": "electrical.solar.288.voltage", "group": "solar", "nominal": 13.5, "wobble": 0.05},
+    {"path": "electrical.solar.288.current", "group": "solar", "nominal": 8.0, "wobble": 1.0},
+    {"path": "electrical.solar.288.panelPower", "group": "solar", "nominal": 110, "wobble": 10},
+    {"path": "electrical.solar.288.chargingMode", "group": "solar", "nominal": "bulk"},
+    {"path": "electrical.chargers.276.voltage", "group": "charger", "nominal": 13.6, "wobble": 0.03},
+    {"path": "electrical.chargers.276.current", "group": "charger", "nominal": 10.0, "wobble": 0.5},
+    {"path": "electrical.chargers.276.chargingMode", "group": "charger", "nominal": "absorption"},
+    {"path": "electrical.inverters.275.acin.acState.acSource", "group": "inverter", "nominal": "grid"},
+    {"path": "electrical.inverters.275.inverterMode", "group": "inverter", "nominal": "charging"},
+    {"path": "electrical.alternators.0.voltage", "group": "alternator", "nominal": 14.1, "wobble": 0.05, "off": 0},
+    {"path": "electrical.alternators.0.current", "group": "alternator", "nominal": 30.0, "wobble": 2.0, "off": 0},
+    {"path": "electrical.alternators.0.chargingMode", "group": "alternator", "nominal": "bulk", "off": "off"},
+
+    {"path": "tanks.fuel.0.currentLevel", "group": "tanks", "nominal": 0.82},
+    {"path": "tanks.fuel.0.capacity", "group": "tanks", "nominal": 0.11},
+    {"path": "tanks.freshWater.0.currentLevel", "group": "tanks", "nominal": 0.64},
+    {"path": "tanks.freshWater.1.currentLevel", "group": "tanks", "nominal": 0.7},
+    {"path": "tanks.freshWater.2.currentLevel", "group": "tanks", "nominal": 0.6},
+    {"path": "tanks.blackWater.0.currentLevel", "group": "tanks", "nominal": 0.41},
+    {"path": "tanks.wasteWater.0.currentLevel", "group": "tanks", "nominal": 0.3},
+
+    {"path": "navigation.datetime", "group": "nav", "nominal": "$now"},
+
+    {"path": "electrical.batteries.280.voltage", "group": "three-bank", "nominal": 12.8, "wobble": 0.03},
+    {"path": "electrical.batteries.280.current", "group": "three-bank", "nominal": 0.5},
+    {"path": "electrical.batteries.280.capacity.stateOfCharge", "group": "three-bank", "nominal": 0.96},
+    {"path": "electrical.batteries.281.voltage", "group": "three-bank", "nominal": 13.1, "wobble": 0.03},
+    {"path": "electrical.batteries.281.current", "group": "three-bank", "nominal": 1.0},
+    {"path": "electrical.batteries.281.capacity.stateOfCharge", "group": "three-bank", "nominal": 0.9},
+    {"path": "electrical.dcdc.1.voltage", "group": "three-bank", "nominal": 13.6},
+    {"path": "electrical.dcdc.1.current", "group": "three-bank", "nominal": 8.0, "wobble": 0.5},
+    {"path": "electrical.dcdc.1.chargingMode", "group": "three-bank", "nominal": "bulk"},
+    {"path": "electrical.dcdc.2.voltage", "group": "three-bank", "nominal": 13.4},
+    {"path": "electrical.dcdc.2.current", "group": "three-bank", "nominal": 4.0, "wobble": 0.3},
+    {"path": "electrical.dcdc.2.input.voltage", "group": "three-bank", "nominal": 13.3},
+    {"path": "electrical.dcdc.2.input.current", "group": "three-bank", "nominal": 4.4, "wobble": 0.3},
+    {"path": "electrical.dcdc.2.chargingMode", "group": "three-bank", "nominal": "float"}
+  ]
+}
