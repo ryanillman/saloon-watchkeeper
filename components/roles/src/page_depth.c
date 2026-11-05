@@ -4,6 +4,7 @@
 #include <string.h>
 #include "depth_page.h"
 #include "depth_state.h"
+#include "history.h"
 #include "platform.h"
 #include "ui_gauge.h"
 
@@ -89,6 +90,8 @@ void depth_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
   out->title = "DEPTH";
   view_t v;
   read_view(b, now_ms, &v);
+  for (uint8_t k = 0; k < 3; k++)   // the chart follows whichever reading is shown, so all three are recorded (the tile is asked at bind, before any data)
+    if (b->g[G_DEPTH].ids[0][k] != BD_NONE) hist_track(b->g[G_DEPTH].ids[0][k]);
   gt_state_t st[3];
   for (uint8_t k = 0; k < 3; k++) {
     bd_id_t id = b->g[G_DEPTH].ids[0][k];
@@ -102,6 +105,20 @@ void depth_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out) {
   snprintf(out->unit, sizeof out->unit, "%s", units_label(Q_DEPTH, b->units));
   snprintf(out->context[0], sizeof out->context[0], "%s", depth_ref_label(v.ref));
   tide_line(&v, b->units, out->context[1], sizeof out->context[1]);
+  // The chart is the depth, and after now it follows the tide: the depth changes as the water does. Needs both the
+  // next high and the next low (time and height); with less the chart simply stops at now.
+  out->trend = v.depth_id;
+  out->has_forecast = true;
+  int64_t th, tl, now_s = bd_newest_source_time();
+  if (v.high_ok && v.low_ok && v.has_time_high && v.has_time_low && v.time_high.valid && v.time_low.valid && v.time_high.kind == BD_TEXT && v.time_low.kind == BD_TEXT &&
+      depth_parse_time(v.time_high.text, &th) && depth_parse_time(v.time_low.text, &tl) &&
+      tide_deltas(v.high_m, th, v.low_m, tl, now_s, GLANCE_FC_MINUTES * 60, out->fc, GLANCE_FC_POINTS)) {
+    out->fc_n = GLANCE_FC_POINTS;
+    for (int i = 0; i < GLANCE_FC_POINTS; i++) {
+      out->fc[i] += (float)v.depth_m;
+      if (out->fc[i] < 0) out->fc[i] = 0;
+    }
+  }
 }
 
 // ---- the page ----

@@ -485,7 +485,8 @@ static void test_depth_tile_shows_the_depth_and_what_it_is_below(void) {
   TEST_ASSERT_EQUAL_STRING("m", t.unit);
   TEST_ASSERT_EQUAL_STRING("BELOW KEEL", t.context[0]);
   TEST_ASSERT_EQUAL_STRING("", t.context[1]);   // no tide data: nothing about tide
-  TEST_ASSERT_EQUAL(BD_NONE, t.trend);   // history follows one fixed path and the reading shown can change reference
+  TEST_ASSERT_EQUAL(bd_find("environment.depth.belowKeel"), t.trend);   // the chart follows the reading shown
+  TEST_ASSERT_FALSE(t.fc_n);   // no tide: the chart stops at now
 }
 
 static void test_depth_prefers_the_transducer_and_says_so(void) {
@@ -572,6 +573,31 @@ static void test_tide_rising_and_falling_with_the_next_event(void) {
   TEST_ASSERT_EQUAL_STRING("BELOW KEEL", t.context[0]);   // the depth is still named
 }
 
+static void test_depth_tile_forecasts_the_depth_from_the_next_high_and_low(void) {
+  num("environment.depth.belowKeel", 2.4);
+  num("environment.tide.heightHigh", 3.2);
+  num("environment.tide.heightLow", 0.4);
+  tide(1.8, "2026-11-04T14:32:00.000Z", "2026-11-04T20:50:00.000Z");   // rising, the high 2 h 32 min away
+  bind("depth");
+  tile();
+  TEST_ASSERT_TRUE(t.has_forecast);
+  TEST_ASSERT_EQUAL_UINT8(GLANCE_FC_POINTS, t.fc_n);
+  TEST_ASSERT_FLOAT_WITHIN(0.1, 2.4 + 1.0, t.fc[29]);   // at the high (150 min on): the range 2.8 m, less what it had risen already
+  TEST_ASSERT_TRUE(t.fc[GLANCE_FC_POINTS - 1] < t.fc[29]);   // and falling after it
+  bd_set_invalid(bd_find("environment.tide.timeLow"));   // the low's time goes: no forecast, but the chart is still wanted
+  tile();
+  TEST_ASSERT_TRUE(t.has_forecast);
+  TEST_ASSERT_EQUAL_UINT8(0, t.fc_n);
+}
+
+static void test_tide_deltas_are_a_cosine_between_the_high_and_low(void) {
+  float d[72];
+  TEST_ASSERT_TRUE(tide_deltas(3.0, T_1200 + 3600, 1.0, T_1200 + 3600 + 6 * 3600, T_1200, 300, d, 72));
+  TEST_ASSERT_FLOAT_WITHIN(0.02, 1.0 - 1.0 * cosf((float)M_PI * 1.0f / 6.0f), d[11]);   // the high, an hour on, from a tide 1/6 of the way
+  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 - 60, 1.0, T_1200 + 3600, T_1200, 300, d, 72));   // the high is past
+  TEST_ASSERT_FALSE(tide_deltas(3.0, T_1200 + 60, 1.0, T_1200 + 120, T_1200, 300, d, 72));    // two minutes apart: not a tide
+}
+
 static void test_tide_times_are_local_and_heights_follow_the_units(void) {
   depth_set_utc_offset(60);
   num("environment.depth.belowKeel", 2.4);
@@ -643,6 +669,8 @@ int main(void) {
   RUN_TEST(test_navigation_tile_hour_change_and_max);
   RUN_TEST(test_navigation_tile_alert_state);
   RUN_TEST(test_depth_tile_shows_the_depth_and_what_it_is_below);
+  RUN_TEST(test_depth_tile_forecasts_the_depth_from_the_next_high_and_low);
+  RUN_TEST(test_tide_deltas_are_a_cosine_between_the_high_and_low);
   RUN_TEST(test_depth_prefers_the_transducer_and_says_so);
   RUN_TEST(test_depth_falls_back_when_the_preferred_reading_goes_stale_and_names_the_new_one);
   RUN_TEST(test_depth_with_no_fresh_reading_is_no_data_and_shows_no_number);

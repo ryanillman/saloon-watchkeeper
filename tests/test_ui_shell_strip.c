@@ -14,7 +14,7 @@ static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   lv_display_flush_ready(d);
 }
 static int8_t role_of(const char *id) { (void)id; return 0; }
-static const ui_role_view_t views[] = {{.name = "ENGINE", .page_count = 4}};
+static const ui_role_view_t views[] = {{.name = "GLANCE", .page_count = 1}, {.name = "ENGINE", .page_count = 4}};
 
 static lv_display_t *disp, *old_disp;
 
@@ -24,7 +24,7 @@ static void open_shell(int32_t w, int32_t h, size_class_t sc, palette_t pal) {
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_default(disp);
-  ui_shell_create(disp, sc, pal, views, 1, 0);
+  ui_shell_create(disp, sc, pal, views, 2, 0);
   ui_alerts_attach(lv_display_get_screen_active(disp), ui_shell_strip(), sc, role_of, NULL);
 }
 static void close_shell(void) {
@@ -72,9 +72,9 @@ static bool meet(lv_obj_t *a, lv_obj_t *b) {
 
 // Every part of the strip that is showing, none overlapping another.
 static void check_no_overlap(void) {
-  lv_obj_t *p[] = {ui_shell_name(), ui_shell_dots(), ui_shell_clock(), ui_shell_source_dot(), ui_shell_status(),
+  lv_obj_t *p[] = {ui_shell_home_button(), ui_shell_name(), ui_shell_dots(), ui_shell_clock(), ui_shell_source_dot(), ui_shell_status(),
                    ui_alerts_part(UI_ALERTS_MARKER), ui_alerts_part(UI_ALERTS_ACKED_MARKER), ui_alerts_part(UI_ALERTS_OFFLINE)};
-  const char *n[] = {"name", "dots", "clock", "source dot", "status", "marker", "acked marker", "offline"};
+  const char *n[] = {"home", "name", "dots", "clock", "source dot", "status", "marker", "acked marker", "offline"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     for (size_t j = i + 1; j < sizeof p / sizeof p[0]; j++) {
       if (p[i] == p[j] || !shown(p[i]) || !shown(p[j])) continue;   // square: the offline text is the status label
@@ -195,6 +195,18 @@ static void test_palette_change_restyles_the_dot(void) {
   close_shell();
 }
 
+static void test_home_button_returns_to_the_start_roles_first_page(void) {
+  open_shell(800, 480, SIZE_WIDE, PALETTE_DAY);   // starts on role 0
+  ui_shell_move(NAV_LEFT);
+  ui_shell_move(NAV_UP);
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->role);
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+  lv_obj_send_event(ui_shell_home_button(), LV_EVENT_CLICKED, NULL);
+  TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->role);
+  TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->page);
+  close_shell();
+}
+
 int main(void) {
   lv_init();
   lv_display_t *d0 = lv_display_create(800, 480);
@@ -213,5 +225,6 @@ int main(void) {
   RUN_TEST(test_dot_shape_differs_by_state_not_only_colour);
   RUN_TEST(test_override_text_replaces_status_text_and_keeps_the_dot);
   RUN_TEST(test_palette_change_restyles_the_dot);
+  RUN_TEST(test_home_button_returns_to_the_start_roles_first_page);
   return UNITY_END();
 }

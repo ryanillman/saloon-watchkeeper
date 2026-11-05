@@ -16,6 +16,7 @@
 #define CHART_REFRESH_MS 5000
 #define CHART_SCALE 1000          // the chart plots each series scaled to 0..CHART_SCALE
 #define MAX_BANDS 2
+#define FC_HIST_SLOTS (6 * 60 / GLANCE_FC_MINUTES)   // with a forecast the chart is 6 h back and 6 h on
 
 typedef struct {
   uint8_t source;               // index into g.src
@@ -23,9 +24,10 @@ typedef struct {
   bool big_headline;
   int64_t chart_ms;             // when the chart was last drawn
   uint16_t points;
-  lv_obj_t *tile, *edge, *title, *word, *headline, *unit, *ctx[2], *fault[2];
-  lv_obj_t *chart, *band[MAX_BANDS], *axis_l, *axis_r, *swing;
-  lv_chart_series_t *ser;
+  lv_obj_t *tile, *edge, *title, *word, *headline, *headline_b, *unit, *ctx[2], *fault[2];
+  lv_obj_t *chart, *chart_fc, *now_line, *band[MAX_BANDS], *axis_l, *axis_r, *swing;
+  lv_chart_series_t *ser, *ser_fc;
+  lv_point_precise_t now_pts[2];   // the vertical at "now"
   lv_obj_t *bar[3], *bar_label[3], *bar_pct[3];
 } tile_w_t;
 
@@ -154,6 +156,10 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
   lv_obj_align(w->word, LV_ALIGN_TOP_RIGHT, -12, wide ? 10 : 8);
 
   int32_t head_y = wide ? 30 : 28;
+  // A tile with a plan view puts the plan view in a square at the left and its text in a column to the right.
+  int32_t swing_side = t.has_swing ? (tw * 2 / 5 < th - head_y - 10 ? tw * 2 / 5 : th - head_y - 10) : 0;
+  int32_t text_x = t.has_swing ? pad + swing_side + 10 : pad;
+  int32_t text_w = t.has_swing ? tw - text_x - pad : 0;
   int32_t ctx_y = wide ? 92 : 66;
   int32_t chart_top = wide ? 130 : 86;
   if (t.bar_count) {
@@ -180,8 +186,10 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
     }
     ctx_y = head_y + 3 * rows_h + 6;
   } else {
-    w->headline = label(w->tile, wide ? &lv_font_montserrat_48 : &lv_font_montserrat_28, c->fg, pad, head_y);
-    w->unit = label(w->tile, wide ? &lv_font_montserrat_20 : &lv_font_montserrat_14, c->dim, pad, head_y);
+    // No bold face is built in: the headline is drawn twice, a pixel apart, which thickens every stroke.
+    w->headline_b = label(w->tile, wide ? &lv_font_montserrat_48 : &lv_font_montserrat_28, c->fg, text_x + 1, head_y);
+    w->headline = label(w->tile, wide ? &lv_font_montserrat_48 : &lv_font_montserrat_28, c->fg, text_x, head_y);
+    w->unit = label(w->tile, wide ? &lv_font_montserrat_20 : &lv_font_montserrat_14, c->dim, text_x, head_y);
     for (int i = 0; i < 2; i++) {   // the red cross over the value area, shown only while the data is missing
       static const lv_point_precise_t down[] = {{0, 0}, {70, 40}}, up[] = {{0, 40}, {70, 0}}, sdown[] = {{0, 0}, {50, 28}}, sup[] = {{0, 28}, {50, 0}};
       w->fault[i] = lv_line_create(w->tile);
@@ -192,12 +200,9 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
       lv_obj_add_flag(w->fault[i], LV_OBJ_FLAG_HIDDEN);
     }
   }
-  // A tile with a plan view puts its text in a left column and the plan view in a square at the right.
-  int32_t swing_side = t.has_swing ? (tw / 2 - 4 < th - head_y - 10 ? tw / 2 - 4 : th - head_y - 10) : 0;
-  int32_t text_w = t.has_swing ? tw - swing_side - 2 * pad - 4 : 0;
-  if (t.has_swing) ctx_y = head_y + (wide ? 44 : 34);
-  w->ctx[0] = label(w->tile, &lv_font_montserrat_14, c->fg, pad, ctx_y);
-  if (wide) w->ctx[1] = label(w->tile, &lv_font_montserrat_14, c->dim, pad, ctx_y + (t.has_swing ? 38 : 19));
+  if (t.has_swing) ctx_y = head_y + (wide ? 58 : 34);
+  w->ctx[0] = label(w->tile, &lv_font_montserrat_14, c->fg, text_x, ctx_y);
+  if (wide) w->ctx[1] = label(w->tile, &lv_font_montserrat_14, c->dim, text_x, ctx_y + (t.has_swing ? 38 : 19));
   for (int i = 0; i < 2 && t.has_swing; i++) {
     if (!w->ctx[i]) continue;
     lv_obj_set_width(w->ctx[i], text_w);
@@ -233,18 +238,44 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
     w->ser = lv_chart_add_series(w->chart, c->accent, LV_CHART_AXIS_PRIMARY_Y);
     lv_chart_set_point_count(w->chart, 2);
     lv_chart_set_all_values(w->chart, w->ser, LV_CHART_POINT_NONE);
+    if (t.has_forecast) {   // the forecast is a second chart over the first, dashed; it shares the range and the x scale
+      w->chart_fc = lv_chart_create(w->tile);
+      lv_obj_remove_flag(w->chart_fc, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_set_size(w->chart_fc, cw, ch);
+      lv_obj_set_pos(w->chart_fc, pad, cy);
+      lv_chart_set_type(w->chart_fc, LV_CHART_TYPE_LINE);
+      lv_chart_set_div_line_count(w->chart_fc, 0, 0);
+      lv_chart_set_axis_range(w->chart_fc, LV_CHART_AXIS_PRIMARY_Y, 0, CHART_SCALE);
+      lv_obj_set_style_bg_opa(w->chart_fc, LV_OPA_TRANSP, 0);
+      lv_obj_set_style_border_width(w->chart_fc, 0, 0);
+      lv_obj_set_style_pad_all(w->chart_fc, 2, 0);
+      lv_obj_set_style_size(w->chart_fc, 0, 0, LV_PART_INDICATOR);
+      lv_obj_set_style_line_width(w->chart_fc, 2, LV_PART_ITEMS);
+      lv_obj_set_style_line_dash_width(w->chart_fc, 6, LV_PART_ITEMS);
+      lv_obj_set_style_line_dash_gap(w->chart_fc, 5, LV_PART_ITEMS);
+      w->ser_fc = lv_chart_add_series(w->chart_fc, c->accent, LV_CHART_AXIS_PRIMARY_Y);
+      lv_chart_set_point_count(w->chart_fc, 2);
+      lv_chart_set_all_values(w->chart_fc, w->ser_fc, LV_CHART_POINT_NONE);
+      w->now_line = lv_line_create(w->tile);   // a dashed vertical at "now", the middle of the chart
+      lv_line_set_points(w->now_line, w->now_pts, 2);
+      lv_obj_set_style_line_width(w->now_line, 1, 0);
+      lv_obj_set_style_line_color(w->now_line, c->dim, 0);
+      lv_obj_set_style_line_dash_width(w->now_line, 4, 0);
+      lv_obj_set_style_line_dash_gap(w->now_line, 4, 0);
+      lv_obj_add_flag(w->now_line, LV_OBJ_FLAG_HIDDEN);
+    }
     if (wide) {
       w->axis_l = label(w->tile, &lv_font_montserrat_14, c->dim, pad, th - 20);
       w->axis_r = label(w->tile, &lv_font_montserrat_14, c->dim, 0, 0);
       lv_obj_align(w->axis_r, LV_ALIGN_BOTTOM_RIGHT, -12, -4);
-      lv_label_set_text(w->axis_r, "now");
+      lv_label_set_text(w->axis_r, t.has_forecast ? "now " LV_SYMBOL_RIGHT " +6 h" : "now");
     }
   }
   if (t.has_swing) {   // the Anchor's plan view takes the trend's place: a square in the middle of it, hidden until it has data
     int32_t side = swing_side < 24 ? 24 : swing_side;
     w->swing = ui_swing_create(w->tile);
     lv_obj_set_size(w->swing, side, side);
-    lv_obj_set_pos(w->swing, tw - side - 10, th - side - 8);
+    lv_obj_set_pos(w->swing, pad - 4, head_y + (th - head_y - side) / 2);
     lv_obj_add_flag(w->swing, LV_OBJ_FLAG_HIDDEN);
   }
   w->chart_ms = -2 * CHART_REFRESH_MS;   // draws on the first update
@@ -253,27 +284,52 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
   w->big_headline = false;
 }
 
+static void clear_chart(tile_w_t *w) {
+  lv_chart_set_point_count(w->chart, 2);
+  lv_chart_set_all_values(w->chart, w->ser, LV_CHART_POINT_NONE);
+  if (w->chart_fc) {
+    lv_chart_set_point_count(w->chart_fc, 2);
+    lv_chart_set_all_values(w->chart_fc, w->ser_fc, LV_CHART_POINT_NONE);
+    show(w->now_line, false);
+  }
+  w->points = 0;
+  for (int i = 0; i < MAX_BANDS; i++) show(w->band[i], false);
+  if (w->axis_l) set_text(w->axis_l, "");
+}
+
+// How far past the data's range a warn or alarm zone is drawn: a sliver of it shows even when the data is nowhere
+// near, so the chart says where trouble is. Not when the zone is so far away it would flatten the line.
+#define ZONE_SLIVER 0.15f
+#define ZONE_REACH 2.0f
+
 static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
   if (!w->chart || now_ms - w->chart_ms < CHART_REFRESH_MS) return;
   w->chart_ms = now_ms;
   size_t n = hist_read(t->trend, HIST_MINUTES, series);
-  uint16_t pts = 0;
   if (n < 2) {
-    lv_chart_set_point_count(w->chart, 2);
-    lv_chart_set_all_values(w->chart, w->ser, LV_CHART_POINT_NONE);
-    w->points = 0;
-    for (int i = 0; i < MAX_BANDS; i++) show(w->band[i], false);
-    if (w->axis_l) set_text(w->axis_l, "");
+    clear_chart(w);
     return;
   }
-  size_t p = n < CHART_POINTS ? n : CHART_POINTS;
+  bool fc = w->chart_fc && t->fc_n > 0;
+  size_t p = fc ? FC_HIST_SLOTS : (n < CHART_POINTS ? n : CHART_POINTS);
+  size_t total = fc ? p + t->fc_n : p;
   float lo = INFINITY, hi = -INFINITY;
-  static float avg[CHART_POINTS];
+  static float avg[CHART_POINTS + GLANCE_FC_POINTS];
+  uint16_t pts = 0;
   for (size_t i = 0; i < p; i++) {   // each point is the mean of its slice of the minutes
-    size_t a = i * n / p, b = (i + 1) * n / p;
+    long a, b;
+    if (fc) {   // 6 h ending now, a slot every GLANCE_FC_MINUTES; slots before the first record are empty
+      a = (long)n - (long)(FC_HIST_SLOTS - i) * GLANCE_FC_MINUTES;
+      b = a + GLANCE_FC_MINUTES;
+      if (a < 0) a = 0;
+      if (b < 0) b = 0;
+    } else {
+      a = (long)(i * n / p);
+      b = (long)((i + 1) * n / p);
+    }
     double sum = 0;
     size_t cnt = 0;
-    for (size_t k = a; k < b; k++)
+    for (long k = a; k < b; k++)
       if (!isnan(series[k])) sum += series[k], cnt++;
     avg[i] = cnt ? (float)(sum / (double)cnt) : NAN;
     if (cnt) {
@@ -281,6 +337,11 @@ static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
       if (avg[i] > hi) hi = avg[i];
       pts++;
     }
+  }
+  for (size_t i = p; i < total; i++) {
+    avg[i] = t->fc[i - p];
+    if (avg[i] < lo) lo = avg[i];
+    if (avg[i] > hi) hi = avg[i];
   }
   w->points = pts;
   if (hi - lo < 1e-6f) {   // flat: centre it rather than divide by nothing
@@ -292,16 +353,47 @@ static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
     lo -= pad;
     hi += pad;
   }
-  lv_chart_set_point_count(w->chart, (uint32_t)p);
-  for (size_t i = 0; i < p; i++)
-    lv_chart_set_series_value_by_id(w->chart, w->ser, (uint32_t)i,
-                                    isnan(avg[i]) ? LV_CHART_POINT_NONE : (int32_t)((avg[i] - lo) / (hi - lo) * CHART_SCALE));
-  lv_chart_refresh(w->chart);
-  // Signal K's warn and alarm zones that the plotted range touches, behind the line.
   bd_meta_t m;
+  bool has_meta = bd_get_meta(t->trend, &m);
+  if (has_meta) {
+    float span = hi - lo, nlo = lo, nhi = hi;
+    for (uint8_t z = 0; z < m.zone_count; z++) {
+      if (m.zones[z].state < 2) continue;
+      if (isfinite(m.zones[z].upper) && m.zones[z].upper <= lo && lo - (float)m.zones[z].upper <= ZONE_REACH * span &&
+          (float)m.zones[z].upper - ZONE_SLIVER * span < nlo)
+        nlo = (float)m.zones[z].upper - ZONE_SLIVER * span;
+      if (isfinite(m.zones[z].lower) && m.zones[z].lower >= hi && (float)m.zones[z].lower - hi <= ZONE_REACH * span &&
+          (float)m.zones[z].lower + ZONE_SLIVER * span > nhi)
+        nhi = (float)m.zones[z].lower + ZONE_SLIVER * span;
+    }
+    lo = nlo;
+    hi = nhi;
+  }
+  lv_chart_set_point_count(w->chart, (uint32_t)total);
+  for (size_t i = 0; i < total; i++)
+    lv_chart_set_series_value_by_id(w->chart, w->ser, (uint32_t)i,
+                                    i >= p || isnan(avg[i]) ? LV_CHART_POINT_NONE : (int32_t)((avg[i] - lo) / (hi - lo) * CHART_SCALE));
+  lv_chart_refresh(w->chart);
+  if (w->chart_fc) {
+    lv_chart_set_point_count(w->chart_fc, (uint32_t)total);
+    for (size_t i = 0; i < total; i++) {   // from the last point before now, so the dashes join the line
+      bool on = fc && (i + 1 >= p) && !isnan(avg[i]);
+      lv_chart_set_series_value_by_id(w->chart_fc, w->ser_fc, (uint32_t)i,
+                                      on ? (int32_t)((avg[i] - lo) / (hi - lo) * CHART_SCALE) : LV_CHART_POINT_NONE);
+    }
+    lv_chart_refresh(w->chart_fc);
+    show(w->now_line, fc);
+    if (fc) {
+      int32_t cx = lv_obj_get_x(w->chart) + 2 + (lv_obj_get_width(w->chart) - 4) * (int32_t)(p - 1) / (int32_t)(total - 1);
+      lv_obj_set_pos(w->now_line, cx, lv_obj_get_y(w->chart));
+      w->now_pts[1].y = lv_obj_get_height(w->chart);
+      lv_line_set_points(w->now_line, w->now_pts, 2);
+    }
+  }
+  // Signal K's warn and alarm zones that the plotted range touches, behind the line.
   int nb = 0;
   int32_t ch = lv_obj_get_height(w->chart);
-  if (bd_get_meta(t->trend, &m))
+  if (has_meta)
     for (uint8_t z = 0; z < m.zone_count && nb < MAX_BANDS; z++) {
       if (m.zones[z].state < 2 || m.zones[z].upper <= lo || m.zones[z].lower >= hi) continue;
       float zl = m.zones[z].lower < lo ? lo : (float)m.zones[z].lower, zh = m.zones[z].upper > hi ? hi : (float)m.zones[z].upper;
@@ -315,7 +407,8 @@ static void update_chart(tile_w_t *w, const glance_tile_t *t, int64_t now_ms) {
   for (int i = nb; i < MAX_BANDS; i++) show(w->band[i], false);
   if (w->axis_l) {
     char buf[16];
-    if (n >= 120) snprintf(buf, sizeof buf, "-%u h", (unsigned)((n + 59) / 60));
+    if (fc) snprintf(buf, sizeof buf, "-6 h");
+    else if (n >= 120) snprintf(buf, sizeof buf, "-%u h", (unsigned)((n + 59) / 60));
     else snprintf(buf, sizeof buf, "-%u min", (unsigned)n);
     set_text(w->axis_l, buf);
   }
@@ -337,18 +430,22 @@ static void update_tile(tile_w_t *w, int64_t now_ms) {
   }
   if (w->headline) {
     bool missing = t.state == GT_NO_DATA && !t.headline[0];
-    bool big = g.sc == SIZE_WIDE && strlen(t.headline) <= 5 && !w->swing;   // a plan view leaves a narrow text column
+    bool big = g.sc == SIZE_WIDE && strlen(t.headline) <= (w->swing ? 3 : 5);   // a plan view leaves a narrow text column
     if (big != w->big_headline || w->last.state == (gt_state_t)255) {
-      lv_obj_set_style_text_font(w->headline, g.sc == SIZE_WIDE ? (big ? &lv_font_montserrat_48 : &lv_font_montserrat_28) : &lv_font_montserrat_28, 0);
+      const lv_font_t *hf = g.sc == SIZE_WIDE && big ? &lv_font_montserrat_48 : &lv_font_montserrat_28;
+      lv_obj_set_style_text_font(w->headline, hf, 0);
+      lv_obj_set_style_text_font(w->headline_b, hf, 0);
       w->big_headline = big;
     }
     set_text(w->headline, t.headline);
+    set_text(w->headline_b, t.headline);
     set_text(w->unit, t.unit);
     if (strcmp(t.headline, w->last.headline) || strcmp(t.unit, w->last.unit) || w->last.state == (gt_state_t)255) {
       lv_obj_update_layout(w->tile);
       lv_obj_align_to(w->unit, w->headline, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, g.sc == SIZE_WIDE ? -6 : -3);
     }
     show(w->headline, !missing);
+    show(w->headline_b, !missing);
     show(w->unit, !missing && t.unit[0]);
     for (int i = 0; i < 2; i++) show(w->fault[i], missing);
   }
