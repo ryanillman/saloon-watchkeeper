@@ -265,7 +265,7 @@ static void test_pick_keeps_everything_when_it_fits(void) {
 }
 
 static void test_pick_drops_the_lowest_priority_quiet_tile(void) {
-  const char *names[] = {"tanks", "engine", "power", "wind", "depth", "anchor", "autopilot"};   // config order
+  const char *names[] = {"tanks", "engine", "power", "navigation", "depth", "anchor", "autopilot"};   // config order
   gt_state_t st[] = {GT_OK, GT_OK, GT_OK, GT_OK, GT_OK, GT_OK, GT_OK};
   size_t out[6];
   TEST_ASSERT_EQUAL_UINT(6, glance_pick(names, st, 7, 6, out));
@@ -273,8 +273,16 @@ static void test_pick_drops_the_lowest_priority_quiet_tile(void) {
   TEST_ASSERT_EQUAL_UINT(0, out[0]);                                      // order kept
 }
 
+static void test_pick_ranks_navigation_above_the_lower_roles(void) {
+  const char *names[] = {"navigation", "tanks"};
+  gt_state_t st[] = {GT_OK, GT_OK};
+  size_t out[6];
+  TEST_ASSERT_EQUAL_UINT(1, glance_pick(names, st, 2, 1, out));
+  TEST_ASSERT_EQUAL_UINT(0, out[0]);   // navigation stays, tanks goes
+}
+
 static void test_pick_never_drops_an_alarm_for_a_quiet_tile(void) {
-  const char *names[] = {"anchor", "depth", "wind", "power", "engine", "tanks", "autopilot"};
+  const char *names[] = {"anchor", "depth", "navigation", "power", "engine", "tanks", "autopilot"};
   gt_state_t st[] = {GT_OK, GT_OK, GT_OK, GT_OK, GT_OK, GT_OK, GT_ALARM};
   size_t out[6];
   TEST_ASSERT_EQUAL_UINT(6, glance_pick(names, st, 7, 6, out));
@@ -288,7 +296,7 @@ static void test_pick_never_drops_an_alarm_for_a_quiet_tile(void) {
 }
 
 static void test_pick_when_every_tile_alerts_drops_the_lowest_priority_non_alarm(void) {
-  const char *names[] = {"anchor", "depth", "wind", "power", "engine", "tanks", "autopilot"};
+  const char *names[] = {"anchor", "depth", "navigation", "power", "engine", "tanks", "autopilot"};
   gt_state_t st[] = {GT_WARN, GT_WARN, GT_WARN, GT_WARN, GT_WARN, GT_ALARM, GT_ALARM};
   size_t out[6];
   TEST_ASSERT_EQUAL_UINT(6, glance_pick(names, st, 7, 6, out));
@@ -371,6 +379,7 @@ int main(void) {
   RUN_TEST(test_tapping_a_tile_opens_that_role);
   RUN_TEST(test_pick_keeps_everything_when_it_fits);
   RUN_TEST(test_pick_drops_the_lowest_priority_quiet_tile);
+  RUN_TEST(test_pick_ranks_navigation_above_the_lower_roles);
   RUN_TEST(test_pick_never_drops_an_alarm_for_a_quiet_tile);
   RUN_TEST(test_pick_when_every_tile_alerts_drops_the_lowest_priority_non_alarm);
   RUN_TEST(test_anchor_tile_draws_the_plan_view_on_every_board);

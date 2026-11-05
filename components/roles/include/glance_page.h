@@ -15,7 +15,7 @@ typedef struct {
 void glance_set_sources(const glance_source_t *src, uint8_t n);
 
 // Which of `n` tiles fit in `max`: writes their indices in order to `out` and returns how many. While there are
-// too many the lowest-priority tile that is not alerting goes first (priority: anchor, depth, wind, power, engine,
+// too many the lowest-priority tile that is not alerting goes first (priority: anchor, depth, navigation, power, engine,
 // tanks, then any other role); only when every tile is alerting does an alerting one go, and an ALARM is last of all.
 size_t glance_pick(const char *const *role_names, const gt_state_t *states, size_t n, size_t max, size_t *out);
 

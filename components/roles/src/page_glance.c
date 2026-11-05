@@ -49,7 +49,7 @@ void glance_set_sources(const glance_source_t *src, uint8_t n) {
 // ---- which tiles fit ----
 
 static int rank_of(const char *role) {
-  static const char *const order[] = {"anchor", "depth", "wind", "power", "engine", "tanks"};
+  static const char *const order[] = {"anchor", "depth", "navigation", "power", "engine", "tanks"};
   for (size_t i = 0; i < sizeof order / sizeof order[0]; i++)
     if (!strcmp(order[i], role)) return (int)i;
   return (int)(sizeof order / sizeof order[0]);   // any other role ranks last
