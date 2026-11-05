@@ -39,6 +39,9 @@ static void issue(cfg_report_t *r, const char *key, int line, const char *msg) {
   snprintf(i->message, sizeof i->message, "%s", msg);
 }
 
+#define ANCHOR_PLUGIN_DEFAULT "hoekens-anchor-alarm"
+static const char *const ANCHOR_PLUGINS[] = {ANCHOR_PLUGIN_DEFAULT, "anchoralarm", NULL};
+
 static void default_roles(cfg_t *c) {
   memset(c->roles, 0, sizeof c->roles);
   c->role_count = ARRAY_LEN(DEFAULT_ROLES);
@@ -58,6 +61,7 @@ void cfg_defaults(cfg_t *c) {
   strcpy(c->palette, "auto");
   c->brightness = 80;
   c->utc_offset_min = 0;
+  strcpy(c->anchor_plugin, ANCHOR_PLUGIN_DEFAULT);
   default_roles(c);
   strcpy(c->start_role, c->roles[0].role);
 }
@@ -211,6 +215,13 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   if (have_tz) c->utc_offset_min = minutes < -720 ? -720 : minutes > 840 ? 840 : (int16_t)minutes;
   COPY(c->start_role, cJSON_GetObjectItem(d, "start_role"));
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
+  const cJSON *ap = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "anchor"), "plugin");
+  if (cJSON_IsString(ap)) {
+    bool known = false;
+    for (size_t i = 0; ANCHOR_PLUGINS[i]; i++) known = known || !strcmp(ap->valuestring, ANCHOR_PLUGINS[i]);
+    if (known) snprintf(c->anchor_plugin, sizeof c->anchor_plugin, "%s", ap->valuestring);
+    else issue(rep, "anchor.plugin", 0, "unknown anchor plugin; using hoekens-anchor-alarm. Valid: hoekens-anchor-alarm anchoralarm");
+  }
 
   const cJSON *roles = cJSON_GetObjectItem(root, "roles");
   if (roles) {
@@ -465,6 +476,7 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   cJSON *bz = object(tree, "buzzer");
   cJSON_DeleteItemFromObject(bz, "enabled");
   cJSON_AddBoolToObject(bz, "enabled", c->buzzer);
+  set_str(object(tree, "anchor"), "plugin", c->anchor_plugin);
   write_roles(tree, c);
 
   char *text = cJSON_Print(tree);

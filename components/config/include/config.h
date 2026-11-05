@@ -43,6 +43,7 @@ typedef struct {
   int16_t utc_offset_min;   // display.utc_offset_min: local time minus UTC, -720..840
   char start_role[12];
   bool buzzer;
+  char anchor_plugin[24];   // anchor.plugin: "hoekens-anchor-alarm" (default) | "anchoralarm"; which Signal K plugin the Anchor page commands
   cfg_role_t roles[CFG_MAX_ROLES];
   uint8_t role_count;
 } cfg_t;

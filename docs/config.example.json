@@ -6,6 +6,7 @@
   },
   "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm" },
   "display": { "palette": "day", "brightness": 80, "utc_offset_min": 0, "start_role": "glance" },
+  "anchor": { "plugin": "hoekens-anchor-alarm" },
   "roles": [
     { "role": "glance" },
     { "role": "engine" },
