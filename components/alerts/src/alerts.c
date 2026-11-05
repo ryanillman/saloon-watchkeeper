@@ -125,6 +125,14 @@ void alerts_source_up(bool up) {
   UNLOCK();
 }
 
+bool alerts_source_is_up(void) {
+  ensure_lock();
+  LOCK();
+  bool up = source_up;
+  UNLOCK();
+  return up;
+}
+
 void alerts_snapshot(alerts_snapshot_t *out) {
   ensure_lock();
   LOCK();

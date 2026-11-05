@@ -29,6 +29,7 @@ void alerts_upsert(const alert_t *in, int64_t now_ms);
 // send_failed is never set. Cleared by alerts_clear or an upsert with AL_NORMAL.
 void alerts_upsert_local(const alert_t *in, int64_t now_ms);
 void alerts_clear(const char *id);
+bool alerts_source_is_up(void);                 // the flag alerts_source_up last set
 void alerts_source_up(bool up);                 // false clears the list and the request queue
 void alerts_snapshot(alerts_snapshot_t *out);
 bool alerts_get(const char *id, alert_t *out);
