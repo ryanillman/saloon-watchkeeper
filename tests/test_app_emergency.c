@@ -9,6 +9,7 @@
 #include "config.h"
 #include "emergency.h"
 #include "emergency_page.h"
+#include "role.h"
 #include "platform.h"
 #include "sk_cmd.h"
 #include "sk_parse.h"
@@ -407,10 +408,11 @@ static void test_quick_panel_has_the_emergency_row_only_when_it_can_send(void) {
   close_quick();
 }
 
-static void test_a_quick_hold_declares_and_goes_to_the_script_page(void) {
-  const struct { ui_quick_part_t part; em_nature_t nature; const char *path; } cases[] = {
-    {UI_QUICK_BTN_MOB, EM_MOB, "\"path\":\"mob\""}, {UI_QUICK_BTN_FIRE, EM_FIRE, "\"path\":\"fire\""},
-    {UI_QUICK_BTN_SINKING, EM_SINKING, "\"path\":\"sinking\""}};
+// The initiating display goes where every other display goes: a MOB to the compass (the target to steer to), the rest to the script.
+static void test_a_quick_hold_declares_and_goes_where_the_other_displays_go(void) {
+  const struct { ui_quick_part_t part; em_nature_t nature; const char *path; uint8_t page; } cases[] = {
+    {UI_QUICK_BTN_MOB, EM_MOB, "\"path\":\"mob\"", 0}, {UI_QUICK_BTN_FIRE, EM_FIRE, "\"path\":\"fire\"", 1},
+    {UI_QUICK_BTN_SINKING, EM_SINKING, "\"path\":\"sinking\"", 1}};
   for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
     em_reset();
     sk_cmd_init();
@@ -432,8 +434,10 @@ static void test_a_quick_hold_declares_and_goes_to_the_script_page(void) {
     TEST_ASSERT_EQUAL_MESSAGE(cases[i].nature, s.nature, "declared");
     TEST_ASSERT_EQUAL(EM_ORIGIN_LOCAL, s.origin);
     TEST_ASSERT_FALSE_MESSAGE(ui_quick_is_open(), "the panel closes");
-    TEST_ASSERT_EQUAL_UINT8((uint8_t)nav_idx(), ui_shell_nav()->role);   // and the script page is up, to read from
-    TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE((uint8_t)nav_idx(), ui_shell_nav()->role, "on the Navigation role");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(cases[i].page, ui_shell_nav()->page, "a MOB on the compass, the others on the script");
+    // the same page the alert's GO button opens on any other display
+    TEST_ASSERT_EQUAL_UINT8(role_find("navigation")->page_for(NULL, SIZE_WIDE, em_nature_path(cases[i].nature)), ui_shell_nav()->page);
     sk_cmd_t c;
     sk_cmd_handle_t h;
     TEST_ASSERT_TRUE(take(&c, &h));
@@ -590,7 +594,7 @@ int main(void) {
   RUN_TEST(test_vessel_name_config_overrides_signalk);
   RUN_TEST(test_script_page_reads_the_call_with_the_apps_vessel_name);
   RUN_TEST(test_quick_panel_has_the_emergency_row_only_when_it_can_send);
-  RUN_TEST(test_a_quick_hold_declares_and_goes_to_the_script_page);
+  RUN_TEST(test_a_quick_hold_declares_and_goes_where_the_other_displays_go);
   RUN_TEST(test_a_quick_short_press_declares_nothing);
   RUN_TEST(test_a_quick_cancel_hold_sends_the_put_to_the_notifications_id);
   RUN_TEST(test_something_declared_elsewhere_shows_cancel_and_fills_no_button);

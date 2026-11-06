@@ -639,8 +639,9 @@ static void on_buzzer(bool on) {
 }
 static bool buzzer_state(void) { return a.cfg.buzzer; }
 
-// The quick panel's emergency row. A hold declares it here (a single attempt, see app_emergency_press) and goes to the
-// script page so the crew can start reading; CANCEL stays where it is.
+// The quick panel's emergency row. A hold declares it here (a single attempt, see app_emergency_press) and goes to the page
+// that nature belongs on; CANCEL stays where it is.
+static uint8_t alert_page(const char *id);
 static bool quick_em_available(void) { return app_emergency_available(); }
 
 static int quick_em_declared(void) {
@@ -661,7 +662,11 @@ static void quick_em_held(int which) {
     app_emergency_cancel();
     return;
   }
-  if (which >= UI_QUICK_EM_MOB && which <= UI_QUICK_EM_SINKING && app_emergency_press(NATURE[which])) on_sos();
+  if (which < UI_QUICK_EM_MOB || which > UI_QUICK_EM_SINKING || !app_emergency_press(NATURE[which])) return;
+  // Where the alert's GO button takes every other display: a MOB to the compass (the target to steer to), the rest to the script.
+  const char *path = em_nature_path(NATURE[which]);
+  int8_t role = app_alert_role(path);
+  if (role >= 0) ui_shell_goto((uint8_t)role, alert_page(path));
 }
 
 static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL, quick_em_available, quick_em_declared, quick_em_held};   // buzzer_state set per board
