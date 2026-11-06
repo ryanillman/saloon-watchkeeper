@@ -12,6 +12,8 @@
 #include "platform.h"
 #include "sk_cmd.h"
 #include "sk_parse.h"
+#include "ui_holdbtn.h"
+#include "ui_quick.h"
 #include "ui_shell.h"
 
 static uint8_t buf[800 * 48 * 2];
@@ -349,20 +351,98 @@ static void test_vessel_name_config_overrides_signalk(void) {
   TEST_ASSERT_EQUAL_STRING("Saloon", app_vessel_name());
 }
 
-static void test_script_page_is_wired_to_the_app(void) {
-  int8_t nav = -1;
-  for (uint8_t i = 0; i < app_config()->role_count; i++)
-    if (!strcmp(app_config()->roles[i].role, "navigation")) nav = (int8_t)i;
-  ui_shell_goto((uint8_t)nav, 1);
+static int8_t nav_idx(void) { return app_alert_role("mob"); }
+
+static void test_script_page_reads_the_call_with_the_apps_vessel_name(void) {
+  cfg_t next = *app_config();
+  strcpy(next.vessel_name, "Saloon");
+  app_apply_config(&next);
+  ui_shell_goto((uint8_t)nav_idx(), 1);
   app_tick();
-  TEST_ASSERT_NOT_NULL(emergency_page_part("btn_mob"));
-  TEST_ASSERT_FALSE(lv_obj_has_flag(emergency_page_part("btn_mob"), LV_OBJ_FLAG_HIDDEN));   // Signal K is up in setUp
-  alerts_source_up(false);
+  TEST_ASSERT_NOT_NULL(emergency_page_part("script"));
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(emergency_page_part("script")), "No emergency declared"));
+  TEST_ASSERT_TRUE(app_emergency_press(EM_FIRE));
   app_tick();
-  TEST_ASSERT_TRUE(lv_obj_has_flag(emergency_page_part("btn_mob"), LV_OBJ_FLAG_HIDDEN));
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(emergency_page_part("script")), "This is Saloon Saloon Saloon"));
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(emergency_page_part("script")), "We have a fire on board. Over."));
   ui_shell_goto(0, 0);
 }
 
+// ---- declaring from the quick panel ----
+
+static uint32_t now_ms;
+static uint32_t fake_tick(void) { return now_ms; }
+static void run(uint32_t ms) {
+  for (uint32_t t = 0; t < ms; t += 50) {
+    now_ms += 50;
+    lv_timer_handler();
+  }
+}
+static void open_quick(void) {
+  lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+  lv_timer_handler();
+}
+static void hold(ui_quick_part_t p, uint32_t ms) {
+  lv_obj_t *b = ui_quick_part(p);
+  TEST_ASSERT_NOT_NULL(b);
+  lv_obj_send_event(b, LV_EVENT_PRESSED, NULL);
+  run(ms);
+  if (ui_quick_is_open()) lv_obj_send_event(b, LV_EVENT_RELEASED, NULL);   // a completed hold closed the panel and deleted the button
+  run(100);
+}
+static void close_quick(void) {
+  ui_quick_close();
+  run(100);
+}
+
+static void test_quick_panel_has_the_emergency_row_only_when_it_can_send(void) {
+  open_quick();
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_MOB));
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_FIRE));
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_SINKING));   // no FLOOD or OTHER button
+  close_quick();
+  alerts_source_up(false);
+  open_quick();
+  TEST_ASSERT_NULL(ui_quick_part(UI_QUICK_BTN_MOB));   // Signal K is down: nothing could be sent
+  close_quick();
+}
+
+static void test_a_quick_hold_declares_and_goes_to_the_script_page(void) {
+  const struct { ui_quick_part_t part; em_nature_t nature; const char *path; } cases[] = {
+    {UI_QUICK_BTN_MOB, EM_MOB, "\"path\":\"mob\""}, {UI_QUICK_BTN_FIRE, EM_FIRE, "\"path\":\"fire\""},
+    {UI_QUICK_BTN_SINKING, EM_SINKING, "\"path\":\"sinking\""}};
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    em_reset();
+    sk_cmd_init();
+    {
+      cfg_report_t rep;
+      app_init(NULL, &rep);
+      app_bind();
+      app_start_ui(disp, SIZE_WIDE);
+      add_navigation();
+      alerts_source_up(true);
+      sk_cmd_set_connected(true);   // after app_init, which resets the queue
+      pos_id = bd_intern("navigation.position");
+      set_pos(41.5, -70.25);
+    }
+    ui_shell_goto(0, 0);
+    open_quick();
+    hold(cases[i].part, 1100);
+    em_state_t s = snap();
+    TEST_ASSERT_EQUAL_MESSAGE(cases[i].nature, s.nature, "declared");
+    TEST_ASSERT_EQUAL(EM_ORIGIN_LOCAL, s.origin);
+    TEST_ASSERT_FALSE_MESSAGE(ui_quick_is_open(), "the panel closes");
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)nav_idx(), ui_shell_nav()->role);   // and the script page is up, to read from
+    TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+    sk_cmd_t c;
+    sk_cmd_handle_t h;
+    TEST_ASSERT_TRUE(take(&c, &h));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c.body, cases[i].path), c.body);
+    sk_cmd_finish_id(h, true, 200, "uuid-q");
+    app_tick();
+  }
+  ui_shell_goto(0, 0);
+}
 static bool sos_shown(void) {
   lv_obj_t *o = ui_shell_sos();
   return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN);
@@ -393,6 +473,52 @@ static void test_sos_shows_for_a_mob_and_goes_to_the_script(void) {
 }
 
 static int8_t nav_role(void) { return app_alert_role("mob"); }
+
+static void test_a_quick_short_press_declares_nothing(void) {
+  open_quick();
+  hold(UI_QUICK_BTN_MOB, 400);
+  TEST_ASSERT_FALSE(em_active());
+  TEST_ASSERT_TRUE(ui_quick_is_open());
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_FALSE(take(&c, &h));
+  close_quick();
+}
+
+static void test_a_quick_cancel_hold_sends_the_put_to_the_notifications_id(void) {
+  TEST_ASSERT_TRUE(app_emergency_press(EM_FIRE));
+  answer_all_with_id(200, "f-uuid");
+  app_tick();
+  open_quick();
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_CANCEL));
+  hold(UI_QUICK_BTN_CANCEL, 1100);
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(take(&c, &h));
+  TEST_ASSERT_EQUAL_STRING("PUT", c.method);
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/f-uuid", c.path);
+  TEST_ASSERT_TRUE_MESSAGE(em_active(), "it stays declared until the server has accepted the cancel");
+}
+
+static void test_something_declared_elsewhere_shows_cancel_and_fills_no_button(void) {
+  em_on_notification(EM_FLOOD, true, false, 0, 0, "fl-1", 1000);   // flooding has no button here
+  open_quick();
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_CANCEL));   // (LVGL's assert loops forever on a NULL object)
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_quick_part(UI_QUICK_BTN_CANCEL), LV_OBJ_FLAG_HIDDEN));
+  lv_color_t alarm = ui_theme()->alarm;
+  const ui_quick_part_t btns[] = {UI_QUICK_BTN_MOB, UI_QUICK_BTN_FIRE, UI_QUICK_BTN_SINKING};
+  for (size_t i = 0; i < 3; i++) {
+    TEST_ASSERT_NOT_NULL(ui_quick_part(btns[i]));
+    TEST_ASSERT_FALSE(lv_color_eq(lv_obj_get_style_bg_color(ui_quick_part(btns[i]), LV_PART_MAIN), alarm));
+  }
+  close_quick();
+  em_reset();
+  em_on_notification(EM_FIRE, true, false, 0, 0, "f-2", 2000);
+  open_quick();
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_BTN_FIRE));
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_bg_color(ui_quick_part(UI_QUICK_BTN_FIRE), LV_PART_MAIN), alarm));   // a fire raised elsewhere is filled
+  close_quick();
+}
 
 static void test_fire_flood_sinking_select_the_script_page_automatically(void) {
   const em_nature_t natures[] = {EM_FIRE, EM_FLOOD, EM_SINKING, EM_OTHER};
@@ -436,6 +562,7 @@ static void test_a_press_on_this_display_does_not_need_the_jump_but_a_new_nature
 
 int main(void) {
   lv_init();
+  lv_tick_set_cb(fake_tick);
   disp = lv_display_create(800, 480);
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -461,7 +588,12 @@ int main(void) {
   RUN_TEST(test_position_is_subscribed_with_the_navigation_role);
   RUN_TEST(test_alert_role_maps_emergency_ids_to_navigation);
   RUN_TEST(test_vessel_name_config_overrides_signalk);
-  RUN_TEST(test_script_page_is_wired_to_the_app);
+  RUN_TEST(test_script_page_reads_the_call_with_the_apps_vessel_name);
+  RUN_TEST(test_quick_panel_has_the_emergency_row_only_when_it_can_send);
+  RUN_TEST(test_a_quick_hold_declares_and_goes_to_the_script_page);
+  RUN_TEST(test_a_quick_short_press_declares_nothing);
+  RUN_TEST(test_a_quick_cancel_hold_sends_the_put_to_the_notifications_id);
+  RUN_TEST(test_something_declared_elsewhere_shows_cancel_and_fills_no_button);
   RUN_TEST(test_sos_shows_for_a_mob_and_goes_to_the_script);
   RUN_TEST(test_fire_flood_sinking_select_the_script_page_automatically);
   RUN_TEST(test_mob_does_not_jump_the_page_by_itself);

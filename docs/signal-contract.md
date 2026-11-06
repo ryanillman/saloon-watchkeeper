@@ -6,7 +6,7 @@ What the Saloon Watchkeeper displays write to and read from Signal K for a decla
 
 ## What a display does
 
-A display raises an emergency only when a person holds a button for one second on the emergency script page (Navigation page 2). Nothing is sent on a tap. The buttons are not shown unless Signal K is connected and the Navigation role is configured.
+A display raises an emergency only when a person holds a button for one second in the EMERGENCY row of the quick panel (tap the top strip): MOB, FIRE or SINKING. Nothing is sent on a tap. The row is not shown unless Signal K is connected and the Navigation role is configured. Flooding and "other" have no button on a display (they can still be raised by something else and are shown and cancelled like any other). The emergency script page (Navigation page 2) has no buttons: it shows the VHF call for what is declared.
 
 ### Raise (verified)
 

@@ -242,7 +242,7 @@ static void run(uint32_t ms) {
 static void hold_btn(lv_obj_t *b, uint32_t ms) {
   lv_obj_send_event(b, LV_EVENT_PRESSED, NULL);
   run(ms);
-  lv_obj_send_event(b, LV_EVENT_RELEASED, NULL);
+  if (ui_quick_is_open()) lv_obj_send_event(b, LV_EVENT_RELEASED, NULL);   // a completed hold closed the panel and deleted the button
 }
 static int32_t top_of(lv_obj_t *o) {
   lv_area_t a;

@@ -64,16 +64,21 @@ size_t em_waypoint_body(const em_state_t *s, char *out, size_t n);
 // print as 60.000. A value that rounds to zero is N or E.
 void em_format_ddm(double deg, bool is_lat, char *out, size_t n);
 
-// A position as it is spoken on the radio, digit by digit: "four eight degrees three two decimal four two minutes north one
-// two three degrees one zero decimal six zero minutes west". Degrees and minutes in two digits (three for longitude),
-// minutes to the hundredth (about 60 ft; a tenth would be 600 ft), rounded so they never reach sixty. False, `out` empty,
-// when a value is not finite or `n` is too small.
-bool em_speak_position(double lat, double lon, char *out, size_t n);
+// One coordinate as it is spoken on the radio, digit by digit: "four eight degrees three two decimal four two minutes
+// north". Degrees and minutes in two digits (degrees three for a longitude), minutes to the hundredth (about 60 ft; a tenth
+// would be 600 ft), rounded so they never reach sixty; a value that rounds to zero is north or east. False, `out` empty,
+// when the value is not finite or `n` is too small.
+bool em_speak_coordinate(double deg, bool is_lat, char *out, size_t n);
 
-// The distress call to read aloud after pressing DISTRESS on the VHF radio, for the declared nature:
-// "MAYDAY MAYDAY MAYDAY. This is <name> <name> <name>. Position <spoken>. We have a <nature>. Over."
-// An unknown name or no position is said so in brackets, never guessed. Returns the length; 0 when `n` is too small or
-// `nature` is EM_NONE.
+// The distress call to read aloud after pressing DISTRESS on the VHF radio, one thing to say per line (so it is read a
+// breath at a time):
+//   MAYDAY MAYDAY MAYDAY
+//   This is <name> <name> <name>
+//   Position <latitude spoken>
+//   <longitude spoken>
+//   We have a <nature>. Over.
+// An unknown name or no position is said so in brackets, never guessed (no position: one line, no longitude line).
+// Returns the length; 0 when `n` is too small or `nature` is EM_NONE.
 size_t em_script_text(em_nature_t nature, const char *vessel, bool has_pos, double lat, double lon, char *out, size_t n);
 
 // Bearing (radians true, 0..2pi) and distance from the boat to the MOB. False unless the state is a MOB with a
