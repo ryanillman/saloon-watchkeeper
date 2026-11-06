@@ -10,6 +10,7 @@
 #include "boatdata.h"
 #include "depth_state.h"
 #include "emergency.h"
+#include "emergency_page.h"
 #include "glance_page.h"
 #include "history.h"
 #include "net.h"
@@ -146,6 +147,12 @@ static void on_sk_notification(const char *id, bool active, bool has_pos, double
 }
 
 bool app_emergency_available(void) { return has_role("navigation") && alerts_source_is_up(); }
+
+const char *app_vessel_name(void) { return a.cfg.vessel_name[0] ? a.cfg.vessel_name : sk_vessel_name(); }
+const char *app_vessel_mmsi(void) { return sk_vessel_mmsi(); }
+
+static const emergency_actions_t em_actions = {app_emergency_available, app_emergency_press, app_emergency_cancel, app_vessel_name,
+                                               app_vessel_mmsi};
 
 static void raise_send_alert(const char *what, sk_cmd_err_t err, int64_t now) {
   alert_t al = {0};
@@ -306,6 +313,7 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   em_reset();
   memset(&emc, 0, sizeof emc);
   sk_set_emergency_cb(on_sk_notification);
+  emergency_page_set_actions(&em_actions);
   ui_clock_reset();
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;

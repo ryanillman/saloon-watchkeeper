@@ -290,6 +290,7 @@ static void test_position_fresh_and_stale(void) {
   TEST_ASSERT_TRUE(v.have_pos);
   TEST_ASSERT_EQUAL_DOUBLE(41.5, v.lat);
   TEST_ASSERT_EQUAL_DOUBLE(-70.25, v.lon);
+  TEST_ASSERT_EQUAL_INT64(9000, v.pos_age_ms);
   nav_view_build(&ids, NOW + 11000, &v);   // an older fix is no fix
   TEST_ASSERT_FALSE(v.have_pos);
   bd_set_invalid(ids.position);

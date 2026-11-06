@@ -43,6 +43,9 @@ bool app_emergency_press(em_nature_t n);
 // Sends the cancel for the active emergency. False when unavailable or the send was refused; the emergency stays
 // active until the server has accepted the cancel.
 bool app_emergency_cancel(void);
+// The name and MMSI the script page says: vessel.name from the config when set, else what Signal K reports ("" if unknown).
+const char *app_vessel_name(void);
+const char *app_vessel_mmsi(void);
 
 // UI task, about every 100 ms: rebinds after a discovery, refreshes the page and status.
 void app_tick(void);
