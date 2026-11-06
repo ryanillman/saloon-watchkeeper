@@ -1,0 +1,176 @@
+#include <math.h>
+#include <string.h>
+#include "emergency.h"
+#include "unity.h"
+
+void setUp(void) { em_reset(); }
+void tearDown(void) {}
+
+static em_state_t snap(void) {
+  em_state_t s;
+  em_snapshot(&s);
+  return s;
+}
+
+static void test_press_captures_and_sends(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_state_t s = snap();
+  TEST_ASSERT_EQUAL(EM_MOB, s.nature);
+  TEST_ASSERT_EQUAL(EM_ORIGIN_LOCAL, s.origin);
+  TEST_ASSERT_EQUAL(EM_SENDING, s.send);
+  TEST_ASSERT_TRUE(s.has_pos);
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, s.lat);
+  TEST_ASSERT_EQUAL_DOUBLE(-70.25, s.lon);
+  TEST_ASSERT_TRUE(em_active());
+}
+
+static void test_press_without_fix_has_no_position(void) {
+  em_press(EM_MOB, false, NAN, NAN, 1000, 1700000000);
+  em_state_t s = snap();
+  TEST_ASSERT_FALSE(s.has_pos);
+  char body[300];
+  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_NULL(strstr(body, "position"));
+  char wp[300];
+  TEST_ASSERT_EQUAL(0, em_waypoint_body(&s, wp, sizeof wp));
+}
+
+static void test_echo_never_overwrites_local_capture(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_on_notification(EM_MOB, true, true, 10.0, 10.0, 2000);
+  em_state_t s = snap();
+  TEST_ASSERT_EQUAL(EM_ORIGIN_LOCAL, s.origin);
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, s.lat);
+  TEST_ASSERT_EQUAL_DOUBLE(-70.25, s.lon);
+}
+
+static void test_replay_adopts_payload_position(void) {
+  em_on_notification(EM_MOB, true, true, 12.5, -45.5, 5000);
+  em_state_t s = snap();
+  TEST_ASSERT_EQUAL(EM_MOB, s.nature);
+  TEST_ASSERT_EQUAL(EM_ORIGIN_NOTIFICATION, s.origin);
+  TEST_ASSERT_TRUE(s.has_pos);
+  TEST_ASSERT_EQUAL_DOUBLE(12.5, s.lat);
+  em_reset();
+  em_on_notification(EM_MOB, true, false, 0, 0, 5000);
+  s = snap();
+  TEST_ASSERT_EQUAL(EM_MOB, s.nature);
+  TEST_ASSERT_FALSE(s.has_pos);   // never our own position at receipt
+}
+
+static void test_notification_normal_clears(void) {
+  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);
+  TEST_ASSERT_TRUE(em_active());
+  em_on_notification(EM_FIRE, false, false, 0, 0, 2000);
+  TEST_ASSERT_FALSE(em_active());
+  em_on_notification(EM_FIRE, true, false, 0, 0, 3000);
+  em_on_notification(EM_FLOOD, false, false, 0, 0, 4000);   // another nature going normal leaves it
+  TEST_ASSERT_TRUE(em_active());
+}
+
+static void test_cancel_not_sent_keeps_state(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_set_send(EM_NOT_SENT);   // a cancel that could not be sent
+  TEST_ASSERT_TRUE(em_active());
+  em_cancel_sent();
+  TEST_ASSERT_FALSE(em_active());
+}
+
+static void test_mob_is_not_displaced_by_another_nature(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_on_notification(EM_FIRE, true, false, 0, 0, 2000);
+  TEST_ASSERT_EQUAL(EM_MOB, snap().nature);
+}
+
+static void ddm(double deg, bool lat, const char *want) {
+  char out[24];
+  em_format_ddm(deg, lat, out, sizeof out);
+  TEST_ASSERT_EQUAL_STRING(want, out);
+}
+
+static void test_ddm_rounding(void) {
+  ddm(41.5402833, true, "41\xC2\xB0" "32.417'N");
+  ddm(41.9999999, true, "42\xC2\xB0" "00.000'N");   // never 41 degrees 60.000 minutes
+  ddm(-70.25, false, "070\xC2\xB0" "15.000'W");
+  ddm(0.0, true, "00\xC2\xB0" "00.000'N");
+  ddm(-0.0, true, "00\xC2\xB0" "00.000'N");
+  ddm(-1e-9, true, "00\xC2\xB0" "00.000'N");       // rounds to zero: no hemisphere flip
+  ddm(-33.8688, true, "33\xC2\xB0" "52.128'S");
+  ddm(179.9999999, false, "180\xC2\xB0" "00.000'E");
+}
+
+static void test_notification_body_shape(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_state_t s = snap();
+  char body[300];
+  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"state\":\"emergency\""));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"method\":[\"visual\",\"sound\"]"));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"data\":{\"position\":{\"latitude\":41.500000,\"longitude\":-70.250000}"));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"time\":\"2023-11-14T22:13:20Z\""));
+  TEST_ASSERT_TRUE(em_notification_body(&s, true, body, sizeof body) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"state\":\"normal\""));
+  TEST_ASSERT_NULL(strstr(body, "position"));
+  char tiny[10];
+  TEST_ASSERT_EQUAL(0, em_notification_body(&s, false, tiny, sizeof tiny));   // overflow reports 0
+}
+
+static void test_fire_body_has_no_position(void) {
+  em_press(EM_FIRE, true, 41.5, -70.25, 1000, 1700000000);
+  em_state_t s = snap();
+  char body[300];
+  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_NULL(strstr(body, "position"));
+}
+
+static void test_waypoint_body_is_geojson_point_lon_first(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  em_state_t s = snap();
+  char wp[300];
+  TEST_ASSERT_TRUE(em_waypoint_body(&s, wp, sizeof wp) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(wp, "\"name\":\"MOB 22:13:20\""));
+  TEST_ASSERT_NOT_NULL(strstr(wp, "\"coordinates\":[-70.250000,41.500000]"));
+  TEST_ASSERT_NOT_NULL(strstr(wp, "\"type\":\"Point\""));
+}
+
+static void test_target_bearing_and_distance(void) {
+  em_press(EM_MOB, true, 41.1, -70.0, 1000, 1700000000);
+  em_state_t s = snap();
+  double brg, dist;
+  TEST_ASSERT_TRUE(em_target(&s, 41.0, -70.0, &brg, &dist));
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 0.0, brg);
+  TEST_ASSERT_FLOAT_WITHIN(20.0, 11119.0, dist);
+  TEST_ASSERT_TRUE(em_target(&s, 41.2, -70.0, &brg, &dist));   // MOB is now south
+  TEST_ASSERT_FLOAT_WITHIN(0.001, 3.14159, brg);
+  TEST_ASSERT_FALSE(em_target(&s, NAN, -70.0, &brg, &dist));
+  em_press(EM_MOB, false, NAN, NAN, 2000, 1700000001);
+  s = snap();
+  TEST_ASSERT_FALSE(em_target(&s, 41.0, -70.0, &brg, &dist));
+}
+
+static void test_nature_paths(void) {
+  TEST_ASSERT_EQUAL(EM_MOB, em_nature_from_path("mob"));
+  TEST_ASSERT_EQUAL(EM_FLOOD, em_nature_from_path("flooding"));
+  TEST_ASSERT_EQUAL(EM_NONE, em_nature_from_path("mobile"));
+  TEST_ASSERT_EQUAL(EM_NONE, em_nature_from_path("propulsion.port.temperature"));
+  TEST_ASSERT_EQUAL_STRING("sinking", em_nature_path(EM_SINKING));
+  TEST_ASSERT_EQUAL(EM_OTHER, em_nature_from_path(em_nature_path(EM_OTHER)));
+}
+
+int main(void) {
+  UNITY_BEGIN();
+  RUN_TEST(test_press_captures_and_sends);
+  RUN_TEST(test_press_without_fix_has_no_position);
+  RUN_TEST(test_echo_never_overwrites_local_capture);
+  RUN_TEST(test_replay_adopts_payload_position);
+  RUN_TEST(test_notification_normal_clears);
+  RUN_TEST(test_cancel_not_sent_keeps_state);
+  RUN_TEST(test_mob_is_not_displaced_by_another_nature);
+  RUN_TEST(test_ddm_rounding);
+  RUN_TEST(test_notification_body_shape);
+  RUN_TEST(test_fire_body_has_no_position);
+  RUN_TEST(test_waypoint_body_is_geojson_point_lon_first);
+  RUN_TEST(test_target_bearing_and_distance);
+  RUN_TEST(test_nature_paths);
+  return UNITY_END();
+}
