@@ -43,6 +43,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   bool buzzer_ok, buzzer_state;
   char dir[128];   // config directory; empty = no SD card, nothing is saved
   void (*backlight)(uint8_t percent);
+  void (*display_reset)(void);   // restarts the display scan; NULL = the board cannot (no RESET SCREEN button)
   bool dims;
   lv_obj_t *screen;
   palette_t pal;
@@ -182,10 +183,12 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   void (*buzzer)(bool) = a.buzzer;
   bool buzzer_ok = a.buzzer_ok;
   void (*backlight)(uint8_t) = a.backlight;
+  void (*display_reset)(void) = a.display_reset;
   bool dims = a.dims;
   memset(&a, 0, sizeof a);
   a.clock_rx_ms = -1;
   a.backlight = backlight;
+  a.display_reset = display_reset;
   a.dims = dims;
   if (dir) snprintf(a.dir, sizeof a.dir, "%s", dir);
   if (dir) start_writer();
@@ -470,12 +473,22 @@ static void on_buzzer(bool on) {
 }
 static bool buzzer_state(void) { return a.cfg.buzzer; }
 
-static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL};   // buzzer_state set per board
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL};   // buzzer_state set per board
+
+static void do_display_reset(void) {
+  if (a.display_reset) a.display_reset();
+}
+
+// The settle callback restarts the scan 400 ms after the last page change, when the config asks for it.
+static void apply_swipe_reset(void) {
+  ui_shell_set_settle_cb(a.cfg.reset_after_swipe && a.display_reset ? do_display_reset : NULL, 400);
+}
 
 static void toggle_quick(void) {
   if (ui_quick_is_open()) ui_quick_close();
   else {
     quick_cb.buzzer_state = a.buzzer_ok ? buzzer_state : NULL;   // no switch on a board without a buzzer
+    quick_cb.on_reset_screen = a.display_reset ? do_display_reset : NULL;
     ui_quick_open(a.screen, a.cfg.palette, a.cfg.brightness ? a.cfg.brightness : 100, a.dims, &quick_cb);
   }
 }
@@ -516,6 +529,8 @@ void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board) {
   a.buzzer_state = false;
 }
 
+void app_set_display_reset(void (*fn)(void)) { a.display_reset = fn; }
+
 void app_set_backlight(void (*fn)(uint8_t percent), bool dims) {
   a.backlight = fn;
   a.dims = dims;
@@ -536,6 +551,7 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.screen = lv_display_get_screen_active(disp);
   a.ui = true;
   ui_shell_set_strip_tap(toggle_quick);
+  apply_swipe_reset();
   ui_alerts_attach(a.screen, ui_shell_strip(), sc, app_alert_role, alert_page);
   apply_backlight();
 }
@@ -655,7 +671,8 @@ unsigned app_apply_config(const cfg_t *next) {
   unsigned did = APPLY_NONE;
   bool units = memcmp(&a.cfg.units, &next->units, sizeof a.cfg.units) != 0;
   bool display = units || strcmp(a.cfg.palette, next->palette) || a.cfg.brightness != next->brightness ||
-                 a.cfg.buzzer != next->buzzer || a.cfg.utc_offset_min != next->utc_offset_min;
+                 a.cfg.buzzer != next->buzzer || a.cfg.utc_offset_min != next->utc_offset_min ||
+                 a.cfg.reset_after_swipe != next->reset_after_swipe;
   bool sk = strcmp(a.cfg.sk.host, next->sk.host) || a.cfg.sk.port != next->sk.port ||
             strcmp(a.cfg.sk.token, next->sk.token);   // a stored access-request href is not a reason to reconnect
   bool roles = !same_roles(&a.cfg, next);
@@ -664,6 +681,7 @@ unsigned app_apply_config(const cfg_t *next) {
   uint8_t old_count = a.count;
   bool anchor_plugin = strcmp(a.cfg.anchor_plugin, next->anchor_plugin) != 0;
   a.cfg = *next;
+  if (a.ui) apply_swipe_reset();
   if (anchor_plugin) anchor_setup();
   if (display) {
     did |= APPLY_DISPLAY;

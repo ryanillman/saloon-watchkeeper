@@ -221,6 +221,8 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   if (have_tz) c->utc_offset_min = minutes < -720 ? -720 : minutes > 840 ? 840 : (int16_t)minutes;
   COPY(c->start_role, cJSON_GetObjectItem(d, "start_role"));
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
+  const cJSON *ras = cJSON_GetObjectItem(d, "reset_after_swipe");   // `config set` creates an absent key as text
+  c->reset_after_swipe = cJSON_IsTrue(ras) || (cJSON_IsString(ras) && !strcmp(ras->valuestring, "true"));
   const cJSON *ap = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "anchor"), "plugin");
   if (cJSON_IsString(ap)) {
     bool known = false;
@@ -480,6 +482,8 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   set_num(d, "brightness", c->brightness);
   set_num(d, "utc_offset_min", c->utc_offset_min);
   set_str(d, "start_role", c->start_role);
+  cJSON_DeleteItemFromObject(d, "reset_after_swipe");
+  cJSON_AddBoolToObject(d, "reset_after_swipe", c->reset_after_swipe);
   cJSON *bz = object(tree, "buzzer");
   cJSON_DeleteItemFromObject(bz, "enabled");
   cJSON_AddBoolToObject(bz, "enabled", c->buzzer);

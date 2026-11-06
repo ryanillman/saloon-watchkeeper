@@ -28,6 +28,10 @@ void app_set_buzzer(void (*fn)(bool on), bool enabled_by_board);
 // the stored brightness. Pass fn NULL to leave the backlight alone (the simulator).
 void app_set_backlight(void (*fn)(uint8_t percent), bool dims);
 
+// The board's display reset (restarts the panel scan). With it the quick panel shows RESET SCREEN, and
+// display.reset_after_swipe takes effect. Call before app_start_ui. NULL: no button.
+void app_set_display_reset(void (*fn)(void));
+
 // UI task, about every 100 ms: rebinds after a discovery, refreshes the page and status.
 void app_tick(void);
 

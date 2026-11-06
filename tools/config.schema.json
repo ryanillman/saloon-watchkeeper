@@ -43,7 +43,8 @@
         "palette": { "enum": ["auto", "day", "dusk", "night"], "default": "auto" },
         "brightness": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 },
         "utc_offset_min": { "type": "integer", "minimum": -720, "maximum": 840, "default": 0, "description": "Local time minus UTC, in minutes. The clock in the top strip shows navigation.datetime plus this." },
-        "start_role": { "$ref": "#/$defs/roleName" }
+        "start_role": { "$ref": "#/$defs/roleName" },
+        "reset_after_swipe": { "type": "boolean", "default": false, "description": "Restart the display scan 400 ms after the last page change. A workaround for the occasional corrupted frame; the quick panel's RESET SCREEN does the same on demand." }
       }
     },
     "buzzer": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } },

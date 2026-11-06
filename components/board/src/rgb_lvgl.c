@@ -42,3 +42,9 @@ lv_display_t *rgb_lvgl_display(esp_lcd_panel_handle_t panel, uint16_t w, uint16_
   lv_display_set_flush_cb(d, flush);
   return d;
 }
+
+void rgb_lvgl_reset(esp_lcd_panel_handle_t panel) {
+  esp_lcd_rgb_panel_restart(panel);
+  xSemaphoreTake(swap_sem, 0);   // an event from before the restart must not release the next flush early
+  lv_obj_invalidate(lv_screen_active());
+}

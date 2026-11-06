@@ -89,9 +89,11 @@ static lv_display_t *display(void) {
 
 static esp_err_t backlight(uint8_t percent) { return ch422g_set(EXIO_BL, percent > 0); }
 
+static void reset_display(void) { rgb_lvgl_reset(panel); }
+
 static const board_t lcd7 = {
   .id = "lcd7", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false, .backlight_dims = false,
-  .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL,
+  .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL, .reset_display = reset_display,
 };
 
 const board_t *board_get(void) { return &lcd7; }
