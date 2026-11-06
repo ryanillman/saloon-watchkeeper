@@ -195,6 +195,79 @@ static void test_target_bearing_and_distance(void) {
   TEST_ASSERT_FALSE(em_target(&s, 41.0, -70.0, &brg, &dist));
 }
 
+static void spoken(double lat, double lon, const char *want) {
+  char out[200];
+  TEST_ASSERT_TRUE(em_speak_position(lat, lon, out, sizeof out));
+  TEST_ASSERT_EQUAL_STRING(want, out);
+}
+
+static void test_spoken_position_is_degrees_and_decimal_minutes_in_words(void) {
+  // Hundredths of a minute: about 60 ft north-south, which is what a call needs (a tenth would be 600 ft).
+  spoken(48.5402833, -123.1766667,
+         "four eight degrees three two decimal four two minutes north "
+         "one two three degrees one zero decimal six zero minutes west");
+  spoken(5.5, -70.25, "zero five degrees three zero decimal zero zero minutes north "
+                      "zero seven zero degrees one five decimal zero zero minutes west");   // fixed width: no ambiguity
+  spoken(-33.8688, 151.2093, "three three degrees five two decimal one three minutes south "
+                             "one five one degrees one two decimal five six minutes east");
+  spoken(0.0, 0.0, "zero zero degrees zero zero decimal zero zero minutes north "
+                   "zero zero zero degrees zero zero decimal zero zero minutes east");
+  spoken(41.9999999, -70.0, "four two degrees zero zero decimal zero zero minutes north "   // minutes never reach sixty
+                            "zero seven zero degrees zero zero decimal zero zero minutes west");
+  spoken(-1e-9, 1e-9, "zero zero degrees zero zero decimal zero zero minutes north "         // rounds to zero: north, east
+                      "zero zero zero degrees zero zero decimal zero zero minutes east");
+}
+
+static void test_spoken_position_refuses_what_it_cannot_say(void) {
+  char out[200] = "x";
+  TEST_ASSERT_FALSE(em_speak_position(NAN, 1.0, out, sizeof out));
+  TEST_ASSERT_EQUAL_STRING("", out);
+  TEST_ASSERT_FALSE(em_speak_position(1.0, INFINITY, out, sizeof out));
+  TEST_ASSERT_FALSE(em_speak_position(48.5, -123.1, out, 20));   // too small: nothing partial is left behind
+  TEST_ASSERT_EQUAL_STRING("", out);
+}
+
+static void test_script_reads_the_whole_call(void) {
+  char out[600];
+  TEST_ASSERT_TRUE(em_script_text(EM_MOB, "SALOON", true, 48.5402833, -123.1766667, out, sizeof out) > 0);
+  TEST_ASSERT_EQUAL_STRING(
+      "MAYDAY MAYDAY MAYDAY. This is SALOON SALOON SALOON. Position four eight degrees three two decimal four two "
+      "minutes north one two three degrees one zero decimal six zero minutes west. We have a man overboard. Over.", out);
+}
+
+static void test_script_has_a_sentence_for_every_nature(void) {
+  const struct { em_nature_t n; const char *tail; } cases[] = {
+    {EM_MOB, "We have a man overboard. Over."},   {EM_FIRE, "We have a fire on board. Over."},
+    {EM_FLOOD, "We have flooding. Over."},        {EM_SINKING, "We are sinking. Over."},
+    {EM_OTHER, "We have an emergency. Over."}};
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    char out[600];
+    TEST_ASSERT_TRUE(em_script_text(cases[i].n, "SALOON", true, 41.5, -70.25, out, sizeof out) > 0);
+    size_t len = strlen(out), tl = strlen(cases[i].tail);
+    TEST_ASSERT_TRUE_MESSAGE(len > tl && !strcmp(out + len - tl, cases[i].tail), cases[i].tail);
+  }
+}
+
+static void test_script_says_what_is_missing_instead_of_guessing(void) {
+  char out[600];
+  TEST_ASSERT_TRUE(em_script_text(EM_FIRE, "", false, 0, 0, out, sizeof out) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(out, "(BOAT NAME"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "NO GPS FIX"));
+  TEST_ASSERT_NULL(strstr(out, "degrees"));
+  TEST_ASSERT_TRUE(em_script_text(EM_FIRE, NULL, true, 41.5, -70.25, out, sizeof out) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(out, "(BOAT NAME"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "degrees"));
+}
+
+static void test_script_fits_the_longest_name_and_reports_overflow(void) {
+  char name[32], out[600];
+  memset(name, 'W', 31);
+  name[31] = 0;
+  TEST_ASSERT_TRUE(em_script_text(EM_MOB, name, true, -123.456789, -123.456789, out, sizeof out) > 0);
+  TEST_ASSERT_EQUAL(0, em_script_text(EM_MOB, "SALOON", true, 41.5, -70.25, out, 50));   // overflow reports 0
+  TEST_ASSERT_EQUAL(0, em_script_text(EM_NONE, "SALOON", true, 41.5, -70.25, out, sizeof out));   // no emergency, no call
+}
+
 static void test_nature_from_path_accepts_the_servers_id_suffix(void) {
   TEST_ASSERT_EQUAL(EM_MOB, em_nature_from_path("mob.7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b"));   // notifications.mob.<uuid>
   TEST_ASSERT_EQUAL(EM_FIRE, em_nature_from_path("fire.abc"));
@@ -230,6 +303,12 @@ int main(void) {
   RUN_TEST(test_server_id_is_learned_from_the_reply_or_the_echo);
   RUN_TEST(test_adopted_notification_keeps_its_id);
   RUN_TEST(test_normal_for_another_notification_does_not_clear);
+  RUN_TEST(test_spoken_position_is_degrees_and_decimal_minutes_in_words);
+  RUN_TEST(test_spoken_position_refuses_what_it_cannot_say);
+  RUN_TEST(test_script_reads_the_whole_call);
+  RUN_TEST(test_script_has_a_sentence_for_every_nature);
+  RUN_TEST(test_script_says_what_is_missing_instead_of_guessing);
+  RUN_TEST(test_script_fits_the_longest_name_and_reports_overflow);
   RUN_TEST(test_nature_from_path_accepts_the_servers_id_suffix);
   RUN_TEST(test_waypoint_body_is_geojson_point_lon_first);
   RUN_TEST(test_target_bearing_and_distance);

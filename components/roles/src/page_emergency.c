@@ -11,7 +11,7 @@ static const char *const PART_OF[B_COUNT] = {"btn_mob", "btn_fire", "btn_flood",
 static const emergency_actions_t *act;
 
 static struct {
-  lv_obj_t *nature, *send, *name, *mmsi, *position, *fix, *hint, *btn[B_COUNT], *fill[B_COUNT];
+  lv_obj_t *nature, *send, *steps, *script, *footer, *hint, *btn[B_COUNT], *fill[B_COUNT];
   nav_ids_t ids;
   bool built, wide;
 } w;
@@ -113,6 +113,10 @@ void emergency_page_reset(void) {
   memset(&w, 0, sizeof w);
 }
 
+// For someone who has never used the radio. The call itself is built in emergency.c from what is declared.
+#define STEPS_TEXT "1. On the VHF radio, press and hold the red DISTRESS button for 3 seconds.\n2. Then speak into the microphone:"
+#define NOTHING_TEXT "No emergency declared. Hold the matching button below, then read the radio call here."
+
 void emergency_page_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   (void)b;
   emergency_page_reset();
@@ -121,32 +125,37 @@ void emergency_page_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area), pad = 8;
   const ui_colors_t *c = ui_theme();
   w.wide = sc == SIZE_WIDE;
-  const lv_font_t *big = &lv_font_montserrat_28, *mid = &lv_font_montserrat_20;
+  const lv_font_t *big = &lv_font_montserrat_28, *mid = &lv_font_montserrat_20, *small = &lv_font_montserrat_14;
 
   // Wide: the nature on the left, the send status at the right. Square: the status goes under the nature.
-  int32_t nat_w = w.wide ? W * 5 / 8 : W - 2 * pad, top = w.wide ? 60 : 84;
+  int32_t nat_w = w.wide ? W * 5 / 8 : W - 2 * pad, steps_y = w.wide ? 52 : 76;
   w.nature = make_label(area, big, c->alarm, pad, pad, nat_w);
   w.send = w.wide ? make_label(area, mid, c->fg, pad + nat_w, pad + 4, W - nat_w - 2 * pad) : make_label(area, mid, c->fg, pad, 46, W - 2 * pad);
   if (w.wide) lv_obj_set_style_text_align(w.send, LV_TEXT_ALIGN_RIGHT, 0);
-  w.name = make_label(area, big, c->fg, pad, top, W - 2 * pad);
-  w.mmsi = make_label(area, mid, c->fg, pad, top + 40, W - 2 * pad);
-  w.position = make_label(area, w.wide ? big : mid, c->fg, pad, top + 76, W - 2 * pad);
-  w.fix = make_label(area, mid, c->dim, pad, top + (w.wide ? 120 : 108), W - 2 * pad);
+
+  w.steps = make_label(area, w.wide ? mid : small, c->fg, pad, steps_y, W - 2 * pad);
+  lv_label_set_long_mode(w.steps, LV_LABEL_LONG_WRAP);
+  lv_label_set_text(w.steps, STEPS_TEXT);
+  lv_obj_update_layout(area);
+  int32_t script_y = steps_y + lv_obj_get_height(w.steps) + 6;
+  w.script = make_label(area, w.wide ? big : mid, c->fg, pad, script_y, W - 2 * pad);
+  lv_label_set_long_mode(w.script, LV_LABEL_LONG_WRAP);
 
   int32_t bh = 64, by = H - pad - bh;
-  w.hint = make_label(area, &lv_font_montserrat_14, c->dim, pad, by - 22, W - 2 * pad);
+  w.hint = make_label(area, small, c->dim, pad, by - 20, W - 2 * pad);
+  w.footer = make_label(area, small, c->dim, pad, by - 20 - 22, W - 2 * pad);
   int32_t slot = (W - 2 * pad) / B_COUNT;
   static const char *const wide_text[B_COUNT] = {"MOB", "FIRE", "FLOOD", "SINKING", "OTHER", "CANCEL"};
   static const char *const square_text[B_COUNT] = {"MOB", "FIRE", "FLOOD", "SINK", "OTHER", "CANCEL"};
   for (int i = 0; i < B_COUNT; i++)
-    w.btn[i] = make_button(area, w.wide ? wide_text[i] : square_text[i], w.wide ? mid : &lv_font_montserrat_14, i, pad + i * slot, by, slot - 6, bh);
+    w.btn[i] = make_button(area, w.wide ? wide_text[i] : square_text[i], w.wide ? mid : small, i, pad + i * slot, by, slot - 6, bh);
   w.built = true;
 }
 
 lv_obj_t *emergency_page_part(const char *name) {
   if (!w.built) return NULL;
-  static const char *const names[] = {"nature", "send", "name", "mmsi", "position", "fix", "hint"};
-  lv_obj_t *const parts[] = {w.nature, w.send, w.name, w.mmsi, w.position, w.fix, w.hint};
+  static const char *const names[] = {"nature", "send", "steps", "script", "footer", "hint"};
+  lv_obj_t *const parts[] = {w.nature, w.send, w.steps, w.script, w.footer, w.hint};
   for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
     if (!strcmp(names[i], name)) return parts[i];
   for (int i = 0; i < B_COUNT; i++)
@@ -188,35 +197,45 @@ void emergency_page_refresh(role_binding_t *b, int64_t now_ms) {
   lv_obj_set_style_text_color(w.send, s.send == EM_NOT_SENT ? ui_theme()->alarm : ui_theme()->fg, 0);
 
   const char *name = act && act->vessel_name ? act->vessel_name() : "", *mmsi = act && act->vessel_mmsi ? act->vessel_mmsi() : "";
-  if (name[0]) snprintf(t, sizeof t, "THIS IS %s", name);
-  else snprintf(t, sizeof t, "VESSEL NAME UNKNOWN");   // never a guess
-  set_label(w.name, t);
-  if (mmsi[0]) snprintf(t, sizeof t, "MMSI %s", mmsi);
-  else t[0] = 0;
-  set_label(w.mmsi, t);
-
   nav_view_t v;
   nav_view_build(&w.ids, now_ms, &v);
+
+  // The call to read, in the largest text that still ends above the footer (pages must not scroll).
+  char call[600];
+  if (s.nature == EM_NONE || !em_script_text(s.nature, name, v.have_pos, v.lat, v.lon, call, sizeof call)) snprintf(call, sizeof call, NOTHING_TEXT);
+  if (strcmp(lv_label_get_text(w.script), call)) {
+    static const lv_font_t *const FIT[] = {&lv_font_montserrat_28, &lv_font_montserrat_20, &lv_font_montserrat_14};
+    lv_label_set_text(w.script, call);
+    int32_t room = lv_obj_get_y(w.footer) - lv_obj_get_y(w.script) - 4;
+    for (int i = w.wide ? 0 : 1; i < 3; i++) {
+      lv_obj_set_style_text_font(w.script, FIT[i], 0);
+      lv_obj_update_layout(w.script);
+      if (lv_obj_get_height(w.script) <= room) break;
+    }
+  }
+  show(w.steps, s.nature != EM_NONE);
+
+  // The numbers, for the chartplotter and the radio's own distress call.
+  char foot[120];
+  size_t at = 0;
   if (v.have_pos) {
     char la[20], lo[20];
     em_format_ddm(v.lat, true, la, sizeof la);
     em_format_ddm(v.lon, false, lo, sizeof lo);
-    snprintf(t, sizeof t, "%s  %s", la, lo);
-    set_label(w.position, t);
-    snprintf(t, sizeof t, "FIX %d s OLD", (int)(v.pos_age_ms / 1000));
-    set_label(w.fix, t);
-    lv_obj_set_style_text_color(w.position, ui_theme()->fg, 0);
+    at = (size_t)snprintf(foot, sizeof foot, "%s %s | fix %d s old", la, lo, (int)(v.pos_age_ms / 1000));
   } else {
-    set_label(w.position, "NO POSITION");
-    set_label(w.fix, "");
-    lv_obj_set_style_text_color(w.position, ui_theme()->fault_label, 0);
+    at = (size_t)snprintf(foot, sizeof foot, "NO POSITION");
   }
+  if (mmsi[0] && at < sizeof foot) snprintf(foot + at, sizeof foot - at, " | MMSI %s", mmsi);
+  set_label(w.footer, foot);
+  lv_obj_set_style_text_color(w.footer, v.have_pos ? ui_theme()->dim : ui_theme()->fault_label, 0);
 
   set_label(w.hint, avail ? "HOLD 1 s TO SEND" : "SIGNAL K OFFLINE - BUTTONS UNAVAILABLE");
   for (int i = 0; i < B_CANCEL; i++) {
     show(w.btn[i], avail);
     bool declared = s.nature == NATURE_OF[i];   // filled; not LV_STATE_CHECKED, which the default theme styles itself
     lv_obj_set_style_bg_color(w.btn[i], declared ? ui_theme()->alarm : ui_theme()->strip_bg, 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(w.btn[i], 1), declared ? ui_theme()->bg : ui_theme()->fg, 0);   // night is one red: dark on the fill
   }
   show(w.btn[B_CANCEL], avail && s.nature != EM_NONE);
 }

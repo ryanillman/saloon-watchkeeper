@@ -1,6 +1,6 @@
 #pragma once
-// The emergency script (Navigation page 1): what to say on the radio (vessel, position, nature) and the buttons that
-// declare an emergency. Every button, CANCEL included, sends only after being held for EMERGENCY_HOLD_MS; letting go
+// The emergency script (Navigation page 1): the VHF distress call to read aloud, step by step for someone who has never
+// used the radio (vessel name three times, the position in spoken words, the nature), and the buttons that declare an emergency. Every button, CANCEL included, sends only after being held for EMERGENCY_HOLD_MS; letting go
 // earlier sends nothing. The roles layer cannot call the app, so it acts through the functions the app registers.
 #include <stdbool.h>
 #include "emergency.h"
@@ -21,6 +21,6 @@ void emergency_page_build(lv_obj_t *area, size_class_t sc, role_binding_t *b);
 void emergency_page_refresh(role_binding_t *b, int64_t now_ms);   // inert when the page is not on screen
 void emergency_page_reset(void);                                  // another page was built: forget the widgets
 
-// For tests: "nature", "send", "name", "mmsi", "position", "fix", "hint", "btn_mob", "btn_fire", "btn_flood",
+// For tests: "nature", "send", "steps", "script", "footer", "hint", "btn_mob", "btn_fire", "btn_flood",
 // "btn_sinking", "btn_other", "btn_cancel". NULL when the page is not built.
 lv_obj_t *emergency_page_part(const char *name);
