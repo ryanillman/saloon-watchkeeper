@@ -627,6 +627,8 @@ int8_t app_alert_role(const char *id) {
   static const struct { const char *prefix, *role; } map[] = {
     {"propulsion", "engine"}, {"electrical", "power"}, {"tanks", "tanks"}, {"navigation.anchor", "anchor"},
     {"environment.depth", "depth"},
+    {"mob", "navigation"}, {"fire", "navigation"}, {"flooding", "navigation"}, {"sinking", "navigation"},
+    {"emergency", "navigation"},
   };
   for (size_t m = 0; m < sizeof map / sizeof map[0]; m++) {
     size_t n = strlen(map[m].prefix);
