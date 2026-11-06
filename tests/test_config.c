@@ -476,6 +476,19 @@ static void test_cfg_reset_after_swipe_defaults_false_and_parses(void) {
   TEST_ASSERT_FALSE(out.reset_after_swipe);
 }
 
+static void test_cfg_vessel_name_roundtrips(void) {
+  write_file("config.json", "{ \"wifi\": {\"ssid\": \"B\"}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_STRING("", c.vessel_name);
+  TEST_ASSERT_TRUE(cfg_set(dir, "vessel.name", "Saloon", &out, &r));
+  TEST_ASSERT_EQUAL_STRING("Saloon", out.vessel_name);
+  cfg_t back;
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_EQUAL_STRING("Saloon", back.vessel_name);
+}
+
 static void test_cfg_set_rejects_bad_number(void) {
   write_file("config.json",
              "{ \"wifi\": {\"ssid\": \"B\"}, \"display\": {\"brightness\": 80}, \"roles\": [ {\"role\": \"engine\"} ] }");
@@ -674,6 +687,7 @@ int main(void) {
   RUN_TEST(test_cfg_set_string);
   RUN_TEST(test_cfg_set_number_and_bool);
   RUN_TEST(test_cfg_reset_after_swipe_defaults_false_and_parses);
+  RUN_TEST(test_cfg_vessel_name_roundtrips);
   RUN_TEST(test_cfg_set_rejects_bad_number);
   RUN_TEST(test_cfg_set_rejects_invalid_value);
   RUN_TEST(test_cfg_set_creates_missing_string_key);

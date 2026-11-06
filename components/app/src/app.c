@@ -9,6 +9,8 @@
 #include "nav_state.h"
 #include "boatdata.h"
 #include "depth_state.h"
+#include "emergency.h"
+#include "emergency_page.h"
 #include "glance_page.h"
 #include "history.h"
 #include "net.h"
@@ -126,6 +128,166 @@ static void start_writer(void) {
   if (!w.started) fprintf(stderr, "config: cannot start the writer task; changes will not be saved\n");
 }
 
+// ---- Emergency buttons ----
+
+#define EM_DEADLINE_MS 3000        // a notification not sent this fast is dropped: late is worse than never
+#define EM_POS_MAX_AGE_MS 10000    // an older fix is no fix
+#define EM_SEND_ALERT_ID "device.emergency.send"
+
+static struct {
+  sk_cmd_handle_t notify, waypoint, cancel;
+  bool primary;   // the notification in flight is for the state on screen (a second nature during a MOB is not)
+  em_nature_t seen;   // the nature the last tick saw, so a new declaration is noticed once
+} emc;
+
+static bool has_role(const char *name);
+
+static void on_sk_notification(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref) {
+  em_nature_t n = em_nature_from_path(id);
+  if (n != EM_NONE) em_on_notification(n, active, has_pos, lat, lon, ref, platform_millis());
+}
+
+bool app_emergency_available(void) { return has_role("navigation") && alerts_source_is_up(); }
+
+const char *app_vessel_name(void) { return a.cfg.vessel_name[0] ? a.cfg.vessel_name : sk_vessel_name(); }
+const char *app_vessel_mmsi(void) { return sk_vessel_mmsi(); }
+
+static void raise_send_alert(const char *what, sk_cmd_err_t err, int64_t now) {
+  alert_t al = {0};
+  snprintf(al.id, sizeof al.id, "%s", EM_SEND_ALERT_ID);
+  al.state = AL_ALARM;
+  al.audible = true;
+  snprintf(al.message, sizeof al.message, "%s NOT SENT%s - TELL HELM", what, err == SKC_ERR_NO_ACCESS ? ": NO WRITE ACCESS" : "");
+  alerts_upsert_local(&al, now);
+}
+
+static sk_cmd_handle_t em_submit(const char *method, const char *path, const char *body) {
+  sk_cmd_t k = {.expire_ms = EM_DEADLINE_MS};
+  snprintf(k.method, sizeof k.method, "%s", method);
+  snprintf(k.path, sizeof k.path, "%s", path);
+  snprintf(k.body, sizeof k.body, "%s", body);
+  return sk_cmd_submit(&k, false, platform_millis());
+}
+
+// POST /signalk/v2/api/notifications raises it (the server's Notifications API has no per-nature endpoint except mob);
+// the reply carries the notification's id, which is what clears it later.
+static sk_cmd_handle_t em_send_raise(const em_state_t *s, em_nature_t n) {
+  char body[256];
+  em_state_t tmp = *s;
+  tmp.nature = n;
+  return em_raise_body(&tmp, body, sizeof body) ? em_submit("", "/signalk/v2/api/notifications", body) : 0;
+}
+
+bool app_emergency_press(em_nature_t n) {
+  if (n == EM_NONE || !app_emergency_available()) return false;
+  em_state_t cur;
+  em_snapshot(&cur);
+  if (emc.notify && cur.send == EM_SENDING) return false;   // the last press has not been answered: not a new event
+  int64_t now = platform_millis();
+  bd_sample_t p = {0};
+  bool fix = bd_get(bd_intern("navigation.position"), &p) && p.kind == BD_POSITION && bd_is_fresh(&p, EM_POS_MAX_AGE_MS, now);
+  em_state_t s;
+  emc.primary = !(cur.nature == EM_MOB && n != EM_MOB);   // a fire during a MOB is sent but does not replace the MOB on screen
+  if (emc.primary) {
+    em_press(n, fix, fix ? p.pos.lat : 0, fix ? p.pos.lon : 0, now, bd_newest_source_time());
+    em_snapshot(&s);
+  } else {
+    s = cur;
+  }
+  emc.notify = em_send_raise(&s, n);
+  emc.waypoint = 0;
+  if (emc.notify == 0) {
+    if (emc.primary) em_set_send(EM_NOT_SENT);
+    raise_send_alert(em_nature_label(n), SKC_ERR_OFFLINE, now);
+  }
+  if (emc.primary && n == EM_MOB && s.has_pos) {
+    char body[256];
+    if (em_waypoint_body(&s, body, sizeof body)) emc.waypoint = em_submit("", "/signalk/v2/api/resources/waypoints", body);
+    em_set_waypoint_send(emc.waypoint ? EM_SENDING : EM_NOT_SENT);
+  }
+  return true;
+}
+
+bool app_emergency_cancel(void) {
+  em_state_t s;
+  em_snapshot(&s);
+  if (s.nature == EM_NONE || !app_emergency_available()) return false;
+  if (!s.id[0]) {   // the server has not told us this notification's id yet: there is nothing to address the cancel to
+    raise_send_alert("CANCEL", SKC_ERR_OFFLINE, platform_millis());
+    return false;
+  }
+  char path[96], body[40];
+  snprintf(path, sizeof path, "/signalk/v2/api/notifications/%s", s.id);
+  emc.cancel = em_cancel_body(body, sizeof body) ? em_submit("PUT", path, body) : 0;   // PUT {"state":"normal"}; POST .../mob would raise another MOB
+  if (emc.cancel == 0) {
+    em_set_send(EM_NOT_SENT);   // the emergency stays: other displays and the signal controller still have it
+    raise_send_alert("CANCEL", SKC_ERR_OFFLINE, platform_millis());
+    return false;
+  }
+  return true;
+}
+
+// The SOS button in the strip jumps to the script page of the Navigation role.
+static void on_sos(void) {
+  for (uint8_t i = 0; i < a.count; i++)
+    if (!strcmp(a.cfg.roles[i].role, "navigation")) {
+      ui_shell_goto(i, 1);
+      return;
+    }
+}
+
+// UI task, every tick: reads the answers to what the buttons sent.
+static void emergency_tick(int64_t now) {
+  if (a.ui) {
+    em_state_t shown;
+    em_snapshot(&shown);
+    // SOS shows for any MOB, Signal K up or not: it only goes to the script, which matters most with the network gone.
+    ui_shell_set_sos(shown.nature == EM_MOB && has_role("navigation"));
+    // A newly declared fire, flooding, sinking or other emergency selects the script page by itself, once; the crew can
+    // leave it. A MOB does not: its GO button and the SOS button take them to the compass target and the script.
+    if (shown.nature != emc.seen) {
+      emc.seen = shown.nature;
+      if (shown.nature != EM_NONE && shown.nature != EM_MOB && has_role("navigation")) on_sos();
+    }
+  }
+  if (emc.notify) {
+    sk_cmd_result_t r = sk_cmd_result(emc.notify);
+    if (r.state == SKC_OK) {
+      if (emc.primary) {
+        em_set_send(EM_SENT);
+        if (r.id[0]) em_set_server_id(r.id);   // the reply's id is what clears it
+      }
+      alerts_clear(EM_SEND_ALERT_ID);
+      emc.notify = 0;
+    } else if (r.state == SKC_FAILED) {
+      em_state_t s;
+      em_snapshot(&s);
+      if (emc.primary) em_set_send(EM_NOT_SENT);
+      raise_send_alert(em_nature_label(s.nature), r.err, now);
+      emc.notify = 0;
+    }
+  }
+  if (emc.waypoint) {
+    sk_cmd_result_t r = sk_cmd_result(emc.waypoint);   // best effort: a failed waypoint never raises the alarm
+    if (r.state != SKC_PENDING) {
+      em_set_waypoint_send(r.state == SKC_OK ? EM_SENT : EM_NOT_SENT);
+      emc.waypoint = 0;
+    }
+  }
+  if (emc.cancel) {
+    sk_cmd_result_t r = sk_cmd_result(emc.cancel);
+    if (r.state == SKC_OK) {
+      em_cancel_sent();
+      alerts_clear(EM_SEND_ALERT_ID);
+      emc.cancel = 0;
+    } else if (r.state == SKC_FAILED) {
+      em_set_send(EM_NOT_SENT);
+      raise_send_alert("CANCEL", r.err, now);
+      emc.cancel = 0;
+    }
+  }
+}
+
 // ---- the Anchor role ----
 
 static anchor_watch_t anchor_watch;   // the boot-restore check and the watch-lost alarm; ticks whenever the role is configured
@@ -178,6 +340,10 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_source_register(BD_SRC_SK, "signalk", 2);   // preferred over any raw bus source (NMEA 2000 will rank 1)
   alerts_init();
   hist_init();
+  em_reset();
+  memset(&emc, 0, sizeof emc);
+  sk_set_emergency_cb(on_sk_notification);
+  emergency_page_set_vessel_name(app_vessel_name);
   ui_clock_reset();
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;
@@ -473,7 +639,37 @@ static void on_buzzer(bool on) {
 }
 static bool buzzer_state(void) { return a.cfg.buzzer; }
 
-static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL};   // buzzer_state set per board
+// The quick panel's emergency row. A hold declares it here (a single attempt, see app_emergency_press) and goes to the page
+// that nature belongs on; CANCEL stays where it is.
+static uint8_t alert_page(const char *id);
+static bool quick_em_available(void) { return app_emergency_available(); }
+
+static int quick_em_declared(void) {
+  em_state_t s;
+  em_snapshot(&s);
+  switch (s.nature) {
+    case EM_NONE: return UI_QUICK_EM_NONE;
+    case EM_MOB: return UI_QUICK_EM_MOB;
+    case EM_FIRE: return UI_QUICK_EM_FIRE;
+    case EM_SINKING: return UI_QUICK_EM_SINKING;
+    default: return UI_QUICK_EM_OTHER;   // flooding or other, raised elsewhere: no button, but it can be cancelled
+  }
+}
+
+static void quick_em_held(int which) {
+  static const em_nature_t NATURE[] = {EM_MOB, EM_FIRE, EM_SINKING};
+  if (which == UI_QUICK_EM_CANCEL) {
+    app_emergency_cancel();
+    return;
+  }
+  if (which < UI_QUICK_EM_MOB || which > UI_QUICK_EM_SINKING || !app_emergency_press(NATURE[which])) return;
+  // Where the alert's GO button takes every other display: a MOB to the compass (the target to steer to), the rest to the script.
+  const char *path = em_nature_path(NATURE[which]);
+  int8_t role = app_alert_role(path);
+  if (role >= 0) ui_shell_goto((uint8_t)role, alert_page(path));
+}
+
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL, quick_em_available, quick_em_declared, quick_em_held};   // buzzer_state set per board
 
 static void do_display_reset(void) {
   if (a.display_reset) a.display_reset();
@@ -499,6 +695,8 @@ int8_t app_alert_role(const char *id) {
   static const struct { const char *prefix, *role; } map[] = {
     {"propulsion", "engine"}, {"electrical", "power"}, {"tanks", "tanks"}, {"navigation.anchor", "anchor"},
     {"environment.depth", "depth"},
+    {"mob", "navigation"}, {"fire", "navigation"}, {"flooding", "navigation"}, {"sinking", "navigation"},
+    {"emergency", "navigation"},
   };
   for (size_t m = 0; m < sizeof map / sizeof map[0]; m++) {
     size_t n = strlen(map[m].prefix);
@@ -551,6 +749,7 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.screen = lv_display_get_screen_active(disp);
   a.ui = true;
   ui_shell_set_strip_tap(toggle_quick);
+  ui_shell_set_sos_cb(on_sos);
   apply_swipe_reset();
   ui_alerts_attach(a.screen, ui_shell_strip(), sc, app_alert_role, alert_page);
   apply_backlight();
@@ -811,6 +1010,7 @@ void app_tick(void) {
   update_clock(platform_millis());
   hist_tick(platform_millis());
   anchor_tick(platform_millis());
+  emergency_tick(platform_millis());
   ui_shell_refresh();
   ui_setup_tick();
 

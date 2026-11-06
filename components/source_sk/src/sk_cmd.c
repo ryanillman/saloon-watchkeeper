@@ -1,5 +1,7 @@
 #include "sk_cmd.h"
+#include <stdio.h>
 #include <string.h>
+#include "cJSON.h"
 #include "platform.h"
 
 #define ACTIVE_MAX 4          // waiting or being sent
@@ -42,7 +44,7 @@ void sk_cmd_init(void) {
 
 static void fail(slot_t *s, sk_cmd_err_t err) {
   s->st = S_DONE;
-  s->res = (sk_cmd_result_t){SKC_FAILED, err};
+  s->res = (sk_cmd_result_t){SKC_FAILED, err, ""};
 }
 
 static int active_count(void) {
@@ -105,7 +107,7 @@ out:
 sk_cmd_result_t sk_cmd_result(sk_cmd_handle_t h) {
   ensure_lock();
   LOCK();
-  sk_cmd_result_t r = {SKC_FAILED, SKC_ERR_NONE};
+  sk_cmd_result_t r = {SKC_FAILED, SKC_ERR_NONE, ""};
   for (int i = 0; i < SLOTS; i++)
     if (slot[i].st != S_EMPTY && slot[i].h == h && h) r = slot[i].res;
   UNLOCK();
@@ -121,7 +123,7 @@ bool sk_cmd_next(sk_cmd_t *out, sk_cmd_handle_t *h, int64_t now_ms) {
     for (int i = 0; i < SLOTS; i++)
       if (slot[i].st == S_QUEUED && (oldest < 0 || slot[i].seq < slot[oldest].seq)) oldest = i;
     if (oldest < 0) break;
-    if (now_ms - slot[oldest].at_ms > EXPIRE_MS) {   // too old to be what the user meant now
+    if (now_ms - slot[oldest].at_ms > (slot[oldest].cmd.expire_ms ? slot[oldest].cmd.expire_ms : EXPIRE_MS)) {   // too old to be what the user meant now
       fail(&slot[oldest], SKC_ERR_OFFLINE);
       continue;
     }
@@ -135,7 +137,9 @@ bool sk_cmd_next(sk_cmd_t *out, sk_cmd_handle_t *h, int64_t now_ms) {
   return have;
 }
 
-void sk_cmd_finish(sk_cmd_handle_t h, bool transport_ok, int status) {
+void sk_cmd_finish(sk_cmd_handle_t h, bool transport_ok, int status) { sk_cmd_finish_id(h, transport_ok, status, NULL); }
+
+void sk_cmd_finish_id(sk_cmd_handle_t h, bool transport_ok, int status, const char *reply_id) {
   ensure_lock();
   LOCK();
   for (int i = 0; i < SLOTS; i++) {
@@ -143,10 +147,22 @@ void sk_cmd_finish(sk_cmd_handle_t h, bool transport_ok, int status) {
     if (!transport_ok) fail(&slot[i], SKC_ERR_OFFLINE);
     else if (status >= 200 && status < 300) {
       slot[i].st = S_DONE;
-      slot[i].res = (sk_cmd_result_t){SKC_OK, SKC_ERR_NONE};
+      slot[i].res = (sk_cmd_result_t){SKC_OK, SKC_ERR_NONE, ""};
+      if (reply_id) snprintf(slot[i].res.id, sizeof slot[i].res.id, "%s", reply_id);
     } else if (status == 401 || status == 403) fail(&slot[i], SKC_ERR_NO_ACCESS);
     else if (status == 404) fail(&slot[i], SKC_ERR_NO_PLUGIN);
     else fail(&slot[i], SKC_ERR_REJECTED);
   }
   UNLOCK();
+}
+
+bool sk_cmd_reply_id(const char *json, size_t len, char *out, size_t n) {
+  if (n) out[0] = 0;
+  if (!json || !n) return false;
+  cJSON *root = cJSON_ParseWithLength(json, len);
+  const cJSON *id = cJSON_IsObject(root) ? cJSON_GetObjectItem(root, "id") : NULL;
+  bool ok = cJSON_IsString(id) && id->valuestring && strlen(id->valuestring) < n;
+  if (ok) snprintf(out, n, "%s", id->valuestring);
+  cJSON_Delete(root);
+  return ok;
 }

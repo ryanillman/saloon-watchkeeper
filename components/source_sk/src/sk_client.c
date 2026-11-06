@@ -115,7 +115,7 @@ __attribute__((noinline)) static void drain_commands(const char *base, const cha
   sk_cmd_handle_t h;
   while (sk_cmd_next(&cmd, &h, platform_millis())) {
     char url[320], body[64];
-    const char *method = "POST", *payload = cmd.body[0] ? cmd.body : NULL;
+    const char *method = cmd.method[0] ? cmd.method : "POST", *payload = cmd.body[0] ? cmd.body : NULL;
     if (cmd.put_number) {
       size_t n = (size_t)snprintf(url, sizeof url, "%s/signalk/v1/api/vessels/self/", base);
       for (const char *p = cmd.path; *p && n < sizeof url - 1; p++) url[n++] = *p == '.' ? '/' : *p;
@@ -130,8 +130,10 @@ __attribute__((noinline)) static void drain_commands(const char *base, const cha
     char *resp = NULL;
     size_t resp_len = 0;
     bool ok = sk_http_request(method, url, token, payload, &status, &resp, &resp_len);
+    char reply_id[40] = "";   // a raise's reply names the new notification; that id is how it is cleared
+    if (ok && status >= 200 && status < 300 && resp) sk_cmd_reply_id(resp, resp_len, reply_id, sizeof reply_id);
     free(resp);
-    sk_cmd_finish(h, ok, status);
+    sk_cmd_finish_id(h, ok, status, reply_id);
   }
 }
 
