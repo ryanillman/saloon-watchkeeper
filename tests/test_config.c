@@ -458,6 +458,24 @@ static void test_cfg_set_number_and_bool(void) {
   cJSON_Delete(root);
 }
 
+static void test_cfg_reset_after_swipe_defaults_false_and_parses(void) {
+  write_file("config.json", "{ \"wifi\": {\"ssid\": \"B\"}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_FALSE(c.reset_after_swipe);
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.reset_after_swipe", "true", &out, &r));   // the key was absent: set as text
+  TEST_ASSERT_TRUE(out.reset_after_swipe);
+  cfg_t back;
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_TRUE(back.reset_after_swipe);
+  cJSON *root = roles_of(read_file("config.json"));
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "display"), "reset_after_swipe")));
+  cJSON_Delete(root);
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.reset_after_swipe", "false", &out, &r));
+  TEST_ASSERT_FALSE(out.reset_after_swipe);
+}
+
 static void test_cfg_set_rejects_bad_number(void) {
   write_file("config.json",
              "{ \"wifi\": {\"ssid\": \"B\"}, \"display\": {\"brightness\": 80}, \"roles\": [ {\"role\": \"engine\"} ] }");
@@ -655,6 +673,7 @@ int main(void) {
   RUN_TEST(test_reordered_roles_keep_their_settings);
   RUN_TEST(test_cfg_set_string);
   RUN_TEST(test_cfg_set_number_and_bool);
+  RUN_TEST(test_cfg_reset_after_swipe_defaults_false_and_parses);
   RUN_TEST(test_cfg_set_rejects_bad_number);
   RUN_TEST(test_cfg_set_rejects_invalid_value);
   RUN_TEST(test_cfg_set_creates_missing_string_key);

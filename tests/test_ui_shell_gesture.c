@@ -86,6 +86,38 @@ static void test_rebuild_picks_up_a_grown_page_count(void) {
   TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
 }
 
+static int settled;
+static void on_settled(void) { settled++; }
+static void advance(uint32_t ms) {
+  now_ms += ms;
+  lv_timer_handler();
+}
+
+static void test_settle_cb_fires_once_after_rapid_swipes(void) {
+  ui_shell_create(lv_display_get_default(), SIZE_WIDE, PALETTE_DAY, roles, 3, 0);
+  settled = 0;
+  ui_shell_set_settle_cb(on_settled, 400);
+  ui_shell_move(NAV_LEFT);
+  advance(100);
+  ui_shell_move(NAV_LEFT);
+  advance(350);
+  TEST_ASSERT_EQUAL(0, settled);   // 450 ms after the first swipe, but only 350 after the last
+  advance(100);
+  TEST_ASSERT_EQUAL(1, settled);
+  advance(2000);
+  TEST_ASSERT_EQUAL(1, settled);
+  ui_shell_set_settle_cb(NULL, 0);
+}
+
+static void test_settle_cb_null_is_inert(void) {
+  ui_shell_create(lv_display_get_default(), SIZE_WIDE, PALETTE_DAY, roles, 3, 0);
+  settled = 0;
+  ui_shell_set_settle_cb(NULL, 400);
+  ui_shell_move(NAV_LEFT);
+  advance(2000);
+  TEST_ASSERT_EQUAL(0, settled);
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -98,6 +130,8 @@ int main(void) {
   lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);   // read only when step() asks
 
   UNITY_BEGIN();
+  RUN_TEST(test_settle_cb_fires_once_after_rapid_swipes);
+  RUN_TEST(test_settle_cb_null_is_inert);
   RUN_TEST(test_rebuild_picks_up_a_grown_page_count);
   RUN_TEST(test_drag_left_changes_role);
   RUN_TEST(test_drag_up_changes_page);

@@ -329,6 +329,8 @@ static const char *const anchor_states[] = {"notset", "holding", "warn", "draggi
 
 static const char *palette_names[] = {"day", "dusk", "night"};
 
+static void sim_display_reset(void) { lv_obj_invalidate(lv_screen_active()); }   // stands in for the panel restart
+
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
   ui_shell_set_clock("02:14");
   ui_shell_set_source(UI_SRC_LIVE);
@@ -353,6 +355,7 @@ static int run_snapshots(const char *out) {
   uint8_t nboards;
   const sim_board_t *boards = sim_boards(&nboards);
   app_set_backlight(NULL, true);   // the panel shows its slider
+  app_set_display_reset(sim_display_reset);
   for (uint8_t bi = 0; bi < nboards; bi++) {
     const sim_board_t *b = &boards[bi];
     size_t px = (size_t)b->width * b->height;
@@ -669,6 +672,7 @@ int main(int argc, char **argv) {
   lv_init();
   lv_tick_set_cb(tick);
   app_set_backlight(NULL, true);
+  app_set_display_reset(sim_display_reset);
   if (snapshot_dir) return run_snapshots(snapshot_dir);
 
   cfg_report_t rep;

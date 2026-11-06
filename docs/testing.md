@@ -199,3 +199,14 @@ idf.py -D BOARD=lcd7 -B build/lcd7 -p /dev/ttyACM1 flash monitor
 ```
 
 Run the same scenarios. The board must be on a network that can reach the Signal K server. `"host": "auto"` finds it by mDNS.
+
+### Display reset (bench, all three boards)
+
+The RGB scan occasionally loses sync: the top status bar shows at the bottom and the picture is corrupt until it recovers on its own. The quick panel (tap the top strip) has RESET SCREEN (RESET on the 480 board), which restarts the panel scan and redraws. Not yet run on a board.
+
+| Check | Expect |
+|---|---|
+| Wait for a corrupted frame, open the quick panel, tap RESET SCREEN | The panel closes, the picture is whole again within a second |
+| RESET SCREEN on a healthy screen | A brief redraw, no lasting flicker, touch still works |
+| Set `display.reset_after_swipe` to `true` (`config set`), swipe between pages repeatedly | One restart about 400 ms after you stop swiping (not one per swipe); note any visible flicker. If it flickers, leave the flag off |
+| Corruption still happens and RESET SCREEN does not fix it | The restart hypothesis is wrong; try a lower PCLK (`docs/hardware/boards.md`) |
