@@ -26,10 +26,13 @@ CONFIG_LV_BUILD_DEMOS=n
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 
-# RGB panels: keep scanning while flash is busy (Wi-Fi, SD) and recover from drift
+# RGB panels: keep scanning while flash is busy (Wi-Fi, SD)
 CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
-CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+# RESTART_IN_VSYNC is off (2026-11-06): with it on, esp_lcd_rgb_panel_restart() is a no-op and the
+# driver never clears its bounce-buffer EOF count, so one missed EOF can desync the scan for good.
+# Off, the driver restarts only when a frame came up short, and RESET SCREEN works.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 
 # SD card: long file names (config.json, config.bak.json)
 CONFIG_FATFS_LFN_HEAP=y
