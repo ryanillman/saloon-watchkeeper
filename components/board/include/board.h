@@ -15,6 +15,7 @@ typedef struct {
   lv_display_t *(*lvgl_display)(void);         // after init and lv_init
   esp_err_t (*backlight)(uint8_t percent);     // 0 = off
   void (*buzzer)(bool on);                     // NULL when has_buzzer is false
+  void (*reset_display)(void);                 // restarts the RGB scan from the top of the frame; call from the LVGL task
 } board_t;
 
 // The board this image was built for (CONFIG_BI_BOARD_*).
