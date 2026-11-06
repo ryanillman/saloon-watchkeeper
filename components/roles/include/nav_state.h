@@ -14,7 +14,7 @@ typedef enum { NAV_TW_NONE, NAV_TW_SERVER, NAV_TW_COMPUTED } nav_tw_src_t;
 
 typedef struct {
   bd_id_t heading_true, heading_mag, variation, cog, sog, stw, awa, aws, tw_angle, tw_speed,
-          dtk, xte, dtw, ap_state, ap_target_true, ap_target_mag, set_true, drift;
+          dtk, xte, dtw, ap_state, ap_target_true, ap_target_mag, set_true, drift, position;
 } nav_ids_t;
 
 // Signal K's sign for crossTrackError is to be confirmed on the bench; this is the one place it is decided.
