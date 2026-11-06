@@ -319,6 +319,48 @@ static void test_sos_shows_for_a_mob_and_goes_to_the_script(void) {
   ui_shell_goto(0, 0);
 }
 
+static int8_t nav_role(void) { return app_alert_role("mob"); }
+
+static void test_fire_flood_sinking_select_the_script_page_automatically(void) {
+  const em_nature_t natures[] = {EM_FIRE, EM_FLOOD, EM_SINKING, EM_OTHER};
+  for (size_t i = 0; i < sizeof natures / sizeof natures[0]; i++) {
+    em_reset();
+    app_tick();   // nothing declared: the shell notes that
+    ui_shell_goto(0, 0);
+    em_on_notification(natures[i], true, false, 0, 0, 1000);
+    app_tick();
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE((uint8_t)nav_role(), ui_shell_nav()->role, em_nature_label(natures[i]));
+    TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+    ui_shell_goto(0, 0);   // the crew leave the page
+    app_tick();
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, ui_shell_nav()->role, "no repeat jump while it stays declared");
+  }
+  ui_shell_goto(0, 0);
+}
+
+static void test_mob_does_not_jump_the_page_by_itself(void) {
+  em_reset();
+  app_tick();
+  ui_shell_goto(0, 0);
+  em_on_notification(EM_MOB, true, true, 41.5, -70.25, 1000);
+  app_tick();
+  TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->role);   // GO on the banner (page_for) and SOS take the crew there
+}
+
+static void test_a_press_on_this_display_does_not_need_the_jump_but_a_new_nature_still_jumps(void) {
+  em_reset();
+  app_tick();
+  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);
+  app_tick();
+  ui_shell_goto(0, 0);
+  em_on_notification(EM_FIRE, false, false, 0, 0, 2000);   // out
+  app_tick();
+  em_on_notification(EM_FLOOD, true, false, 0, 0, 3000);   // a new declaration
+  app_tick();
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+  ui_shell_goto(0, 0);
+}
+
 int main(void) {
   lv_init();
   disp = lv_display_create(800, 480);
@@ -344,5 +386,8 @@ int main(void) {
   RUN_TEST(test_vessel_name_config_overrides_signalk);
   RUN_TEST(test_script_page_is_wired_to_the_app);
   RUN_TEST(test_sos_shows_for_a_mob_and_goes_to_the_script);
+  RUN_TEST(test_fire_flood_sinking_select_the_script_page_automatically);
+  RUN_TEST(test_mob_does_not_jump_the_page_by_itself);
+  RUN_TEST(test_a_press_on_this_display_does_not_need_the_jump_but_a_new_nature_still_jumps);
   return UNITY_END();
 }

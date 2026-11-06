@@ -137,6 +137,7 @@ static void start_writer(void) {
 static struct {
   sk_cmd_handle_t notify, waypoint, cancel;
   bool primary;   // the notification in flight is for the state on screen (a second nature during a MOB is not)
+  em_nature_t seen;   // the nature the last tick saw, so a new declaration is noticed once
 } emc;
 
 static bool has_role(const char *name);
@@ -232,10 +233,17 @@ static void on_sos(void) {
 
 // UI task, every tick: reads the answers to what the buttons sent.
 static void emergency_tick(int64_t now) {
-  if (a.ui) {   // shown for any MOB, Signal K up or not: it only goes to the script, which matters most with the network gone
+  if (a.ui) {
     em_state_t shown;
     em_snapshot(&shown);
+    // SOS shows for any MOB, Signal K up or not: it only goes to the script, which matters most with the network gone.
     ui_shell_set_sos(shown.nature == EM_MOB && has_role("navigation"));
+    // A newly declared fire, flooding, sinking or other emergency selects the script page by itself, once; the crew can
+    // leave it. A MOB does not: its GO button and the SOS button take them to the compass target and the script.
+    if (shown.nature != emc.seen) {
+      emc.seen = shown.nature;
+      if (shown.nature != EM_NONE && shown.nature != EM_MOB && has_role("navigation")) on_sos();
+    }
   }
   if (emc.notify) {
     sk_cmd_result_t r = sk_cmd_result(emc.notify);
