@@ -3,6 +3,7 @@
 #include "alerts.h"
 #include "boatdata.h"
 #include "config.h"
+#include "emergency.h"
 #include "history.h"
 #include "navigation_page.h"
 #include "platform.h"
@@ -23,6 +24,7 @@ void setUp(void) {
   bd_init();
   hist_init();
   alerts_init();
+  em_reset();
   cfg_defaults(&cfg);
 }
 void tearDown(void) {}
@@ -227,6 +229,98 @@ static void test_page_builds_in_every_size_with_no_data(void) {
   }
 }
 
+static void own_position(double lat, double lon) { bd_set_position(bd_intern("navigation.position"), lat, lon, 1, T); }
+
+static void test_position_shown_in_degrees_and_minutes(void) {
+  full();
+  own_position(41.5402833, -70.25);
+  wide();
+  TEST_ASSERT_TRUE(shown("position"));
+  TEST_ASSERT_EQUAL_STRING("41\xC2\xB0" "32.417'N\n070\xC2\xB0" "15.000'W", lv_label_get_text(part("position")));
+}
+
+static void test_position_flagged_when_there_is_no_fix(void) {
+  full();
+  wide();
+  TEST_ASSERT_TRUE(shown("position"));
+  TEST_ASSERT_EQUAL_STRING("NO POSITION", lv_label_get_text(part("position")));
+}
+
+static void test_mob_target_shows_bearing_distance_and_age(void) {
+  full();
+  own_position(41.5, -70.25);
+  em_press(EM_MOB, true, 41.6, -70.25, T - 125000, 1700000000);   // marked 2 min ago, due north of us
+  wide();
+  TEST_ASSERT_TRUE(shown("mob"));
+  TEST_ASSERT_FALSE(ui_field_faulted(part("mob")));
+  TEST_ASSERT_EQUAL_STRING("000\xC2\xB0 6.0 nm", text("mob"));
+  TEST_ASSERT_EQUAL_STRING("MARKED 2 min AGO", lv_label_get_text(part("mob_age")));
+  const ui_rose_data_t *r = navigation_page_rose_data();
+  TEST_ASSERT_TRUE(r->have_mob);
+  TEST_ASSERT_DOUBLE_WITHIN(0.001, 0.0, r->mob);
+}
+
+static void test_mob_without_a_position_shows_no_position_and_no_arrow(void) {
+  full();
+  own_position(41.5, -70.25);
+  em_on_notification(EM_MOB, true, false, 0, 0, NULL, T);   // raised by something else, no position in it
+  wide();
+  TEST_ASSERT_TRUE(shown("mob"));
+  TEST_ASSERT_TRUE(ui_field_faulted(part("mob")));
+  TEST_ASSERT_EQUAL_STRING("NO POSITION", ui_field_fault_text(part("mob")));
+  TEST_ASSERT_EQUAL_STRING("MOB POSITION UNKNOWN", lv_label_get_text(part("mob_age")));
+  TEST_ASSERT_FALSE(navigation_page_rose_data()->have_mob);
+}
+
+static void test_mob_target_flagged_when_our_own_fix_is_lost(void) {
+  full();
+  em_press(EM_MOB, true, 41.6, -70.25, T, 1700000000);   // no own position at all
+  wide();
+  TEST_ASSERT_TRUE(ui_field_faulted(part("mob")));
+  TEST_ASSERT_EQUAL_STRING("OWN POSITION LOST", lv_label_get_text(part("mob_age")));
+  TEST_ASSERT_FALSE(navigation_page_rose_data()->have_mob);
+}
+
+static void test_no_mob_target_without_a_mob(void) {
+  full();
+  own_position(41.5, -70.25);
+  wide();
+  TEST_ASSERT_FALSE(shown("mob"));
+  TEST_ASSERT_FALSE(shown("mob_age"));
+  em_press(EM_FIRE, false, 0, 0, T, 0);
+  wide();
+  TEST_ASSERT_FALSE(shown("mob"));   // a fire is on the script page
+  TEST_ASSERT_FALSE(navigation_page_rose_data()->have_mob);
+}
+
+static void test_mob_target_hidden_without_a_heading_but_text_stays(void) {
+  full();
+  bd_set_invalid(bd_find("navigation.headingTrue"));
+  own_position(41.5, -70.25);
+  em_press(EM_MOB, true, 41.6, -70.25, T, 1700000000);
+  wide();
+  TEST_ASSERT_FALSE(navigation_page_rose_data()->have_mob);   // the arrow is in the rose's frame: no heading, no arrow
+  TEST_ASSERT_EQUAL_STRING("000\xC2\xB0 6.0 nm", text("mob"));
+}
+
+static void test_navigation_has_a_script_page(void) {
+  TEST_ASSERT_EQUAL_UINT8(2, role_find("navigation")->page_count);
+}
+
+static void test_page_for_mob_is_the_main_page(void) {
+  TEST_ASSERT_EQUAL_UINT8(0, role_find("navigation")->page_for(NULL, SIZE_WIDE, "mob"));
+}
+
+static void test_page_for_fire_flood_sinking_other_is_the_script(void) {
+  const role_def_t *d = role_find("navigation");
+  const char *ids[] = {"fire", "flooding", "sinking", "emergency"};
+  for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT8(1, d->page_for(NULL, SIZE_WIDE, ids[i]));
+    TEST_ASSERT_EQUAL_UINT8(1, d->page_for(NULL, SIZE_SQUARE, ids[i]));
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, d->page_for(NULL, SIZE_WIDE, "something.else"));
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(1024, 600);
@@ -249,5 +343,15 @@ int main(void) {
   RUN_TEST(test_units_follow_config);
   RUN_TEST(test_square_board_drops_dtw);
   RUN_TEST(test_page_builds_in_every_size_with_no_data);
+  RUN_TEST(test_position_shown_in_degrees_and_minutes);
+  RUN_TEST(test_position_flagged_when_there_is_no_fix);
+  RUN_TEST(test_mob_target_shows_bearing_distance_and_age);
+  RUN_TEST(test_mob_without_a_position_shows_no_position_and_no_arrow);
+  RUN_TEST(test_mob_target_flagged_when_our_own_fix_is_lost);
+  RUN_TEST(test_no_mob_target_without_a_mob);
+  RUN_TEST(test_mob_target_hidden_without_a_heading_but_text_stays);
+  RUN_TEST(test_navigation_has_a_script_page);
+  RUN_TEST(test_page_for_mob_is_the_main_page);
+  RUN_TEST(test_page_for_fire_flood_sinking_other_is_the_script);
   return UNITY_END();
 }

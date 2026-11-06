@@ -261,7 +261,7 @@ static void test_navigation_role_is_registered(void) {
   const role_def_t *d = role_find("navigation");
   TEST_ASSERT_NOT_NULL(d);
   TEST_ASSERT_EQUAL_STRING("NAVIGATION", d->title);
-  TEST_ASSERT_EQUAL_UINT8(1, d->page_count);
+  TEST_ASSERT_EQUAL_UINT8(2, d->page_count);
   TEST_ASSERT_NOT_NULL(d->build_page);
   TEST_ASSERT_NOT_NULL(d->refresh);
   TEST_ASSERT_NOT_NULL(d->tile);

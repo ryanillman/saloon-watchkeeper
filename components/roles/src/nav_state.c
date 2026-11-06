@@ -18,6 +18,7 @@ bool nav_true_wind(double awa_rad, double aws, double stw, double *twa_rad, doub
 #define AGE_COURSE_MS 10000
 #define AGE_CURRENT_MS 30000
 #define AGE_VARIATION_MS 60000
+#define AGE_POSITION_MS 10000
 #define TWO_PI (2 * M_PI)
 
 void nav_ids_bind(nav_ids_t *ids) {
@@ -39,6 +40,7 @@ void nav_ids_bind(nav_ids_t *ids) {
   ids->ap_target_mag = bd_intern("steering.autopilot.target.headingMagnetic");
   ids->set_true = bd_intern("environment.current.setTrue");
   ids->drift = bd_intern("environment.current.drift");
+  ids->position = bd_intern("navigation.position");
   hist_track(ids->aws);
   hist_track(ids->tw_speed);
 }
@@ -46,7 +48,7 @@ void nav_ids_bind(nav_ids_t *ids) {
 size_t nav_sub_ids(const nav_ids_t *ids, bd_id_t *out, size_t max) {
   const bd_id_t all[] = {ids->heading_true, ids->heading_mag, ids->variation, ids->cog, ids->sog, ids->stw, ids->awa,
                          ids->aws, ids->tw_angle, ids->tw_speed, ids->dtk, ids->xte, ids->dtw, ids->ap_state,
-                         ids->ap_target_true, ids->ap_target_mag, bd_intern("environment.current")};
+                         ids->ap_target_true, ids->ap_target_mag, ids->position, bd_intern("environment.current")};
   size_t n = 0;
   for (size_t i = 0; i < sizeof all / sizeof all[0]; i++)
     if (all[i] != BD_NONE && n < max) out[n++] = all[i];
@@ -82,6 +84,14 @@ void nav_view_build(const nav_ids_t *ids, int64_t now, nav_view_t *o) {
   } else if (have_var && fresh_num(ids->heading_mag, AGE_FAST_MS, now, &x)) {
     o->have_heading = true;
     o->heading = wrap_2pi(x + var);
+  }
+  bd_sample_t ps;
+  if (ids->position != BD_NONE && bd_get(ids->position, &ps) && ps.kind == BD_POSITION && bd_is_fresh(&ps, AGE_POSITION_MS, now) &&
+      isfinite(ps.pos.lat) && isfinite(ps.pos.lon)) {
+    o->have_pos = true;
+    o->lat = ps.pos.lat;
+    o->lon = ps.pos.lon;
+    o->pos_age_ms = now - ps.rx_ms;
   }
   if (fresh_num(ids->cog, AGE_FAST_MS, now, &x)) o->have_cog = true, o->cog = wrap_2pi(x);
   if (fresh_num(ids->sog, AGE_FAST_MS, now, &x)) o->have_sog = true, o->sog = x;

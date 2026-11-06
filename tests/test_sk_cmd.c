@@ -54,6 +54,96 @@ static void test_expires_after_5s(void) {
   TEST_ASSERT_EQUAL(SKC_ERR_OFFLINE, sk_cmd_result(h2).err);
 }
 
+static void test_short_deadline_expires_at_3s(void) {
+  sk_cmd_t c = post("/p/mob");
+  c.expire_ms = 3000;
+  sk_cmd_handle_t h1 = submit(c, false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_FALSE(sk_cmd_next(&out, &h, 4001));   // 3001 ms old
+  TEST_ASSERT_EQUAL(SKC_FAILED, sk_cmd_result(h1).state);
+  TEST_ASSERT_EQUAL(SKC_ERR_OFFLINE, sk_cmd_result(h1).err);
+}
+
+static void test_short_deadline_still_good_just_inside_it(void) {
+  sk_cmd_t c = post("/p/mob");
+  c.expire_ms = 3000;
+  sk_cmd_handle_t h1 = submit(c, false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 3999));   // 2999 ms old
+  TEST_ASSERT_EQUAL_UINT16(h1, h);
+}
+
+static void test_zero_deadline_is_the_default_5s(void) {
+  sk_cmd_handle_t h1 = submit(post("/p/drop"), false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 5999));
+  TEST_ASSERT_EQUAL_UINT16(h1, h);
+}
+
+static void test_long_body_passes_through(void) {
+  sk_cmd_t c = post("/p/mob");
+  memset(c.body, 'x', 200);
+  c.body[200] = 0;
+  submit(c, false, 0);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 10));
+  TEST_ASSERT_EQUAL(200, strlen(out.body));
+  TEST_ASSERT_EQUAL_STRING(c.body, out.body);
+}
+
+static void test_method_passes_through(void) {
+  sk_cmd_t c = post("/signalk/v2/api/notifications/abc");
+  strcpy(c.method, "PUT");
+  submit(c, false, 0);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 10));
+  TEST_ASSERT_EQUAL_STRING("PUT", out.method);
+  sk_cmd_finish(h, true, 200);
+  sk_cmd_t plain = post("/p/drop");   // an empty method is a POST
+  submit(plain, false, 20);
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 30));
+  TEST_ASSERT_EQUAL_STRING("", out.method);
+}
+
+static void test_reply_id_is_kept_on_the_result(void) {
+  sk_cmd_handle_t h1 = submit(post("/p/a"), false, 0), h2 = submit(post("/p/b"), false, 1);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 10));
+  TEST_ASSERT_EQUAL_UINT16(h1, h);
+  sk_cmd_finish_id(h, true, 200, "7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b");
+  TEST_ASSERT_EQUAL(SKC_OK, sk_cmd_result(h1).state);
+  TEST_ASSERT_EQUAL_STRING("7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", sk_cmd_result(h1).id);
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 10));
+  sk_cmd_finish(h, true, 200);
+  TEST_ASSERT_EQUAL_STRING("", sk_cmd_result(h2).id);
+  sk_cmd_handle_t h3 = submit(post("/p/c"), false, 20);
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 30));
+  sk_cmd_finish_id(h, true, 400, "not-kept-on-failure");   // a refused request has no id worth keeping
+  TEST_ASSERT_EQUAL(SKC_FAILED, sk_cmd_result(h3).state);
+  TEST_ASSERT_EQUAL_STRING("", sk_cmd_result(h3).id);
+}
+
+static void test_reply_id_parse(void) {
+  char id[40];
+  const char *ok = "{\"state\":\"COMPLETED\",\"statusCode\":200,\"message\":\"OK\",\"id\":\"7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b\"}";
+  TEST_ASSERT_TRUE(sk_cmd_reply_id(ok, strlen(ok), id, sizeof id));
+  TEST_ASSERT_EQUAL_STRING("7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", id);
+  const char *none = "{\"state\":\"COMPLETED\",\"statusCode\":200}";
+  TEST_ASSERT_FALSE(sk_cmd_reply_id(none, strlen(none), id, sizeof id));
+  TEST_ASSERT_EQUAL_STRING("", id);
+  const char *num = "{\"id\":5}", *bad = "<html>Cannot POST</html>", *toolong = "{\"id\":\"0123456789012345678901234567890123456789\"}";
+  TEST_ASSERT_FALSE(sk_cmd_reply_id(num, strlen(num), id, sizeof id));
+  TEST_ASSERT_FALSE(sk_cmd_reply_id(bad, strlen(bad), id, sizeof id));
+  TEST_ASSERT_FALSE(sk_cmd_reply_id(toolong, strlen(toolong), id, sizeof id));   // 40 characters do not fit with the NUL
+  TEST_ASSERT_FALSE(sk_cmd_reply_id(NULL, 0, id, sizeof id));
+}
+
 static void test_queue_holds_4_evicts_oldest_radius_never_drop_or_raise(void) {
   sk_cmd_handle_t radius = submit(put("navigation.anchor.maxRadius", 30), true, 0);
   sk_cmd_handle_t drop = submit(post("/p/drop"), false, 1);
@@ -136,6 +226,13 @@ int main(void) {
   RUN_TEST(test_refused_while_disconnected_and_not_queued_later);
   RUN_TEST(test_disconnect_fails_queued_commands_and_they_never_go_out);
   RUN_TEST(test_expires_after_5s);
+  RUN_TEST(test_method_passes_through);
+  RUN_TEST(test_reply_id_is_kept_on_the_result);
+  RUN_TEST(test_reply_id_parse);
+  RUN_TEST(test_short_deadline_expires_at_3s);
+  RUN_TEST(test_short_deadline_still_good_just_inside_it);
+  RUN_TEST(test_zero_deadline_is_the_default_5s);
+  RUN_TEST(test_long_body_passes_through);
   RUN_TEST(test_queue_holds_4_evicts_oldest_radius_never_drop_or_raise);
   RUN_TEST(test_radius_replaces_pending_radius);
   RUN_TEST(test_duplicate_drop_ignored);

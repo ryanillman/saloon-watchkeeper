@@ -1,5 +1,6 @@
 #pragma once
 // Startup shared by the simulator and the firmware.
+#include "emergency.h"
 #include "config.h"
 #include "lvgl.h"
 #include "platform.h"
@@ -31,6 +32,20 @@ void app_set_backlight(void (*fn)(uint8_t percent), bool dims);
 // The board's display reset (restarts the panel scan). With it the quick panel shows RESET SCREEN, and
 // display.reset_after_swipe takes effect. Call before app_start_ui. NULL: no button.
 void app_set_display_reset(void (*fn)(void));
+
+// ---- Emergency buttons (see docs/specs/2026-11-06-emergency-design.md) ----
+// Available when the Navigation role is configured and Signal K is live: the buttons are hidden otherwise.
+bool app_emergency_available(void);
+// Declares `n`: captures the position and time now, raises the notification (a single attempt, 3 s deadline, no retry)
+// and for a MOB with a position the Signal K waypoint. The local state is set whatever the send does; a failed send
+// raises the alarm "NOT SENT - TELL HELM". False (nothing changed) when unavailable or a send is still pending.
+bool app_emergency_press(em_nature_t n);
+// Sends the cancel for the active emergency. False when unavailable or the send was refused; the emergency stays
+// active until the server has accepted the cancel.
+bool app_emergency_cancel(void);
+// The name and MMSI the script page says: vessel.name from the config when set, else what Signal K reports ("" if unknown).
+const char *app_vessel_name(void);
+const char *app_vessel_mmsi(void);
 
 // UI task, about every 100 ms: rebinds after a discovery, refreshes the page and status.
 void app_tick(void);

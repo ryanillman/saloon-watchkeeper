@@ -3,13 +3,14 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "emergency.h"
 #include "nav_state.h"
 #include "navigation_page.h"
 #include "ui_gauge.h"
 #include "units.h"
 
 static struct {
-  lv_obj_t *rose, *heading, *ap_badge, *awa, *aws, *twa, *tws, *sog, *course, *xte, *dtw, *ap_hdg, *set_drift;
+  lv_obj_t *rose, *heading, *ap_badge, *awa, *aws, *twa, *tws, *sog, *course, *xte, *dtw, *ap_hdg, *set_drift, *position, *mob, *mob_age;
   ui_rose_data_t rd;
   nav_ids_t ids;
   bool built, wide;
@@ -69,6 +70,24 @@ void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   lv_obj_set_style_border_color(w.ap_hdg, c->accent, 0);
   lv_obj_set_style_border_width(w.ap_hdg, 2, 0);
 
+  // The present position always shows. The MOB target sits in the right column below the course boxes; it only
+  // appears while a MOB is declared.
+  // On the square board there is no room below the course boxes: the MOB readout takes their place while it shows.
+  int32_t mob_y = w.wide ? pad + big + 2 * mid + 12 : pad, mob_h = w.wide ? mid : big;
+  w.mob = field(area, "MOB", c->nav_mob, true, "NO POSITION", rcol, mob_y, colw, mob_h);
+  w.mob_age = lv_label_create(area);
+  lv_obj_set_style_text_font(w.mob_age, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(w.mob_age, c->nav_mob, 0);
+  lv_label_set_long_mode(w.mob_age, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(w.mob_age, colw);
+  lv_obj_set_pos(w.mob_age, rcol, mob_y + mob_h + 2);
+  w.position = lv_label_create(area);
+  lv_obj_set_style_text_font(w.position, w.wide ? &lv_font_montserrat_20 : &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(w.position, c->fg, 0);
+  lv_obj_set_style_text_align(w.position, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_width(w.position, colw);
+  lv_obj_set_pos(w.position, rcol, bottom - (w.wide ? 62 : 40));
+
   w.heading = field(area, "HDG", c->fg, false, "HDG FAIL", (W - 104) / 2, 0, 104, 40);
   lv_obj_set_style_bg_color(w.heading, c->bg, 0);
   lv_obj_set_style_bg_opa(w.heading, LV_OPA_COVER, 0);
@@ -91,10 +110,12 @@ void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   w.built = true;
 }
 
+void navigation_page_reset(void) { memset(&w, 0, sizeof w); }
+
 lv_obj_t *navigation_page_part(const char *name) {
   if (!w.built) return NULL;
-  static const char *const names[] = {"rose", "heading", "ap_badge", "awa", "aws", "twa", "tws", "sog", "course", "xte", "dtw", "ap_hdg", "set_drift"};
-  lv_obj_t *const parts[] = {w.rose, w.heading, w.ap_badge, w.awa, w.aws, w.twa, w.tws, w.sog, w.course, w.xte, w.dtw, w.ap_hdg, w.set_drift};
+  static const char *const names[] = {"rose", "heading", "ap_badge", "awa", "aws", "twa", "tws", "sog", "course", "xte", "dtw", "ap_hdg", "set_drift", "position", "mob", "mob_age"};
+  lv_obj_t *const parts[] = {w.rose, w.heading, w.ap_badge, w.awa, w.aws, w.twa, w.tws, w.sog, w.course, w.xte, w.dtw, w.ap_hdg, w.set_drift, w.position, w.mob, w.mob_age};
   for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
     if (!strcmp(names[i], name)) return parts[i];
   return NULL;
@@ -153,10 +174,16 @@ void navigation_refresh(role_binding_t *b, int64_t now_ms) {
   speed_text(t, sizeof t, v.sog, u);
   ui_readout_set_text(w.sog, v.have_sog ? t : "", v.have_sog);
 
-  show(w.course, v.have_course);
+  bool mob_here = !w.wide && em_active();   // square board: the MOB readout is where the course boxes are
+  if (mob_here) {
+    em_state_t e;
+    em_snapshot(&e);
+    mob_here = e.nature == EM_MOB;
+  }
+  show(w.course, v.have_course && !mob_here);
   if (v.have_course) bearing_text(t, sizeof t, v.dtk);
   ui_readout_set_text(w.course, v.have_course ? t : "", v.have_course);
-  bool have_xte = v.have_course && !isnan(v.xte), have_dtw = v.have_course && !isnan(v.dtw) && w.wide;
+  bool have_xte = v.have_course && !isnan(v.xte) && !mob_here, have_dtw = v.have_course && !isnan(v.dtw) && w.wide;
   show(w.xte, have_xte);
   if (have_xte) {
     char d[24];
@@ -185,6 +212,48 @@ void navigation_refresh(role_binding_t *b, int64_t now_ms) {
     lv_label_set_text(w.set_drift, t);
   }
 
+  // Present position, always.
+  if (v.have_pos) {
+    char la[20], lo[20];
+    em_format_ddm(v.lat, true, la, sizeof la);
+    em_format_ddm(v.lon, false, lo, sizeof lo);
+    snprintf(t, sizeof t, "%s\n%s", la, lo);
+    lv_obj_set_style_text_color(w.position, ui_theme()->fg, 0);
+  } else {
+    snprintf(t, sizeof t, "NO POSITION");
+    lv_obj_set_style_text_color(w.position, ui_theme()->fault_label, 0);
+  }
+  lv_label_set_text(w.position, t);
+
+  // The MOB target: only for a declared MOB. Its position is the pressing device's capture or the notification's
+  // payload, never ours at receipt; a MOB with none says so and draws no arrow.
+  em_state_t em;
+  em_snapshot(&em);
+  bool mob = em.nature == EM_MOB;
+  show(w.mob, mob);
+  show(w.mob_age, mob);
+  bool target = false;
+  double mob_brg = 0;
+  if (mob) {
+    double dist;
+    target = v.have_pos && em_target(&em, v.lat, v.lon, &mob_brg, &dist);
+    if (target) {
+      char d[24];
+      distance_text(d, sizeof d, dist, units_from_si(Q_DISTANCE, dist, u) < 1.0 ? 2 : 1, u);
+      snprintf(t, sizeof t, "%03d\xC2\xB0 %s", degrees(mob_brg), d);
+      ui_readout_set_text(w.mob, t, true);
+      int64_t secs = (now_ms - em.captured_ms) / 1000;
+      if (secs < 0) secs = 0;
+      if (secs < 60) snprintf(t, sizeof t, "MARKED %d s AGO", (int)secs);
+      else if (secs < 3600) snprintf(t, sizeof t, "MARKED %d min AGO", (int)(secs / 60));
+      else snprintf(t, sizeof t, "MARKED %d h %02d min AGO", (int)(secs / 3600), (int)(secs % 3600 / 60));
+    } else {
+      ui_readout_set_text(w.mob, "", false);
+      snprintf(t, sizeof t, "%s", em.has_pos ? "OWN POSITION LOST" : "MOB POSITION UNKNOWN");
+    }
+    lv_label_set_text(w.mob_age, t);
+  }
+
   ui_rose_data_t rd;
   memset(&rd, 0, sizeof rd);
   rd.xte_m = NAN;
@@ -201,6 +270,8 @@ void navigation_refresh(role_binding_t *b, int64_t now_ms) {
   rd.awa = v.awa;
   rd.have_twa = tw;
   rd.twa = v.twa;
+  rd.have_mob = target && v.have_heading;
+  rd.mob = mob_brg;
   if (memcmp(&rd, &w.rd, sizeof rd)) {
     w.rd = rd;
     ui_rose_set(w.rose, &rd);

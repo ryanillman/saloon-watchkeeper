@@ -284,6 +284,20 @@ static void test_sub_ids_cover_every_path(void) {
   TEST_ASSERT_EQUAL(2, nav_sub_ids(&ids, tiny, 2));
 }
 
+static void test_position_fresh_and_stale(void) {
+  bd_set_position(ids.position, 41.5, -70.25, 1, NOW);
+  nav_view_build(&ids, NOW + 9000, &v);
+  TEST_ASSERT_TRUE(v.have_pos);
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, v.lat);
+  TEST_ASSERT_EQUAL_DOUBLE(-70.25, v.lon);
+  TEST_ASSERT_EQUAL_INT64(9000, v.pos_age_ms);
+  nav_view_build(&ids, NOW + 11000, &v);   // an older fix is no fix
+  TEST_ASSERT_FALSE(v.have_pos);
+  bd_set_invalid(ids.position);
+  nav_view_build(&ids, NOW, &v);
+  TEST_ASSERT_FALSE(v.have_pos);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_true_wind_spec_vector);
@@ -312,5 +326,6 @@ int main(void) {
   RUN_TEST(test_current_needs_both_members_and_30s);
   RUN_TEST(test_cog_valid_without_course);
   RUN_TEST(test_sub_ids_cover_every_path);
+  RUN_TEST(test_position_fresh_and_stale);
   return UNITY_END();
 }

@@ -1,5 +1,6 @@
 #include "ui_quick.h"
 #include <string.h>
+#include "ui_holdbtn.h"
 #include "ui_shell.h"
 
 #define BRIGHT_MIN 10   // a black screen cannot be undone from the screen
@@ -8,7 +9,7 @@ static const char *const NAMES[] = {"day", "dusk", "night", "auto"};
 static const char *const LABELS[] = {"DAY", "DUSK", "NIGHT", "AUTO"};
 
 static struct {
-  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *reset, *bright_label, *buzzer;
+  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *reset, *bright_label, *buzzer, *sep, *em_label, *em_btn[4];
   const ui_quick_cb_t *cb;
   uint8_t sel;
 } q;
@@ -25,6 +26,11 @@ static void style(void) {
     lv_obj_set_style_bg_color(q.btn[i], sel ? c->fg : c->strip_bg, 0);
     lv_obj_set_style_border_color(q.btn[i], sel ? c->fg : c->dim, 0);
     lv_obj_set_style_text_color(q.btn[i], sel ? c->bg : c->fg, 0);
+  }
+  if (q.sep) {
+    lv_obj_set_style_bg_color(q.sep, c->alarm, 0);
+    lv_obj_set_style_text_color(q.em_label, c->alarm, 0);
+    for (int i = 0; i < 4; i++) ui_holdbtn_restyle(q.em_btn[i]);
   }
   lv_obj_t *plain[] = {q.close, q.setup, q.reset};
   for (int i = 0; i < 3; i++) {
@@ -58,6 +64,13 @@ static void on_buzzer(lv_event_t *e) {   // the switch flips itself; report what
 static void on_setup(lv_event_t *e) {
   (void)e;
   if (q.cb && q.cb->on_setup) q.cb->on_setup();
+}
+
+static void on_em_held(void *ctx) {
+  void (*fn)(int) = q.cb ? q.cb->on_emergency : NULL;
+  int which = (int)(uintptr_t)ctx;
+  ui_quick_close();   // first: the declared emergency changes the page behind it
+  if (fn) fn(which);
 }
 
 static void on_reset(lv_event_t *e) {
@@ -195,6 +208,35 @@ void ui_quick_open(lv_obj_t *screen, const char *choice, uint8_t brightness, boo
   q.close = button(crow, "CLOSE", 48);
   lv_obj_set_flex_grow(q.close, 1);
   lv_obj_add_event_cb(q.close, on_close, LV_EVENT_CLICKED, NULL);
+
+  // Emergency, last: a gap and a divider keep it apart from the everyday options, so it is not hit by mistake.
+  if (cb && cb->on_emergency && cb->emergency_available && cb->emergency_available()) {
+    int declared = cb->emergency_declared ? cb->emergency_declared() : UI_QUICK_EM_NONE;
+    lv_obj_t *gap = lv_obj_create(q.card);
+    lv_obj_remove_style_all(gap);
+    lv_obj_set_size(gap, lv_pct(100), 14);   // plus the card's row padding either side
+    q.sep = lv_obj_create(q.card);
+    lv_obj_remove_style_all(q.sep);
+    lv_obj_set_size(q.sep, lv_pct(100), 3);
+    lv_obj_set_style_bg_opa(q.sep, LV_OPA_COVER, 0);
+    q.em_label = lv_label_create(q.card);
+    lv_label_set_text(q.em_label, "EMERGENCY - HOLD 1 s");
+    lv_obj_set_style_text_font(q.em_label, &lv_font_montserrat_20, 0);
+    lv_obj_t *erow = lv_obj_create(q.card);
+    lv_obj_remove_style_all(erow);
+    lv_obj_set_size(erow, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(erow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(erow, 8, 0);
+    lv_obj_remove_flag(erow, LV_OBJ_FLAG_SCROLLABLE);
+    static const char *const names[4] = {"MOB", "FIRE", "SINKING", "CANCEL"};
+    for (int i = 0; i < 4; i++) {
+      q.em_btn[i] = ui_holdbtn_create(erow, names[i], &lv_font_montserrat_20, 10, 64, on_em_held,
+                                      (void *)(uintptr_t)(i == 3 ? UI_QUICK_EM_CANCEL : i));
+      lv_obj_set_flex_grow(q.em_btn[i], 1);
+      if (i < 3) ui_holdbtn_set_declared(q.em_btn[i], declared == i);
+    }
+    if (declared == UI_QUICK_EM_NONE) lv_obj_add_flag(q.em_btn[3], LV_OBJ_FLAG_HIDDEN);   // nothing to cancel
+  }
   style();
 }
 
@@ -216,6 +258,12 @@ lv_obj_t *ui_quick_part(ui_quick_part_t p) {
     case UI_QUICK_SETUP: return q.setup;
     case UI_QUICK_BUZZER: return q.buzzer;
     case UI_QUICK_RESET: return q.reset;
+    case UI_QUICK_SEPARATOR: return q.sep;
+    case UI_QUICK_EM_LABEL: return q.em_label;
+    case UI_QUICK_BTN_MOB: return q.em_btn[0];
+    case UI_QUICK_BTN_FIRE: return q.em_btn[1];
+    case UI_QUICK_BTN_SINKING: return q.em_btn[2];
+    case UI_QUICK_BTN_CANCEL: return q.em_btn[3];
   }
   return NULL;
 }

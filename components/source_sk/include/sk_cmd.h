@@ -5,6 +5,7 @@
 // Safety rules (a drop sent late sets the anchor at the wrong spot): nothing is queued while disconnected, a
 // command not sent within 5 s is dropped, a lost connection fails everything still queued, and nothing is retried.
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum { SKC_PENDING, SKC_OK, SKC_FAILED } sk_cmd_state_t;
@@ -15,12 +16,14 @@ typedef enum { SKC_ERR_NONE, SKC_ERR_OFFLINE, SKC_ERR_NO_ACCESS, SKC_ERR_NO_PLUG
 typedef struct {
   bool put_number;
   char path[96];
-  char body[96];
+  char body[256];
   double value;
+  char method[8];       // "" = POST. "PUT" sends the body to the server path (put_number false). DELETE is not supported by the ESP transport
+  uint16_t expire_ms;   // how long it may wait to be sent; 0 = 5000. An emergency uses 3000: late is worse than never
 } sk_cmd_t;
 
 typedef uint16_t sk_cmd_handle_t;   // 0 = none
-typedef struct { sk_cmd_state_t state; sk_cmd_err_t err; } sk_cmd_result_t;
+typedef struct { sk_cmd_state_t state; sk_cmd_err_t err; char id[40]; } sk_cmd_result_t;   // id: the "id" in a successful reply (a UUID), else ""
 
 void sk_cmd_init(void);                    // forgets everything; not connected
 void sk_cmd_set_connected(bool up);        // sk_client: false fails every queued command (OFFLINE)
@@ -39,3 +42,8 @@ sk_cmd_result_t sk_cmd_result(sk_cmd_handle_t h);
 bool sk_cmd_next(sk_cmd_t *out, sk_cmd_handle_t *h, int64_t now_ms);
 // transport_ok false: no answer (OFFLINE). Else status: 2xx OK; 401/403 NO_ACCESS; 404 NO_PLUGIN; others REJECTED.
 void sk_cmd_finish(sk_cmd_handle_t h, bool transport_ok, int status);
+// As sk_cmd_finish, and a successful result keeps `reply_id` (NULL or "" = none) for sk_cmd_result.
+void sk_cmd_finish_id(sk_cmd_handle_t h, bool transport_ok, int status, const char *reply_id);
+// The string "id" of a JSON reply body into `out` (cap `n`). False, `out` empty, when there is none, it is not a string,
+// it does not fit, or the body is not JSON.
+bool sk_cmd_reply_id(const char *json, size_t len, char *out, size_t n);

@@ -48,6 +48,12 @@
       }
     },
     "buzzer": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } },
+    "vessel": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 31, "description": "The vessel name on the emergency script. Empty: the name Signal K reports." }
+      }
+    },
     "anchor": {
       "type": "object",
       "properties": {

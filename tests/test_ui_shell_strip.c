@@ -73,8 +73,8 @@ static bool meet(lv_obj_t *a, lv_obj_t *b) {
 // Every part of the strip that is showing, none overlapping another.
 static void check_no_overlap(void) {
   lv_obj_t *p[] = {ui_shell_home_button(), ui_shell_name(), ui_shell_dots(), ui_shell_clock(), ui_shell_source_dot(), ui_shell_status(),
-                   ui_alerts_part(UI_ALERTS_MARKER), ui_alerts_part(UI_ALERTS_ACKED_MARKER), ui_alerts_part(UI_ALERTS_OFFLINE)};
-  const char *n[] = {"home", "name", "dots", "clock", "source dot", "status", "marker", "acked marker", "offline"};
+                   ui_alerts_part(UI_ALERTS_MARKER), ui_alerts_part(UI_ALERTS_ACKED_MARKER), ui_alerts_part(UI_ALERTS_OFFLINE), ui_shell_sos()};
+  const char *n[] = {"home", "name", "dots", "clock", "source dot", "status", "marker", "acked marker", "offline", "sos"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     for (size_t j = i + 1; j < sizeof p / sizeof p[0]; j++) {
       if (p[i] == p[j] || !shown(p[i]) || !shown(p[j])) continue;   // square: the offline text is the status label
@@ -108,6 +108,60 @@ static void marked_strip(int32_t w, int32_t h, size_class_t sc) {
   check_no_overlap();
   close_shell();
 }
+
+// The SOS button (shown while a MOB is declared) takes the role name's place; nothing else in the strip moves under it.
+static void sos_strip(int32_t w, int32_t h, size_class_t sc) {
+  open_shell(w, h, sc, PALETTE_DAY);
+  ui_shell_set_clock("02:14");
+  ui_shell_set_source(UI_SRC_LIVE);
+  raise("a.warn", AL_WARN, false);
+  raise("a.alarm", AL_ALARM, true);
+  ui_shell_set_sos(true);
+  update(true);
+  TEST_ASSERT_TRUE(shown(ui_shell_sos()));
+  TEST_ASSERT_TRUE(shown(ui_alerts_part(UI_ALERTS_MARKER)));
+  TEST_ASSERT_TRUE(shown(ui_alerts_part(UI_ALERTS_ACKED_MARKER)));   // the bell is still there
+  check_no_overlap();
+  lv_area_t a;
+  lv_obj_get_coords(ui_shell_sos(), &a);
+  int32_t x = (a.x1 + a.x2) / 2, height = a.y2 - a.y1 + 1;
+  lv_point_t above = {x, a.y1 - 8}, below = {x, a.y2 + 8}, far_below = {x, a.y2 + 20};
+  TEST_ASSERT_TRUE(lv_obj_hit_test(ui_shell_sos(), &above));
+  TEST_ASSERT_TRUE(lv_obj_hit_test(ui_shell_sos(), &below));      // 8 px of reach each way
+  TEST_ASSERT_FALSE(lv_obj_hit_test(ui_shell_sos(), &far_below));
+  TEST_ASSERT_GREATER_OR_EQUAL_INT32_MESSAGE(48, height + 16, "a touch target big enough for a wet thumb");
+  close_shell();
+}
+
+static int sos_taps;
+static void on_sos(void) { sos_taps++; }
+
+static void sos_basics(int32_t w, int32_t h, size_class_t sc) {
+  open_shell(w, h, sc, PALETTE_DAY);
+  TEST_ASSERT_NOT_NULL(ui_shell_sos());
+  TEST_ASSERT_FALSE(shown(ui_shell_sos()));   // hidden until a MOB
+  TEST_ASSERT_TRUE(shown(ui_shell_name()));
+  sos_taps = 0;
+  ui_shell_set_sos_cb(on_sos);
+  ui_shell_set_sos(true);
+  update(true);
+  TEST_ASSERT_TRUE(shown(ui_shell_sos()));
+  TEST_ASSERT_FALSE(shown(ui_shell_name()));   // the name makes way
+  lv_obj_send_event(ui_shell_sos(), LV_EVENT_CLICKED, NULL);
+  TEST_ASSERT_EQUAL(1, sos_taps);
+  ui_shell_set_sos(false);
+  update(true);
+  TEST_ASSERT_FALSE(shown(ui_shell_sos()));
+  TEST_ASSERT_TRUE(shown(ui_shell_name()));
+  ui_shell_set_sos_cb(NULL);
+  close_shell();
+}
+
+static void test_sos_basics_on_square(void) { sos_basics(480, 480, SIZE_SQUARE); }
+static void test_sos_basics_on_800(void) { sos_basics(800, 480, SIZE_WIDE); }
+static void test_sos_clear_of_the_markers_on_square(void) { sos_strip(480, 480, SIZE_SQUARE); }
+static void test_sos_clear_of_the_markers_on_800(void) { sos_strip(800, 480, SIZE_WIDE); }
+static void test_sos_clear_of_the_markers_on_1024(void) { sos_strip(1024, 600, SIZE_WIDE); }
 
 static void test_offline_strip_clear_on_square(void) { offline_strip(480, 480, SIZE_SQUARE); }
 static void test_offline_strip_clear_on_800(void) { offline_strip(800, 480, SIZE_WIDE); }
@@ -224,6 +278,11 @@ int main(void) {
   RUN_TEST(test_live_is_a_bare_dot_and_trouble_adds_text);
   RUN_TEST(test_dot_shape_differs_by_state_not_only_colour);
   RUN_TEST(test_override_text_replaces_status_text_and_keeps_the_dot);
+  RUN_TEST(test_sos_basics_on_square);
+  RUN_TEST(test_sos_basics_on_800);
+  RUN_TEST(test_sos_clear_of_the_markers_on_square);
+  RUN_TEST(test_sos_clear_of_the_markers_on_800);
+  RUN_TEST(test_sos_clear_of_the_markers_on_1024);
   RUN_TEST(test_palette_change_restyles_the_dot);
   RUN_TEST(test_home_button_returns_to_the_start_roles_first_page);
   return UNITY_END();
