@@ -3,7 +3,7 @@ import unittest
 
 import _path  # noqa: F401
 from boatmodel import load_baseline
-from overlay import Alarm, Post, Put, parse_overlay
+from overlay import Alarm, Notify, Post, Put, parse_overlay
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 DIR = _path.SKDIR / "overlays"
@@ -12,6 +12,7 @@ NAMES = {
     "alarm-coolant", "alarm-fuel-low", "controller-dropout", "coolant-null", "glance-mixed",
     "key-off", "rpm-pickup-fails", "tanks", "three-bank", "two-engines", "victron-power",
     "warn-tank-low", "anchor-holding", "anchor-holding-anchoralarm", "navigation-underway",
+    "emergency-mob", "emergency-mob-nopos", "emergency-fire",
 }
 
 

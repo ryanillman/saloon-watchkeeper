@@ -1,0 +1,10 @@
+{
+  "description": "A fire, then flooding. At 10 s notifications.fire goes to emergency: the displays raise the alarm and jump to the emergency script (Navigation page 2) with FIRE declared. At 30 s notifications.flooding too (a second nature while a fire is up). At 60 s both clear.",
+  "durationMs": 70000,
+  "after": [
+    { "atMs": 10000, "note": "fire", "op": "notify", "nature": "fire", "state": "emergency", "message": "ENGINE ROOM FIRE" },
+    { "atMs": 30000, "note": "flooding as well", "op": "notify", "nature": "flooding", "state": "emergency" },
+    { "atMs": 60000, "note": "fire out", "op": "notify", "nature": "fire", "state": "normal" },
+    { "atMs": 60000, "note": "flooding stopped", "op": "notify", "nature": "flooding", "state": "normal" }
+  ]
+}

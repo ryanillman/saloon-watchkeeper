@@ -2,8 +2,8 @@ import unittest
 
 import _path  # noqa: F401
 from boatmodel import load_baseline
-from overlay import (Alarm, Clear, GroupOff, GroupOn, Move, Overlay, OverlayError, Post, Put, Ramp,
-                     Set, Silent, parse_overlay)
+from overlay import (Alarm, Clear, GroupOff, GroupOn, Move, Notify, Overlay, OverlayError, Post, Put, Ramp,
+                     Set, Silent, notify_delta, parse_overlay)
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 RPM = "propulsion.port.revolutions"
@@ -62,6 +62,46 @@ class OverlayEngine(unittest.TestCase):
                    {"atMs": 0, "op": "alarm", "path": TEMP, "state": "panic"}):
             with self.assertRaises(OverlayError):
                 parse_overlay(doc(ev), B)
+
+    def test_notify_parses_with_and_without_a_position(self):
+        ov = parse_overlay(doc({"atMs": 10, "op": "notify", "nature": "mob", "state": "emergency", "position": [41.5, -70.25]},
+                               {"atMs": 20, "op": "notify", "nature": "fire", "state": "emergency", "message": "GALLEY FIRE"},
+                               {"atMs": 30, "op": "notify", "nature": "mob", "state": "normal"}), B)
+        got = ov.step(30)
+        self.assertEqual(got[0], Notify("mob", "emergency", None, (41.5, -70.25)))
+        self.assertEqual(got[1], Notify("fire", "emergency", "GALLEY FIRE", None))
+        self.assertEqual(got[2], Notify("mob", "normal", None, None))
+
+    def test_notify_rejects_bad_nature_state_and_position(self):
+        bad = [{"nature": "propulsion.port", "state": "emergency"},
+               {"nature": "mob", "state": "alarm"},
+               {"nature": "mob", "state": "emergency", "position": [95, 0]},
+               {"nature": "mob", "state": "emergency", "position": [41.5]},
+               {"nature": "mob", "state": "emergency", "position": "here"},
+               {"state": "emergency"}]
+        for extra in bad:
+            with self.subTest(extra=extra), self.assertRaises(OverlayError):
+                parse_overlay(doc({"atMs": 0, "op": "notify", **extra}), B)
+
+    def test_notify_does_not_open_the_other_notification_paths(self):
+        for op in ("set", "null", "silent"):
+            with self.subTest(op=op), self.assertRaises(OverlayError):
+                parse_overlay(doc({"atMs": 0, "op": op, "path": "notifications.mob", "value": 1}), B)
+
+    def test_notify_delta_shape(self):
+        d = notify_delta(Notify("mob", "emergency", None, (41.5, -70.25)))
+        self.assertEqual(d["context"], "vessels.self")
+        v = d["updates"][0]["values"][0]
+        self.assertEqual(v["path"], "notifications.mob")
+        self.assertEqual(v["value"]["state"], "emergency")
+        self.assertEqual(v["value"]["method"], ["visual", "sound"])
+        self.assertEqual(v["value"]["message"], "MAN OVERBOARD")
+        self.assertEqual(v["value"]["data"], {"position": {"latitude": 41.5, "longitude": -70.25}})
+        fire = notify_delta(Notify("fire", "emergency", None, None))["updates"][0]["values"][0]["value"]
+        self.assertNotIn("data", fire)   # a position only on a MOB
+        self.assertEqual(fire["message"], "FIRE")
+        normal = notify_delta(Notify("mob", "normal", None, None))["updates"][0]["values"][0]["value"]
+        self.assertEqual(normal, {"state": "normal"})
 
     def test_no_notification_paths_allowed(self):
         with self.assertRaises(OverlayError) as cm:

@@ -1,6 +1,8 @@
 """Overlays: timed operations layered over the baseline boat. Pure logic, no I/O.
 
-An overlay never names a notifications.* path: alarms come from the server reacting to zones.
+An overlay never names a notifications.* path: alarms come from the server reacting to zones. The one exception is the
+notify op, for the emergency natures (mob, fire, flooding, sinking, emergency): they have no zone to cross, so the boat
+sends the notification itself, as a plugin would.
 """
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -77,6 +79,30 @@ class Move:
     over_ms: float
 
 
+NATURES = {"mob": "MAN OVERBOARD", "fire": "FIRE", "flooding": "FLOODING", "sinking": "SINKING", "emergency": "EMERGENCY"}
+
+
+@dataclass(frozen=True)
+class Notify:
+    """An emergency notification sent straight to Signal K (notifications.<nature>). state is "emergency" or "normal"."""
+    nature: str
+    state: str
+    message: Optional[str]
+    position: Optional[tuple]   # (latitude, longitude); only a MOB carries one
+
+
+def notify_delta(n: Notify) -> dict:
+    """The delta the boat sends for a Notify."""
+    if n.state == "normal":
+        value: dict = {"state": "normal"}
+    else:
+        value = {"state": "emergency", "method": ["visual", "sound"], "message": n.message or NATURES[n.nature]}
+        if n.nature == "mob" and n.position:
+            value["data"] = {"position": {"latitude": n.position[0], "longitude": n.position[1]}}
+    return {"context": "vessels.self",
+            "updates": [{"source": {"label": "sk-inject"}, "values": [{"path": f"notifications.{n.nature}", "value": value}]}]}
+
+
 class Overlay:
     def __init__(self, description, duration_ms, profile, with_groups, events):
         self.description = description
@@ -134,6 +160,23 @@ def _action(ev, baseline):
         return Alarm(_path(ev, baseline), ev["state"], ev.get("holdMs"))
     if op == "clear":
         return Clear(_path(ev, baseline))
+    if op == "notify":
+        nature = ev.get("nature")
+        if nature not in NATURES:
+            raise OverlayError(f"notify: nature must be one of {', '.join(NATURES)}")
+        if ev.get("state") not in ("emergency", "normal"):
+            raise OverlayError("notify: state must be emergency or normal")
+        pos = ev.get("position")
+        if pos is not None:
+            ok = (isinstance(pos, list) and len(pos) == 2 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in pos)
+                  and -90 <= pos[0] <= 90 and -180 <= pos[1] <= 180)
+            if not ok:
+                raise OverlayError("notify: position must be [latitude, longitude]")
+            pos = (float(pos[0]), float(pos[1]))
+        msg = ev.get("message")
+        if msg is not None and not isinstance(msg, str):
+            raise OverlayError("notify: message must be a string")
+        return Notify(nature, ev["state"], msg, pos)
     if op == "post":
         p = ev.get("path")
         if not isinstance(p, str) or not p.startswith("/plugins/") or ".." in p:

@@ -24,7 +24,7 @@ import skhttp  # noqa: E402
 import zones  # noqa: E402
 from boatmodel import load_baseline  # noqa: E402
 from boatstate import MANUAL, BoatState  # noqa: E402
-from overlay import Alarm, OverlayError, Post, parse_overlay  # noqa: E402
+from overlay import Alarm, Notify, OverlayError, Post, notify_delta, parse_overlay  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 TOKEN_FILE = HERE / ".token"
@@ -94,7 +94,7 @@ class Boat:
             for m in msgs:
                 self.log(m)
             for owner, a in alarms:
-                self.spawn(self.alarm(owner, a) if isinstance(a, Alarm) else self.request(a))
+                self.spawn(self.alarm(owner, a) if isinstance(a, Alarm) else self.notify(a) if isinstance(a, Notify) else self.request(a))
             await self.send({
                 "context": "vessels.self",
                 "updates": [{"source": {"label": "sk-inject"},
@@ -125,6 +125,11 @@ class Boat:
             return
         note = "" if 200 <= status < 300 else f"  {' '.join(body.split())[:300]}"
         self.log(f"{what}: HTTP {status}{note}")
+
+    async def notify(self, n: Notify):
+        """An emergency notification (mob, fire, ...): no zone to cross, so it goes out as a delta, as a plugin would send it."""
+        sent = await self.send(notify_delta(n))
+        self.log(f"notifications.{n.nature} {n.state}: {'sent' if sent else 'NOT sent (the server connection is down)'}")
 
     # -- alarms: let the server do the alarming ---------------------------------------
     async def alarm(self, owner, a: Alarm):
