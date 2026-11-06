@@ -65,7 +65,9 @@ void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, do
   if (n == EM_NONE) return;
   LOCK();
   if (!active) {
-    if (st.nature == n) memset(&st, 0, sizeof st);
+    // A "normal" the server replays (a reconnect) must not wipe a press whose notification is still being sent.
+    bool in_flight = st.origin == EM_ORIGIN_LOCAL && st.send == EM_SENDING;
+    if (st.nature == n && !in_flight) memset(&st, 0, sizeof st);
   } else if (st.nature == n) {
     // Our own echo, or a replay after a reconnect: keep what we have. A device that adopted a MOB with no position
     // may learn it from a later payload.
