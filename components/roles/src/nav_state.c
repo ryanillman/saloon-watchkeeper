@@ -91,6 +91,7 @@ void nav_view_build(const nav_ids_t *ids, int64_t now, nav_view_t *o) {
     o->have_pos = true;
     o->lat = ps.pos.lat;
     o->lon = ps.pos.lon;
+    o->pos_age_ms = now - ps.rx_ms;
   }
   if (fresh_num(ids->cog, AGE_FAST_MS, now, &x)) o->have_cog = true, o->cog = wrap_2pi(x);
   if (fresh_num(ids->sog, AGE_FAST_MS, now, &x)) o->have_sog = true, o->sog = x;

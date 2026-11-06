@@ -33,6 +33,7 @@ typedef struct {
   bool ap_engaged, have_ap_target;  double ap_target;   // rad true
   bool have_current;  double set, drift;  // rad true, m/s; both or neither
   bool have_pos;      double lat, lon;    // degrees; a fix no older than 10 s
+  int64_t pos_age_ms;                     // how old that fix is (0 when there is none)
 } nav_view_t;
 
 // Interns every path the page reads, and has the history store track apparent and server true wind speed.

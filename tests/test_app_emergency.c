@@ -8,9 +8,11 @@
 #include "boatdata.h"
 #include "config.h"
 #include "emergency.h"
+#include "emergency_page.h"
 #include "platform.h"
 #include "sk_cmd.h"
 #include "sk_parse.h"
+#include "ui_shell.h"
 
 static uint8_t buf[800 * 48 * 2];
 static void flush(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
@@ -263,6 +265,31 @@ static void test_alert_role_maps_emergency_ids_to_navigation(void) {
   TEST_ASSERT_EQUAL_INT8(-1, app_alert_role("firewall"));
 }
 
+static void test_vessel_name_config_overrides_signalk(void) {
+  const char *j = "{\"name\":\"FromSignalK\",\"mmsi\":\"316009999\"}";
+  sk_parse_full(j, strlen(j));
+  TEST_ASSERT_EQUAL_STRING("FromSignalK", app_vessel_name());
+  TEST_ASSERT_EQUAL_STRING("316009999", app_vessel_mmsi());
+  cfg_t next = *app_config();
+  strcpy(next.vessel_name, "Saloon");
+  app_apply_config(&next);
+  TEST_ASSERT_EQUAL_STRING("Saloon", app_vessel_name());
+}
+
+static void test_script_page_is_wired_to_the_app(void) {
+  int8_t nav = -1;
+  for (uint8_t i = 0; i < app_config()->role_count; i++)
+    if (!strcmp(app_config()->roles[i].role, "navigation")) nav = (int8_t)i;
+  ui_shell_goto((uint8_t)nav, 1);
+  app_tick();
+  TEST_ASSERT_NOT_NULL(emergency_page_part("btn_mob"));
+  TEST_ASSERT_FALSE(lv_obj_has_flag(emergency_page_part("btn_mob"), LV_OBJ_FLAG_HIDDEN));   // Signal K is up in setUp
+  alerts_source_up(false);
+  app_tick();
+  TEST_ASSERT_TRUE(lv_obj_has_flag(emergency_page_part("btn_mob"), LV_OBJ_FLAG_HIDDEN));
+  ui_shell_goto(0, 0);
+}
+
 int main(void) {
   lv_init();
   disp = lv_display_create(800, 480);
@@ -285,5 +312,7 @@ int main(void) {
   RUN_TEST(test_incoming_notification_sets_the_state);
   RUN_TEST(test_position_is_subscribed_with_the_navigation_role);
   RUN_TEST(test_alert_role_maps_emergency_ids_to_navigation);
+  RUN_TEST(test_vessel_name_config_overrides_signalk);
+  RUN_TEST(test_script_page_is_wired_to_the_app);
   return UNITY_END();
 }
