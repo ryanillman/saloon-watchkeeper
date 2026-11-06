@@ -22,6 +22,9 @@ static uint16_t count;
 static int64_t newest_src_s;   // largest source timestamp set (bd_newest_source_time)
 static void *lock;
 
+static struct { char name[12]; uint8_t rank; bd_src_state_t state; } sources[BD_MAX_SOURCES];
+static int32_t hold_ms = BD_HOLD_MS_DEFAULT;
+
 #define LOCK() platform_lock(lock)
 #define UNLOCK() platform_unlock(lock)
 
@@ -34,6 +37,8 @@ void bd_init(void) {
   count = 0;
   path_used = 0;
   newest_src_s = 0;
+  memset(sources, 0, sizeof sources);
+  hold_ms = BD_HOLD_MS_DEFAULT;
   UNLOCK();
 }
 
@@ -80,10 +85,64 @@ const char *bd_path(bd_id_t id) {
   return e ? e->path : NULL;
 }
 
+static uint8_t rank_of(uint8_t source) { return source < BD_MAX_SOURCES ? sources[source].rank : 0; }
+
+// Whether `source` may overwrite the entry now. A weak write (a value that is not a reading, or a replayed one)
+// never displaces a fresh sample from a lower-ranked source: a null from Signal K must not hide a working CAN sensor.
+static bool admit_locked(const entry_t *e, uint8_t source, bool weak, int64_t now_ms) {
+  const bd_sample_t *cur = &e->sample;
+  if (!cur->valid || cur->source == source) return true;
+  if (now_ms - cur->rx_ms > hold_ms) return true;
+  uint8_t rs = rank_of(source), rc = rank_of(cur->source);
+  return rs == rc || (rs > rc && !weak);
+}
+
+static bool replay_locked(int64_t src_s) { return src_s > 0 && newest_src_s > 0 && newest_src_s - src_s > BD_REPLAY_S; }
+
+bool bd_admit(bd_id_t id, uint8_t source, int64_t src_s, int64_t now_ms) {
+  LOCK();
+  entry_t *e = get(id);
+  bool ok = e && admit_locked(e, source, replay_locked(src_s), now_ms);
+  UNLOCK();
+  return ok;
+}
+
+void bd_source_register(uint8_t source, const char *name, uint8_t rank) {
+  if (source >= BD_MAX_SOURCES) return;
+  LOCK();
+  snprintf(sources[source].name, sizeof sources[source].name, "%s", name ? name : "");
+  sources[source].rank = rank;
+  if (sources[source].state == BD_SRC_NOT_CONFIGURED) sources[source].state = BD_SRC_OFFLINE;
+  UNLOCK();
+}
+
+void bd_source_set_state(uint8_t source, bd_src_state_t st) {
+  if (source >= BD_MAX_SOURCES) return;
+  LOCK();
+  sources[source].state = st;
+  UNLOCK();
+}
+
+bd_src_state_t bd_source_state(uint8_t source) {
+  if (source >= BD_MAX_SOURCES) return BD_SRC_NOT_CONFIGURED;
+  LOCK();
+  bd_src_state_t st = sources[source].state;
+  UNLOCK();
+  return st;
+}
+
+const char *bd_source_name(uint8_t source) { return source < BD_MAX_SOURCES ? sources[source].name : ""; }
+
+void bd_set_hold_ms(int32_t ms) {
+  LOCK();
+  hold_ms = ms > 0 ? ms : BD_HOLD_MS_DEFAULT;
+  UNLOCK();
+}
+
 void bd_set_number(bd_id_t id, double v, uint8_t source, int64_t now_ms) {
   LOCK();
   entry_t *e = get(id);
-  if (e) {
+  if (e && admit_locked(e, source, !isfinite(v), now_ms)) {
     e->sample.kind = BD_NUMBER;
     e->sample.num = v;
     e->sample.valid = isfinite(v);
@@ -98,7 +157,7 @@ void bd_set_number(bd_id_t id, double v, uint8_t source, int64_t now_ms) {
 void bd_set_position(bd_id_t id, double lat, double lon, uint8_t source, int64_t now_ms) {
   LOCK();
   entry_t *e = get(id);
-  if (e) {
+  if (e && admit_locked(e, source, !(isfinite(lat) && isfinite(lon)), now_ms)) {
     e->sample.kind = BD_POSITION;
     e->sample.pos.lat = lat;
     e->sample.pos.lon = lon;
@@ -114,7 +173,7 @@ void bd_set_position(bd_id_t id, double lat, double lon, uint8_t source, int64_t
 void bd_set_text(bd_id_t id, const char *s, uint8_t source, int64_t now_ms) {
   LOCK();
   entry_t *e = get(id);
-  if (e) {
+  if (e && admit_locked(e, source, false, now_ms)) {
     e->sample.kind = BD_TEXT;
     strncpy(e->sample.text, s, sizeof e->sample.text - 1);
     e->sample.text[sizeof e->sample.text - 1] = 0;

@@ -111,6 +111,12 @@ static void store_notification(const char *path, const cJSON *v, int64_t now) {
   alerts_upsert(&a, now);
 }
 
+// Stamps the update's own time on the sample, unless the model refused the write (another source holds the path).
+static void stamp(bd_id_t id, int64_t now, int64_t src_s) {
+  bd_sample_t s;
+  if (src_s && bd_get(id, &s) && s.source == SK_SOURCE_ID && s.rx_ms == now) bd_set_source_time(id, src_s);
+}
+
 static void store_value(const char *path, const cJSON *v, int64_t now, int64_t src_s) {
   if (!strncmp(path, NOTE_PREFIX, strlen(NOTE_PREFIX))) {
     store_notification(path, v, now);
@@ -121,16 +127,16 @@ static void store_value(const char *path, const cJSON *v, int64_t now, int64_t s
     static const char *const member[] = {"setTrue", "drift"};
     for (int i = 0; i < 2; i++) {
       bd_id_t lid = bd_intern(leaf[i]);
-      if (lid == BD_NONE) continue;
+      if (lid == BD_NONE || !bd_admit(lid, SK_SOURCE_ID, src_s, now)) continue;
       const cJSON *m = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, member[i]) : NULL;
       bd_set_number(lid, cJSON_IsNumber(m) ? m->valuedouble : NAN, SK_SOURCE_ID, now);
-      if (src_s) bd_set_source_time(lid, src_s);
+      stamp(lid, now, src_s);
     }
     bd_intern(path);   // the parent id stays known: it is the id the displays subscribe by
     return;
   }
   bd_id_t id = bd_intern(path);
-  if (id == BD_NONE) return;
+  if (id == BD_NONE || !bd_admit(id, SK_SOURCE_ID, src_s, now)) return;   // a replay must not displace a fresher value from another source
   if (cJSON_IsNumber(v)) {
     bd_set_number(id, v->valuedouble, SK_SOURCE_ID, now);
   } else if (cJSON_IsString(v)) {
@@ -148,7 +154,7 @@ static void store_value(const char *path, const cJSON *v, int64_t now, int64_t s
       bd_set_number(id, NAN, SK_SOURCE_ID, now);
     }
   }
-  if (src_s) bd_set_source_time(id, src_s);
+  stamp(id, now, src_s);
 }
 
 void sk_parse_message(const char *json, size_t len, int64_t now) {

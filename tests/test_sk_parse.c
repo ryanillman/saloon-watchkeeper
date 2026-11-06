@@ -293,6 +293,37 @@ static void test_environment_current_partial(void) {
   TEST_ASSERT_FALSE(get("environment.current.setTrue").valid);
 }
 
+// Signal K preferred over a bus source: a value it replays on reconnect (old timestamp) must not displace a fresher
+// bus value, and a null must not hide a working bus sensor.
+static void test_replay_does_not_displace_a_fresher_bus_value(void) {
+  bd_source_register(BD_SRC_SK, "signalk", 2);
+  bd_source_register(BD_SRC_N2K, "n2k", 1);
+  feed("{\"updates\":[{\"timestamp\":\"2026-11-05T12:00:00.000Z\",\"values\":[{\"path\":\"navigation.datetime\",\"value\":\"x\"}]}]}");
+  bd_id_t id = bd_intern("propulsion.port.revolutions");
+  bd_set_number(id, 40, BD_SRC_N2K, 1000);   // from the bus, current
+  feed("{\"updates\":[{\"timestamp\":\"2026-11-05T09:00:00.000Z\",\"values\":[{\"path\":\"propulsion.port.revolutions\",\"value\":5}]}]}");
+  bd_sample_t s = get("propulsion.port.revolutions");
+  TEST_ASSERT_EQUAL_DOUBLE(40, s.num);
+  TEST_ASSERT_EQUAL_UINT8(BD_SRC_N2K, s.source);
+  TEST_ASSERT_EQUAL_INT64(0, s.src_s);   // the refused value left no timestamp on the bus sample
+  feed("{\"updates\":[{\"timestamp\":\"2026-11-05T12:00:00.000Z\",\"values\":[{\"path\":\"propulsion.port.revolutions\",\"value\":41}]}]}");
+  s = get("propulsion.port.revolutions");   // a current reading from the server wins
+  TEST_ASSERT_EQUAL_DOUBLE(41, s.num);
+  TEST_ASSERT_EQUAL_UINT8(BD_SRC_SK, s.source);
+  TEST_ASSERT_NOT_EQUAL(0, s.src_s);
+}
+
+static void test_signalk_null_does_not_hide_a_bus_value(void) {
+  bd_source_register(BD_SRC_SK, "signalk", 2);
+  bd_source_register(BD_SRC_N2K, "n2k", 1);
+  bd_id_t id = bd_intern("tanks.fuel.0.currentLevel");
+  bd_set_number(id, 0.5, BD_SRC_N2K, 1000);
+  feed("{\"updates\":[{\"values\":[{\"path\":\"tanks.fuel.0.currentLevel\",\"value\":null}]}]}");
+  bd_sample_t s = get("tanks.fuel.0.currentLevel");
+  TEST_ASSERT_TRUE(s.valid);
+  TEST_ASSERT_EQUAL_DOUBLE(0.5, s.num);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_delta_number);
@@ -327,5 +358,7 @@ int main(void) {
   RUN_TEST(test_environment_current_is_flattened);
   RUN_TEST(test_environment_current_null_invalidates_both);
   RUN_TEST(test_environment_current_partial);
+  RUN_TEST(test_replay_does_not_displace_a_fresher_bus_value);
+  RUN_TEST(test_signalk_null_does_not_hide_a_bus_value);
   return UNITY_END();
 }

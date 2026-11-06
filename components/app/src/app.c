@@ -174,6 +174,7 @@ static void anchor_tick(int64_t now) {
 
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
+  bd_source_register(BD_SRC_SK, "signalk", 2);   // preferred over any raw bus source (NMEA 2000 will rank 1)
   alerts_init();
   hist_init();
   ui_clock_reset();
@@ -782,10 +783,10 @@ void app_tick(void) {
       }
     }
     switch (sk_client_state()) {
-      case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); break;
+      case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
       case SK_DISCOVERING:
-      case SK_CONNECTING: ui_shell_set_source(UI_SRC_CONNECTING); break;
-      default: ui_shell_set_source(UI_SRC_OFFLINE); break;
+      case SK_CONNECTING: ui_shell_set_source(UI_SRC_CONNECTING); bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING); break;
+      default: ui_shell_set_source(UI_SRC_OFFLINE); bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE); break;
     }
   }
   apply_palette();   // auto: follows environment.mode; changes only when the result does
