@@ -76,6 +76,15 @@ static void test_cancel_not_sent_keeps_state(void) {
   TEST_ASSERT_FALSE(em_active());
 }
 
+static void test_stale_normal_does_not_clear_a_press_in_flight(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);   // the notification is still being sent
+  em_on_notification(EM_MOB, false, false, 0, 0, 1100);      // an old "normal" replayed by the server
+  TEST_ASSERT_TRUE(em_active());
+  em_set_send(EM_SENT);
+  em_on_notification(EM_MOB, false, false, 0, 0, 2000);      // once sent, a normal is a real clear (cancelled elsewhere)
+  TEST_ASSERT_FALSE(em_active());
+}
+
 static void test_mob_is_not_displaced_by_another_nature(void) {
   em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
   em_on_notification(EM_FIRE, true, false, 0, 0, 2000);
@@ -165,6 +174,7 @@ int main(void) {
   RUN_TEST(test_replay_adopts_payload_position);
   RUN_TEST(test_notification_normal_clears);
   RUN_TEST(test_cancel_not_sent_keeps_state);
+  RUN_TEST(test_stale_normal_does_not_clear_a_press_in_flight);
   RUN_TEST(test_mob_is_not_displaced_by_another_nature);
   RUN_TEST(test_ddm_rounding);
   RUN_TEST(test_notification_body_shape);
