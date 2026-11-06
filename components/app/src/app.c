@@ -152,9 +152,6 @@ bool app_emergency_available(void) { return has_role("navigation") && alerts_sou
 const char *app_vessel_name(void) { return a.cfg.vessel_name[0] ? a.cfg.vessel_name : sk_vessel_name(); }
 const char *app_vessel_mmsi(void) { return sk_vessel_mmsi(); }
 
-static const emergency_actions_t em_actions = {app_emergency_available, app_emergency_press, app_emergency_cancel, app_vessel_name,
-                                               app_vessel_mmsi};
-
 static void raise_send_alert(const char *what, sk_cmd_err_t err, int64_t now) {
   alert_t al = {0};
   snprintf(al.id, sizeof al.id, "%s", EM_SEND_ALERT_ID);
@@ -346,7 +343,7 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   em_reset();
   memset(&emc, 0, sizeof emc);
   sk_set_emergency_cb(on_sk_notification);
-  emergency_page_set_actions(&em_actions);
+  emergency_page_set_vessel_name(app_vessel_name);
   ui_clock_reset();
   app_role_t *roles = a.roles;
   void (*buzzer)(bool) = a.buzzer;
@@ -642,7 +639,32 @@ static void on_buzzer(bool on) {
 }
 static bool buzzer_state(void) { return a.cfg.buzzer; }
 
-static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL, NULL, NULL, NULL};   // buzzer_state set per board
+// The quick panel's emergency row. A hold declares it here (a single attempt, see app_emergency_press) and goes to the
+// script page so the crew can start reading; CANCEL stays where it is.
+static bool quick_em_available(void) { return app_emergency_available(); }
+
+static int quick_em_declared(void) {
+  em_state_t s;
+  em_snapshot(&s);
+  switch (s.nature) {
+    case EM_NONE: return UI_QUICK_EM_NONE;
+    case EM_MOB: return UI_QUICK_EM_MOB;
+    case EM_FIRE: return UI_QUICK_EM_FIRE;
+    case EM_SINKING: return UI_QUICK_EM_SINKING;
+    default: return UI_QUICK_EM_OTHER;   // flooding or other, raised elsewhere: no button, but it can be cancelled
+  }
+}
+
+static void quick_em_held(int which) {
+  static const em_nature_t NATURE[] = {EM_MOB, EM_FIRE, EM_SINKING};
+  if (which == UI_QUICK_EM_CANCEL) {
+    app_emergency_cancel();
+    return;
+  }
+  if (which >= UI_QUICK_EM_MOB && which <= UI_QUICK_EM_SINKING && app_emergency_press(NATURE[which])) on_sos();
+}
+
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL, quick_em_available, quick_em_declared, quick_em_held};   // buzzer_state set per board
 
 static void do_display_reset(void) {
   if (a.display_reset) a.display_reset();

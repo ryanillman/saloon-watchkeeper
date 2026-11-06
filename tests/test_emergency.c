@@ -195,44 +195,45 @@ static void test_target_bearing_and_distance(void) {
   TEST_ASSERT_FALSE(em_target(&s, 41.0, -70.0, &brg, &dist));
 }
 
-static void spoken(double lat, double lon, const char *want) {
-  char out[200];
-  TEST_ASSERT_TRUE(em_speak_position(lat, lon, out, sizeof out));
+static void say(double deg, bool is_lat, const char *want) {
+  char out[100];
+  TEST_ASSERT_TRUE(em_speak_coordinate(deg, is_lat, out, sizeof out));
   TEST_ASSERT_EQUAL_STRING(want, out);
 }
 
-static void test_spoken_position_is_degrees_and_decimal_minutes_in_words(void) {
+static void test_a_coordinate_is_spoken_digit_by_digit_in_degrees_and_minutes(void) {
   // Hundredths of a minute: about 60 ft north-south, which is what a call needs (a tenth would be 600 ft).
-  spoken(48.5402833, -123.1766667,
-         "four eight degrees three two decimal four two minutes north "
-         "one two three degrees one zero decimal six zero minutes west");
-  spoken(5.5, -70.25, "zero five degrees three zero decimal zero zero minutes north "
-                      "zero seven zero degrees one five decimal zero zero minutes west");   // fixed width: no ambiguity
-  spoken(-33.8688, 151.2093, "three three degrees five two decimal one three minutes south "
-                             "one five one degrees one two decimal five six minutes east");
-  spoken(0.0, 0.0, "zero zero degrees zero zero decimal zero zero minutes north "
-                   "zero zero zero degrees zero zero decimal zero zero minutes east");
-  spoken(41.9999999, -70.0, "four two degrees zero zero decimal zero zero minutes north "   // minutes never reach sixty
-                            "zero seven zero degrees zero zero decimal zero zero minutes west");
-  spoken(-1e-9, 1e-9, "zero zero degrees zero zero decimal zero zero minutes north "         // rounds to zero: north, east
-                      "zero zero zero degrees zero zero decimal zero zero minutes east");
+  say(48.5402833, true, "four eight degrees three two decimal four two minutes north");
+  say(-123.1766667, false, "one two three degrees one zero decimal six zero minutes west");
+  say(5.5, true, "zero five degrees three zero decimal zero zero minutes north");   // fixed width: no ambiguity
+  say(-70.25, false, "zero seven zero degrees one five decimal zero zero minutes west");
+  say(-33.8688, true, "three three degrees five two decimal one three minutes south");
+  say(151.2093, false, "one five one degrees one two decimal five six minutes east");
+  say(0.0, true, "zero zero degrees zero zero decimal zero zero minutes north");
+  say(41.9999999, true, "four two degrees zero zero decimal zero zero minutes north");        // minutes never reach sixty
+  say(-1e-9, true, "zero zero degrees zero zero decimal zero zero minutes north");             // rounds to zero: north,
+  say(1e-9, false, "zero zero zero degrees zero zero decimal zero zero minutes east");         // not south or west
 }
 
-static void test_spoken_position_refuses_what_it_cannot_say(void) {
-  char out[200] = "x";
-  TEST_ASSERT_FALSE(em_speak_position(NAN, 1.0, out, sizeof out));
+static void test_a_coordinate_refuses_what_it_cannot_say(void) {
+  char out[100] = "x";
+  TEST_ASSERT_FALSE(em_speak_coordinate(NAN, true, out, sizeof out));
   TEST_ASSERT_EQUAL_STRING("", out);
-  TEST_ASSERT_FALSE(em_speak_position(1.0, INFINITY, out, sizeof out));
-  TEST_ASSERT_FALSE(em_speak_position(48.5, -123.1, out, 20));   // too small: nothing partial is left behind
+  TEST_ASSERT_FALSE(em_speak_coordinate(INFINITY, false, out, sizeof out));
+  TEST_ASSERT_FALSE(em_speak_coordinate(48.5, true, out, 20));   // too small: nothing partial is left behind
   TEST_ASSERT_EQUAL_STRING("", out);
 }
 
-static void test_script_reads_the_whole_call(void) {
+static void test_script_is_broken_into_lines_to_read_aloud(void) {
   char out[600];
   TEST_ASSERT_TRUE(em_script_text(EM_MOB, "SALOON", true, 48.5402833, -123.1766667, out, sizeof out) > 0);
   TEST_ASSERT_EQUAL_STRING(
-      "MAYDAY MAYDAY MAYDAY. This is SALOON SALOON SALOON. Position four eight degrees three two decimal four two "
-      "minutes north one two three degrees one zero decimal six zero minutes west. We have a man overboard. Over.", out);
+      "MAYDAY MAYDAY MAYDAY\n"
+      "This is SALOON SALOON SALOON\n"
+      "Position four eight degrees three two decimal four two minutes north\n"
+      "one two three degrees one zero decimal six zero minutes west\n"
+      "We have a man overboard. Over.",
+      out);
 }
 
 static void test_script_has_a_sentence_for_every_nature(void) {
@@ -251,9 +252,9 @@ static void test_script_has_a_sentence_for_every_nature(void) {
 static void test_script_says_what_is_missing_instead_of_guessing(void) {
   char out[600];
   TEST_ASSERT_TRUE(em_script_text(EM_FIRE, "", false, 0, 0, out, sizeof out) > 0);
-  TEST_ASSERT_NOT_NULL(strstr(out, "(BOAT NAME"));
-  TEST_ASSERT_NOT_NULL(strstr(out, "NO GPS FIX"));
-  TEST_ASSERT_NULL(strstr(out, "degrees"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "This is (BOAT NAME, said three times)\n"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "Position (NO GPS FIX - read the position from the chartplotter)\nWe have a fire on board. Over."));
+  TEST_ASSERT_NULL(strstr(out, "degrees"));   // one line: there is no longitude to say
   TEST_ASSERT_TRUE(em_script_text(EM_FIRE, NULL, true, 41.5, -70.25, out, sizeof out) > 0);
   TEST_ASSERT_NOT_NULL(strstr(out, "(BOAT NAME"));
   TEST_ASSERT_NOT_NULL(strstr(out, "degrees"));
@@ -303,9 +304,9 @@ int main(void) {
   RUN_TEST(test_server_id_is_learned_from_the_reply_or_the_echo);
   RUN_TEST(test_adopted_notification_keeps_its_id);
   RUN_TEST(test_normal_for_another_notification_does_not_clear);
-  RUN_TEST(test_spoken_position_is_degrees_and_decimal_minutes_in_words);
-  RUN_TEST(test_spoken_position_refuses_what_it_cannot_say);
-  RUN_TEST(test_script_reads_the_whole_call);
+  RUN_TEST(test_a_coordinate_is_spoken_digit_by_digit_in_degrees_and_minutes);
+  RUN_TEST(test_a_coordinate_refuses_what_it_cannot_say);
+  RUN_TEST(test_script_is_broken_into_lines_to_read_aloud);
   RUN_TEST(test_script_has_a_sentence_for_every_nature);
   RUN_TEST(test_script_says_what_is_missing_instead_of_guessing);
   RUN_TEST(test_script_fits_the_longest_name_and_reports_overflow);

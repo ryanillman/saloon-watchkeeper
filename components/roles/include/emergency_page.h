@@ -1,26 +1,19 @@
 #pragma once
-// The emergency script (Navigation page 1): the VHF distress call to read aloud, step by step for someone who has never
-// used the radio (vessel name three times, the position in spoken words, the nature), and the buttons that declare an emergency. Every button, CANCEL included, sends only after being held for EMERGENCY_HOLD_MS; letting go
-// earlier sends nothing. The roles layer cannot call the app, so it acts through the functions the app registers.
+// The emergency script (Navigation page 1): the VHF distress call to read aloud, for someone who has never used the radio.
+// Two numbered steps (press and hold DISTRESS, then speak), then the call itself one thing to say per line, in the largest
+// text that fits: the boat's name three times, the position in spoken words, the nature of the emergency. There are no
+// buttons here; an emergency is declared from the quick panel (ui_quick) and this page follows what is declared, whether it
+// was declared on this display or raised elsewhere.
 #include <stdbool.h>
 #include "emergency.h"
 #include "role.h"
 
-#define EMERGENCY_HOLD_MS 1000
+// The boat's name for the call ("" = unknown, said so in brackets, never guessed). Must outlive the page.
+void emergency_page_set_vessel_name(const char *(*fn)(void));
 
-typedef struct {
-  bool (*available)(void);             // Signal K live and the role configured; the buttons hide when false
-  bool (*press)(em_nature_t n);
-  bool (*cancel)(void);
-  const char *(*vessel_name)(void);    // "" when unknown
-  const char *(*vessel_mmsi)(void);    // "" when unknown
-} emergency_actions_t;
-
-void emergency_page_set_actions(const emergency_actions_t *a);   // must outlive the page
 void emergency_page_build(lv_obj_t *area, size_class_t sc, role_binding_t *b);
 void emergency_page_refresh(role_binding_t *b, int64_t now_ms);   // inert when the page is not on screen
 void emergency_page_reset(void);                                  // another page was built: forget the widgets
 
-// For tests: "nature", "send", "steps", "script", "footer", "hint", "btn_mob", "btn_fire", "btn_flood",
-// "btn_sinking", "btn_other", "btn_cancel". NULL when the page is not built.
+// For tests: "send", "steps", "script". NULL when the page is not built or there is no such part.
 lv_obj_t *emergency_page_part(const char *name);

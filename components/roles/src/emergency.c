@@ -220,11 +220,11 @@ static bool say_coordinate(char *out, size_t cap, size_t *at, double deg, bool i
   return true;
 }
 
-bool em_speak_position(double lat, double lon, char *out, size_t n) {
+bool em_speak_coordinate(double deg, bool is_lat, char *out, size_t n) {
   if (n) out[0] = 0;
-  if (!n || !isfinite(lat) || !isfinite(lon)) return false;
+  if (!n || !isfinite(deg)) return false;
   size_t at = 0;
-  if (!say_coordinate(out, n, &at, lat, true) || !say_coordinate(out, n, &at, lon, false)) {
+  if (!say_coordinate(out, n, &at, deg, is_lat)) {
     out[0] = 0;
     return false;
   }
@@ -232,17 +232,17 @@ bool em_speak_position(double lat, double lon, char *out, size_t n) {
 }
 
 size_t em_script_text(em_nature_t nature, const char *vessel, bool has_pos, double lat, double lon, char *out, size_t n) {
-  static const char *const SENTENCE[] = {[EM_MOB] = "We have a man overboard.", [EM_FIRE] = "We have a fire on board.",
-                                         [EM_FLOOD] = "We have flooding.",     [EM_SINKING] = "We are sinking.",
-                                         [EM_OTHER] = "We have an emergency."};
+  static const char *const SENTENCE[] = {[EM_MOB] = "We have a man overboard. Over.", [EM_FIRE] = "We have a fire on board. Over.",
+                                         [EM_FLOOD] = "We have flooding. Over.",     [EM_SINKING] = "We are sinking. Over.",
+                                         [EM_OTHER] = "We have an emergency. Over."};
   if (nature < EM_MOB || nature > EM_OTHER || !n) return 0;
-  char name[120], pos[200];
+  char name[120], pos[240], la[100], lo[100];
   if (vessel && vessel[0]) snprintf(name, sizeof name, "%s %s %s", vessel, vessel, vessel);
   else snprintf(name, sizeof name, "(BOAT NAME, said three times)");
-  char spoken[160];
-  if (has_pos && em_speak_position(lat, lon, spoken, sizeof spoken)) snprintf(pos, sizeof pos, "%s", spoken);
+  if (has_pos && em_speak_coordinate(lat, true, la, sizeof la) && em_speak_coordinate(lon, false, lo, sizeof lo))
+    snprintf(pos, sizeof pos, "%s\n%s", la, lo);
   else snprintf(pos, sizeof pos, "(NO GPS FIX - read the position from the chartplotter)");
-  int w = snprintf(out, n, "MAYDAY MAYDAY MAYDAY. This is %s. Position %s. %s Over.", name, pos, SENTENCE[nature]);
+  int w = snprintf(out, n, "MAYDAY MAYDAY MAYDAY\nThis is %s\nPosition %s\n%s", name, pos, SENTENCE[nature]);
   if (w < 0 || (size_t)w >= n) {
     out[0] = 0;
     return 0;
