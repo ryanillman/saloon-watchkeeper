@@ -48,6 +48,10 @@ const ui_nav_t *ui_shell_nav(void);
 // GO from an alarm: that role, on `page` (clamped to the role's last page).
 void ui_shell_goto(uint8_t role, uint8_t page);
 
+// Calls `cb` once, `delay_ms` after the last page or role change (each change restarts the wait, so a run of swipes
+// gives one call). NULL turns it off.
+void ui_shell_set_settle_cb(void (*cb)(void), uint32_t delay_ms);
+
 // The top strip and its status text, for the alert marker.
 lv_obj_t *ui_shell_strip(void);
 lv_obj_t *ui_shell_status(void);   // "SK OFFLINE" etc.; empty while live

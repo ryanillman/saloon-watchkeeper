@@ -81,6 +81,7 @@ static void ui_task(void *arg) {
 #endif
   app_set_buzzer(board->buzzer, board->has_buzzer && board->buzzer);
   app_set_backlight(set_backlight, board->backlight_dims);
+  app_set_display_reset(board->reset_display);
   app_set_info(board->id, esp_app_get_description()->version);
   app_bind();
   app_start_ui(d, board->size_class);

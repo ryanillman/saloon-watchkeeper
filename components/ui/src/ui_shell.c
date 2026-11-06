@@ -104,8 +104,40 @@ static void rebuild(void) {
   lv_obj_tree_walk(s.content, no_scroll, NULL);
 }
 
+static void (*settle_cb)(void);
+static uint32_t settle_ms;
+static lv_timer_t *settle_timer;
+
+static void settle_fire(lv_timer_t *t) {
+  (void)t;
+  settle_timer = NULL;   // a repeat-count-1 timer deletes itself
+  if (settle_cb) settle_cb();
+}
+
+static void settle_restart(void) {
+  if (settle_timer) {
+    lv_timer_delete(settle_timer);
+    settle_timer = NULL;
+  }
+  if (!settle_cb) return;
+  settle_timer = lv_timer_create(settle_fire, settle_ms, NULL);
+  lv_timer_set_repeat_count(settle_timer, 1);
+}
+
+void ui_shell_set_settle_cb(void (*cb)(void), uint32_t delay_ms) {
+  settle_cb = cb;
+  settle_ms = delay_ms;
+  if (!cb && settle_timer) {
+    lv_timer_delete(settle_timer);
+    settle_timer = NULL;
+  }
+}
+
 void ui_shell_move(nav_dir_t dir) {
-  if (ui_nav_move(&s.nav, dir)) rebuild();
+  if (ui_nav_move(&s.nav, dir)) {
+    rebuild();
+    settle_restart();
+  }
 }
 
 // Gestures and keys arrive during an event on an object rebuild() may delete,
@@ -333,6 +365,7 @@ void ui_shell_goto(uint8_t role, uint8_t page) {
   s.nav.role = role;
   s.nav.page = n && page >= n ? (uint8_t)(n - 1) : page;
   rebuild();
+  settle_restart();
 }
 
 lv_obj_t *ui_shell_strip(void) { return s.strip; }

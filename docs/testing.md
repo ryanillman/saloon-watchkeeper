@@ -158,7 +158,7 @@ Unverified until the first bench run: that each plugin republishes `currentRadiu
 
 ## The Depth page and its tile
 
-Depth is not a default role: add `{ "role": "depth" }` to `config.json` (it is in `docs/config.example.json`). `tools/scenario.sh depth-sounder` and `alarm-shallow` play on a boat whose routine values include a sounder (`environment.depth.belowTransducer`, `belowKeel`, `belowSurface`) and a tide plugin (`environment.tide.heightNow`, `heightHigh`, `heightLow`, `timeHigh`, `timeLow`; the times are always ahead of now). The default zones alarm under 1 m and warn under 1.5 m. The page shows the depth in big digits (never more than `99.9` or `999`), then the chart: 6 h of depth and 6 h of the tide's forecast of it, on a scale in the display unit. The forecast starts from the measured tide height, so in 10 ft of water with the tide at +3 ft and a high of +10 ft the line climbs to 17 ft on the scale at high water. The shallow zones are drawn on the same scale. If the forecast line enters a warn or alarm zone of the depth shown, the whole line (page and tile) is drawn in a lighter warn (amber) or alarm (red) colour and an otherwise `OK` tile goes amber `LOW TIDE`, never red: this is advisory, from the device's own tide curve, and only Signal K raises alerts and alarms. A Signal K state on the tile always keeps its own word (`low-tide-warn` and `low-tide-alarm` on the page, `glance-p0-low-tide`). The HIGH and LOW rows with their times stay at the foot. The digit fonts are generated (`tools/gen-digits-font.sh`). Compare with the snapshots in `build/sim/snap/` (`depth-p0-<live|tide-partial|surface|fault|no-tide>.png`, and the Depth tile in every `glance-p0-*.png`).
+Depth is not a default role: add `{ "role": "depth" }` to `config.json` (it is in `docs/config.example.json`). `tools/scenario.sh depth-sounder` and `alarm-shallow` play on a boat whose routine values include a sounder (`environment.depth.belowTransducer`, `belowKeel`, `belowSurface`) and a tide plugin (`environment.tide.heightNow`, `heightHigh`, `heightLow`, `timeHigh`, `timeLow`; the bench tide runs a real 12 h 25 m cycle between 0.4 m and 3.2 m, so the next high and low move with the clock and the tide graph changes over hours; the times are always ahead of now). The default zones alarm under 1 m and warn under 1.5 m. The page shows the depth in big digits (never more than `99.9` or `999`), then the chart: 6 h of depth and 6 h of the tide's forecast of it, on a scale in the display unit. The forecast starts from the measured tide height, so in 10 ft of water with the tide at +3 ft and a high of +10 ft the line climbs to 17 ft on the scale at high water. The shallow zones are drawn on the same scale. If the forecast line enters a warn or alarm zone of the depth shown, the whole line (page and tile) is drawn in a lighter warn (amber) or alarm (red) colour and an otherwise `OK` tile goes amber `LOW TIDE`, never red: this is advisory, from the device's own tide curve, and only Signal K raises alerts and alarms. A Signal K state on the tile always keeps its own word (`low-tide-warn` and `low-tide-alarm` on the page, `glance-p0-low-tide`). The HIGH and LOW rows with their times stay at the foot. The digit fonts are generated (`tools/gen-digits-font.sh`). Compare with the snapshots in `build/sim/snap/` (`depth-p0-<live|tide-partial|surface|fault|no-tide>.png`, and the Depth tile in every `glance-p0-*.png`).
 
 | Check | Expect |
 |---|---|
@@ -199,3 +199,14 @@ idf.py -D BOARD=lcd7 -B build/lcd7 -p /dev/ttyACM1 flash monitor
 ```
 
 Run the same scenarios. The board must be on a network that can reach the Signal K server. `"host": "auto"` finds it by mDNS.
+
+### Display reset (bench, all three boards)
+
+The RGB scan occasionally loses sync: the top status bar shows at the bottom and the picture is corrupt until it recovers on its own. The quick panel (tap the top strip) has RESET SCREEN (RESET on the 480 board), which restarts the panel scan and redraws. Not yet run on a board.
+
+| Check | Expect |
+|---|---|
+| Wait for a corrupted frame, open the quick panel, tap RESET SCREEN | The panel closes, the picture is whole again within a second |
+| RESET SCREEN on a healthy screen | A brief redraw, no lasting flicker, touch still works |
+| Set `display.reset_after_swipe` to `true` (`config set`), swipe between pages repeatedly | One restart about 400 ms after you stop swiping (not one per swipe); note any visible flicker. If it flickers, leave the flag off |
+| Corruption still happens and RESET SCREEN does not fix it | The restart hypothesis is wrong; try a lower PCLK (`docs/hardware/boards.md`) |

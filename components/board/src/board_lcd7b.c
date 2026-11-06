@@ -100,9 +100,11 @@ static esp_err_t backlight(uint8_t percent) {
   return ch32v003_set(EXIO_BL, 1);
 }
 
+static void reset_display(void) { rgb_lvgl_reset(panel); }
+
 static const board_t lcd7b = {
   .id = "lcd7b", .width = W, .height = H, .size_class = SIZE_WIDE, .has_buzzer = false, .backlight_dims = true,
-  .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL,
+  .init = init, .lvgl_display = display, .backlight = backlight, .buzzer = NULL, .reset_display = reset_display,
 };
 
 const board_t *board_get(void) { return &lcd7b; }

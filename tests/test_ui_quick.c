@@ -17,7 +17,7 @@ static int palette_calls, bright_calls;
 static uint8_t last_bright;
 static void on_palette(const char *c) { snprintf(last_palette, sizeof last_palette, "%s", c); palette_calls++; }
 static void on_bright(uint8_t p) { last_bright = p; bright_calls++; }
-static const ui_quick_cb_t cb = {on_palette, on_bright, NULL, NULL, NULL};
+static const ui_quick_cb_t cb = {on_palette, on_bright, NULL, NULL, NULL, NULL};
 static bool buzz_on;
 static int buzz_calls;
 static void on_buzz(bool on) { buzz_on = on; buzz_calls++; }
@@ -81,6 +81,24 @@ static void test_quick_slider_reports_percent(void) {
   lv_slider_set_value(sl, 40, LV_ANIM_OFF);
   lv_obj_send_event(sl, LV_EVENT_VALUE_CHANGED, NULL);
   TEST_ASSERT_EQUAL(40, last_bright);
+}
+
+static int reset_calls;
+static void on_reset(void) { reset_calls++; }
+static const ui_quick_cb_t cb_reset = {on_palette, on_bright, NULL, NULL, NULL, on_reset};
+
+static void test_reset_button_hidden_without_callback(void) {
+  ui_quick_open(lv_screen_active(), "day", 80, true, &cb);
+  TEST_ASSERT_NULL(ui_quick_part(UI_QUICK_RESET));
+}
+
+static void test_reset_button_calls_back_and_closes(void) {
+  reset_calls = 0;
+  ui_quick_open(lv_screen_active(), "day", 80, true, &cb_reset);
+  TEST_ASSERT_NOT_NULL(ui_quick_part(UI_QUICK_RESET));
+  lv_obj_send_event(ui_quick_part(UI_QUICK_RESET), LV_EVENT_CLICKED, NULL);
+  TEST_ASSERT_EQUAL(1, reset_calls);
+  TEST_ASSERT_FALSE(ui_quick_is_open());
 }
 
 static void test_close_button_and_reopen(void) {
@@ -178,7 +196,7 @@ static void test_buzzer_switch_only_with_a_buzzer(void) {
   TEST_ASSERT_NULL(ui_quick_part(UI_QUICK_BUZZER));   // this board has none
   ui_quick_close();
   lv_timer_handler();
-  static const ui_quick_cb_t with = {on_palette, on_bright, NULL, on_buzz, buzz_state};
+  static const ui_quick_cb_t with = {on_palette, on_bright, NULL, on_buzz, buzz_state, NULL};
   buzz_on = false;
   buzz_calls = 0;
   ui_quick_open(lv_screen_active(), "day", 80, true, &with);
@@ -204,6 +222,8 @@ int main(void) {
   RUN_TEST(test_quick_palette_callback);
   RUN_TEST(test_quick_no_slider_when_not_dimmable);
   RUN_TEST(test_quick_slider_reports_percent);
+  RUN_TEST(test_reset_button_hidden_without_callback);
+  RUN_TEST(test_reset_button_calls_back_and_closes);
   RUN_TEST(test_close_button_and_reopen);
   RUN_TEST(test_strip_tap_calls_handler);
   RUN_TEST(test_panel_sits_above_banner_and_alarm_closes_it);
