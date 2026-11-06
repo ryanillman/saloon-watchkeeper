@@ -54,6 +54,47 @@ static void test_expires_after_5s(void) {
   TEST_ASSERT_EQUAL(SKC_ERR_OFFLINE, sk_cmd_result(h2).err);
 }
 
+static void test_short_deadline_expires_at_3s(void) {
+  sk_cmd_t c = post("/p/mob");
+  c.expire_ms = 3000;
+  sk_cmd_handle_t h1 = submit(c, false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_FALSE(sk_cmd_next(&out, &h, 4001));   // 3001 ms old
+  TEST_ASSERT_EQUAL(SKC_FAILED, sk_cmd_result(h1).state);
+  TEST_ASSERT_EQUAL(SKC_ERR_OFFLINE, sk_cmd_result(h1).err);
+}
+
+static void test_short_deadline_still_good_just_inside_it(void) {
+  sk_cmd_t c = post("/p/mob");
+  c.expire_ms = 3000;
+  sk_cmd_handle_t h1 = submit(c, false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 3999));   // 2999 ms old
+  TEST_ASSERT_EQUAL_UINT16(h1, h);
+}
+
+static void test_zero_deadline_is_the_default_5s(void) {
+  sk_cmd_handle_t h1 = submit(post("/p/drop"), false, 1000);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 5999));
+  TEST_ASSERT_EQUAL_UINT16(h1, h);
+}
+
+static void test_long_body_passes_through(void) {
+  sk_cmd_t c = post("/p/mob");
+  memset(c.body, 'x', 200);
+  c.body[200] = 0;
+  submit(c, false, 0);
+  sk_cmd_t out;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &h, 10));
+  TEST_ASSERT_EQUAL(200, strlen(out.body));
+  TEST_ASSERT_EQUAL_STRING(c.body, out.body);
+}
+
 static void test_queue_holds_4_evicts_oldest_radius_never_drop_or_raise(void) {
   sk_cmd_handle_t radius = submit(put("navigation.anchor.maxRadius", 30), true, 0);
   sk_cmd_handle_t drop = submit(post("/p/drop"), false, 1);
@@ -136,6 +177,10 @@ int main(void) {
   RUN_TEST(test_refused_while_disconnected_and_not_queued_later);
   RUN_TEST(test_disconnect_fails_queued_commands_and_they_never_go_out);
   RUN_TEST(test_expires_after_5s);
+  RUN_TEST(test_short_deadline_expires_at_3s);
+  RUN_TEST(test_short_deadline_still_good_just_inside_it);
+  RUN_TEST(test_zero_deadline_is_the_default_5s);
+  RUN_TEST(test_long_body_passes_through);
   RUN_TEST(test_queue_holds_4_evicts_oldest_radius_never_drop_or_raise);
   RUN_TEST(test_radius_replaces_pending_radius);
   RUN_TEST(test_duplicate_drop_ignored);
