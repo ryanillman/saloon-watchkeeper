@@ -178,28 +178,93 @@ static void test_refresh_keeps_a_hold_in_progress(void) {
   TEST_ASSERT_EQUAL(1, press_calls);
 }
 
-static void test_no_position_says_so(void) {
-  wide();
-  TEST_ASSERT_NOT_NULL(strstr(label("position"), "NO POSITION"));
-  TEST_ASSERT_EQUAL_STRING("", label("fix"));
+static void own_position(double lat, double lon, int64_t age_ms) {
+  bd_set_position(bd_intern("navigation.position"), lat, lon, 1, T - age_ms);
 }
 
-static void test_position_and_fix_age_shown(void) {
-  bd_set_position(bd_intern("navigation.position"), 41.5402833, -70.25, 1, T - 3000);
-  wide();
-  TEST_ASSERT_EQUAL_STRING("41\xC2\xB0" "32.417'N  070\xC2\xB0" "15.000'W", label("position"));
-  TEST_ASSERT_EQUAL_STRING("FIX 3 s OLD", label("fix"));
-}
-
-static void test_vessel_name_and_mmsi(void) {
-  wide();
-  TEST_ASSERT_EQUAL_STRING("THIS IS SALOON", label("name"));
-  TEST_ASSERT_NOT_NULL(strstr(label("mmsi"), "316001234"));
-  vname[0] = vmmsi[0] = 0;
+static void declare(em_nature_t n) {
+  em_press(n, true, 48.5402833, -123.1766667, T, 1700000000);
   refresh();
-  TEST_ASSERT_EQUAL_STRING("VESSEL NAME UNKNOWN", label("name"));   // never a guess
-  TEST_ASSERT_EQUAL_STRING("", label("mmsi"));
 }
+
+static void test_script_reads_the_call_for_the_declared_nature(void) {
+  own_position(48.5402833, -123.1766667, 0);
+  wide();
+  declare(EM_MOB);
+  TEST_ASSERT_EQUAL_STRING(
+      "MAYDAY MAYDAY MAYDAY. This is SALOON SALOON SALOON. Position four eight degrees three two decimal four two "
+      "minutes north one two three degrees one zero decimal six zero minutes west. We have a man overboard. Over.",
+      label("script"));
+  em_cancel_sent();
+  declare(EM_SINKING);
+  TEST_ASSERT_NOT_NULL(strstr(label("script"), "We are sinking. Over."));
+}
+
+static void test_steps_tell_a_beginner_how_to_use_the_radio(void) {
+  own_position(48.5, -123.1, 0);
+  wide();
+  declare(EM_FIRE);
+  TEST_ASSERT_TRUE(shown("steps"));
+  const char *t = label("steps");
+  TEST_ASSERT_NOT_NULL(strstr(t, "VHF"));
+  TEST_ASSERT_NOT_NULL(strstr(t, "DISTRESS"));
+  TEST_ASSERT_NOT_NULL(strstr(t, "3 seconds"));
+  TEST_ASSERT_NOT_NULL(strstr(t, "microphone"));
+}
+
+static void test_nothing_declared_says_so_and_hides_the_steps(void) {
+  wide();
+  TEST_ASSERT_NOT_NULL(strstr(label("script"), "No emergency declared"));
+  TEST_ASSERT_FALSE(shown("steps"));
+  TEST_ASSERT_NULL(strstr(label("script"), "MAYDAY"));
+}
+
+static void test_no_fix_is_said_in_the_call_not_guessed(void) {
+  wide();   // no position at all
+  declare(EM_MOB);
+  TEST_ASSERT_NOT_NULL(strstr(label("script"), "NO GPS FIX"));
+  TEST_ASSERT_NULL(strstr(label("script"), "degrees"));
+  own_position(48.5, -123.1, 11000);   // an older fix is no fix
+  refresh();
+  TEST_ASSERT_NOT_NULL(strstr(label("script"), "NO GPS FIX"));
+}
+
+static void test_unknown_name_is_bracketed_not_guessed(void) {
+  vname[0] = 0;
+  own_position(48.5, -123.1, 0);
+  wide();
+  declare(EM_MOB);
+  TEST_ASSERT_NOT_NULL(strstr(label("script"), "(BOAT NAME"));
+  TEST_ASSERT_NULL(strstr(label("script"), "SALOON"));
+}
+
+static void test_footer_keeps_the_numbers_for_the_plotter_and_the_radio(void) {
+  own_position(41.5402833, -70.25, 3000);
+  wide();
+  TEST_ASSERT_EQUAL_STRING("41\xC2\xB0" "32.417'N 070\xC2\xB0" "15.000'W | fix 3 s old | MMSI 316001234", label("footer"));
+  vmmsi[0] = 0;
+  refresh();
+  TEST_ASSERT_EQUAL_STRING("41\xC2\xB0" "32.417'N 070\xC2\xB0" "15.000'W | fix 3 s old", label("footer"));
+  bd_set_invalid(bd_find("navigation.position"));
+  refresh();
+  TEST_ASSERT_EQUAL_STRING("NO POSITION", label("footer"));
+}
+
+// The longest name, in the largest text that still fits: nothing may run into the footer (pages must not scroll).
+static void fits(size_class_t sc, int32_t w, int32_t h) {
+  memset(vname, 'W', 31);
+  vname[31] = 0;
+  own_position(-123.456789, -123.456789, 0);
+  build(sc, w, h);
+  declare(EM_MOB);
+  lv_obj_update_layout(scr);
+  lv_obj_t *script = part("script"), *footer = part("footer");
+  TEST_ASSERT_GREATER_THAN_INT32(0, lv_obj_get_height(script));
+  TEST_ASSERT_LESS_OR_EQUAL_INT32_MESSAGE(lv_obj_get_y(footer), lv_obj_get_y(script) + lv_obj_get_height(script), "the call ends above the footer");
+}
+
+static void test_the_longest_call_fits_on_the_wide_board(void) { fits(SIZE_WIDE, 800, 440); }
+static void test_the_longest_call_fits_on_the_square_board(void) { fits(SIZE_SQUARE, 480, 432); }
 
 static void test_incoming_notification_preselects_the_nature(void) {
   wide();
@@ -211,6 +276,23 @@ static void test_incoming_notification_preselects_the_nature(void) {
   lv_color_t on = lv_obj_get_style_bg_color(part("btn_fire"), LV_PART_MAIN), off = lv_obj_get_style_bg_color(part("btn_mob"), LV_PART_MAIN);   // not CHECKED: the theme styles that state itself
   TEST_ASSERT_TRUE_MESSAGE(lv_color_eq(on, ui_theme()->alarm), "the declared nature's button is filled");
   TEST_ASSERT_FALSE(lv_color_eq(off, ui_theme()->alarm));
+}
+
+// Night is one red: the declared button's fill (alarm) and the usual text colour (fg) are the same, so its label must flip.
+static void test_the_declared_buttons_label_stays_readable_in_every_palette(void) {
+  for (int pal = PALETTE_DAY; pal <= PALETTE_NIGHT; pal++) {
+    ui_theme_set_current((palette_t)pal);
+    wide();
+    declare(EM_MOB);
+    lv_obj_t *btn = part("btn_mob"), *label = lv_obj_get_child(btn, 1);   // child 0 is the hold fill
+    lv_color_t fill = lv_obj_get_style_bg_color(btn, LV_PART_MAIN), text = lv_obj_get_style_text_color(label, LV_PART_MAIN);
+    TEST_ASSERT_FALSE_MESSAGE(lv_color_eq(fill, text), "declared button: label differs from fill");
+    lv_obj_t *other = lv_obj_get_child(part("btn_fire"), 1);
+    TEST_ASSERT_FALSE_MESSAGE(lv_color_eq(lv_obj_get_style_bg_color(part("btn_fire"), LV_PART_MAIN), lv_obj_get_style_text_color(other, LV_PART_MAIN)),
+                              "idle button: label differs from fill");
+    em_reset();
+  }
+  ui_theme_set_current(PALETTE_DAY);
 }
 
 static void test_send_status_text(void) {
@@ -252,10 +334,16 @@ int main(void) {
   RUN_TEST(test_every_nature_needs_the_hold_and_a_tap_does_nothing);
   RUN_TEST(test_cancel_needs_the_hold_and_shows_only_when_active);
   RUN_TEST(test_refresh_keeps_a_hold_in_progress);
-  RUN_TEST(test_no_position_says_so);
-  RUN_TEST(test_position_and_fix_age_shown);
-  RUN_TEST(test_vessel_name_and_mmsi);
+  RUN_TEST(test_script_reads_the_call_for_the_declared_nature);
+  RUN_TEST(test_steps_tell_a_beginner_how_to_use_the_radio);
+  RUN_TEST(test_nothing_declared_says_so_and_hides_the_steps);
+  RUN_TEST(test_no_fix_is_said_in_the_call_not_guessed);
+  RUN_TEST(test_unknown_name_is_bracketed_not_guessed);
+  RUN_TEST(test_footer_keeps_the_numbers_for_the_plotter_and_the_radio);
+  RUN_TEST(test_the_longest_call_fits_on_the_wide_board);
+  RUN_TEST(test_the_longest_call_fits_on_the_square_board);
   RUN_TEST(test_incoming_notification_preselects_the_nature);
+  RUN_TEST(test_the_declared_buttons_label_stays_readable_in_every_palette);
   RUN_TEST(test_send_status_text);
   RUN_TEST(test_builds_on_the_square_board);
   return UNITY_END();

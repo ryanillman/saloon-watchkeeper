@@ -180,3 +180,72 @@ bool em_target(const em_state_t *s, double own_lat, double own_lon, double *bear
   *bearing_rad_true = b < 0 ? b + 2 * M_PI : b;
   return true;
 }
+
+static const char *const DIGIT[10] = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"};
+
+// Appends `v` as `width` spoken digits ("zero five"), each followed by nothing but the caller's separators. False on overflow.
+static bool say_digits(char *out, size_t cap, size_t *at, long v, int width) {
+  for (int i = width - 1; i >= 0; i--) {
+    long p = 1;
+    for (int k = 0; k < i; k++) p *= 10;
+    int w = snprintf(out + *at, cap - *at, "%s%s", *at && out[*at - 1] != ' ' ? " " : "", DIGIT[(v / p) % 10]);
+    if (w < 0 || (size_t)w >= cap - *at) return false;
+    *at += (size_t)w;
+  }
+  return true;
+}
+
+static bool say_coordinate(char *out, size_t cap, size_t *at, double deg, bool is_lat) {
+  long long centi = llround(fabs(deg) * 60.0 * 100.0);   // hundredths of a minute, so rounding carries into the degrees
+  long d = (long)(centi / 6000), m = (long)(centi % 6000);
+  bool neg = deg < 0 && centi != 0;
+  const char *hemi = is_lat ? (neg ? "south" : "north") : (neg ? "west" : "east");
+  if (*at) {
+    int w = snprintf(out + *at, cap - *at, " ");
+    if (w < 0 || (size_t)w >= cap - *at) return false;
+    *at += (size_t)w;
+  }
+  if (!say_digits(out, cap, at, d, is_lat ? 2 : 3)) return false;
+  int w = snprintf(out + *at, cap - *at, " degrees ");
+  if (w < 0 || (size_t)w >= cap - *at) return false;
+  *at += (size_t)w;
+  if (!say_digits(out, cap, at, m / 100, 2)) return false;
+  w = snprintf(out + *at, cap - *at, " decimal ");
+  if (w < 0 || (size_t)w >= cap - *at) return false;
+  *at += (size_t)w;
+  if (!say_digits(out, cap, at, m % 100, 2)) return false;
+  w = snprintf(out + *at, cap - *at, " minutes %s", hemi);
+  if (w < 0 || (size_t)w >= cap - *at) return false;
+  *at += (size_t)w;
+  return true;
+}
+
+bool em_speak_position(double lat, double lon, char *out, size_t n) {
+  if (n) out[0] = 0;
+  if (!n || !isfinite(lat) || !isfinite(lon)) return false;
+  size_t at = 0;
+  if (!say_coordinate(out, n, &at, lat, true) || !say_coordinate(out, n, &at, lon, false)) {
+    out[0] = 0;
+    return false;
+  }
+  return true;
+}
+
+size_t em_script_text(em_nature_t nature, const char *vessel, bool has_pos, double lat, double lon, char *out, size_t n) {
+  static const char *const SENTENCE[] = {[EM_MOB] = "We have a man overboard.", [EM_FIRE] = "We have a fire on board.",
+                                         [EM_FLOOD] = "We have flooding.",     [EM_SINKING] = "We are sinking.",
+                                         [EM_OTHER] = "We have an emergency."};
+  if (nature < EM_MOB || nature > EM_OTHER || !n) return 0;
+  char name[120], pos[200];
+  if (vessel && vessel[0]) snprintf(name, sizeof name, "%s %s %s", vessel, vessel, vessel);
+  else snprintf(name, sizeof name, "(BOAT NAME, said three times)");
+  char spoken[160];
+  if (has_pos && em_speak_position(lat, lon, spoken, sizeof spoken)) snprintf(pos, sizeof pos, "%s", spoken);
+  else snprintf(pos, sizeof pos, "(NO GPS FIX - read the position from the chartplotter)");
+  int w = snprintf(out, n, "MAYDAY MAYDAY MAYDAY. This is %s. Position %s. %s Over.", name, pos, SENTENCE[nature]);
+  if (w < 0 || (size_t)w >= n) {
+    out[0] = 0;
+    return 0;
+  }
+  return (size_t)w;
+}

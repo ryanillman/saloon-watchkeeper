@@ -221,9 +221,13 @@ static void fixture_nav(const char *state) {
   if (!strcmp(state, "computed")) bd_set_invalid(bd_find("environment.wind.angleTrueWater"));   // the display works it out
   if (!strcmp(state, "noset")) bd_set_invalid(bd_find("environment.current.drift"));
   bd_set_position(bd_intern("navigation.position"), 41.5402833, -70.25, SK_SOURCE_ID, now);   // the present position shows in every state
+  {
+    const char *vessel = "{\"name\":\"SALOON\",\"mmsi\":\"316001234\"}";
+    sk_parse_full(vessel, strlen(vessel));   // the script page names the boat
+  }
   em_reset();
   if (!strcmp(state, "mob")) em_press(EM_MOB, true, 41.5902833, -70.18, now - 125000, 1700000000);   // marked 2 min ago, NE of us
-  if (!strcmp(state, "mobnopos")) em_on_notification(EM_MOB, true, false, 0, 0, now);               // raised elsewhere, no position in it
+  if (!strcmp(state, "mobnopos")) em_on_notification(EM_MOB, true, false, 0, 0, NULL, now);               // raised elsewhere, no position in it
   ui_shell_set_sos(!strcmp(state, "mob") || !strcmp(state, "mobnopos"));                            // the app does this each tick
 }
 
