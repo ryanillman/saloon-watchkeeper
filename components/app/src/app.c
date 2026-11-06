@@ -470,7 +470,7 @@ static void on_buzzer(bool on) {
 }
 static bool buzzer_state(void) { return a.cfg.buzzer; }
 
-static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL};   // buzzer_state set per board
+static ui_quick_cb_t quick_cb = {on_palette, on_brightness, open_setup, on_buzzer, NULL, NULL};   // buzzer_state set per board
 
 static void toggle_quick(void) {
   if (ui_quick_is_open()) ui_quick_close();
