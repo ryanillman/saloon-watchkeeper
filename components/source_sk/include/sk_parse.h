@@ -6,7 +6,7 @@
 #include "alerts.h"
 #include "boatdata.h"
 
-#define SK_SOURCE_ID 1
+#define SK_SOURCE_ID BD_SRC_SK
 
 // Zone and notification states, as stored in bd_zone_t.state.
 enum { SK_STATE_NORMAL, SK_STATE_ALERT, SK_STATE_WARN, SK_STATE_ALARM, SK_STATE_EMERGENCY };
