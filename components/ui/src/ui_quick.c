@@ -8,7 +8,7 @@ static const char *const NAMES[] = {"day", "dusk", "night", "auto"};
 static const char *const LABELS[] = {"DAY", "DUSK", "NIGHT", "AUTO"};
 
 static struct {
-  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *bright_label, *buzzer;
+  lv_obj_t *root, *card, *btn[4], *slider, *on, *close, *setup, *reset, *bright_label, *buzzer;
   const ui_quick_cb_t *cb;
   uint8_t sel;
 } q;
@@ -26,8 +26,8 @@ static void style(void) {
     lv_obj_set_style_border_color(q.btn[i], sel ? c->fg : c->dim, 0);
     lv_obj_set_style_text_color(q.btn[i], sel ? c->bg : c->fg, 0);
   }
-  lv_obj_t *plain[] = {q.close, q.setup};
-  for (int i = 0; i < 2; i++) {
+  lv_obj_t *plain[] = {q.close, q.setup, q.reset};
+  for (int i = 0; i < 3; i++) {
     if (!plain[i]) continue;
     lv_obj_set_style_bg_color(plain[i], c->strip_bg, 0);
     lv_obj_set_style_border_color(plain[i], c->dim, 0);
@@ -58,6 +58,13 @@ static void on_buzzer(lv_event_t *e) {   // the switch flips itself; report what
 static void on_setup(lv_event_t *e) {
   (void)e;
   if (q.cb && q.cb->on_setup) q.cb->on_setup();
+}
+
+static void on_reset(lv_event_t *e) {
+  (void)e;
+  void (*fn)(void) = q.cb ? q.cb->on_reset_screen : NULL;
+  ui_quick_close();   // first: the restart redraws the whole screen
+  if (fn) fn();
 }
 
 static lv_obj_t *button(lv_obj_t *parent, const char *text, int32_t h) {
@@ -180,6 +187,11 @@ void ui_quick_open(lv_obj_t *screen, const char *choice, uint8_t brightness, boo
     lv_obj_set_flex_grow(q.setup, 1);
     lv_obj_add_event_cb(q.setup, on_setup, LV_EVENT_CLICKED, NULL);
   }
+  if (cb && cb->on_reset_screen) {
+    q.reset = button(crow, w >= 700 ? "RESET SCREEN" : "RESET", 48);
+    lv_obj_set_flex_grow(q.reset, 1);
+    lv_obj_add_event_cb(q.reset, on_reset, LV_EVENT_CLICKED, NULL);
+  }
   q.close = button(crow, "CLOSE", 48);
   lv_obj_set_flex_grow(q.close, 1);
   lv_obj_add_event_cb(q.close, on_close, LV_EVENT_CLICKED, NULL);
@@ -203,6 +215,7 @@ lv_obj_t *ui_quick_part(ui_quick_part_t p) {
     case UI_QUICK_CLOSE: return q.close;
     case UI_QUICK_SETUP: return q.setup;
     case UI_QUICK_BUZZER: return q.buzzer;
+    case UI_QUICK_RESET: return q.reset;
   }
   return NULL;
 }
