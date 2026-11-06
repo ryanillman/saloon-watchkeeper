@@ -224,6 +224,7 @@ static void fixture_nav(const char *state) {
   em_reset();
   if (!strcmp(state, "mob")) em_press(EM_MOB, true, 41.5902833, -70.18, now - 125000, 1700000000);   // marked 2 min ago, NE of us
   if (!strcmp(state, "mobnopos")) em_on_notification(EM_MOB, true, false, 0, 0, now);               // raised elsewhere, no position in it
+  ui_shell_set_sos(!strcmp(state, "mob") || !strcmp(state, "mobnopos"));                            // the app does this each tick
 }
 
 static const char *const nav_states[] = {"full", "nocourse", "noap", "nohdg", "computed", "noset", "windahead", "bugnear", "mob", "mobnopos"};
