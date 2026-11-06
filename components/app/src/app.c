@@ -142,9 +142,9 @@ static struct {
 
 static bool has_role(const char *name);
 
-static void on_sk_notification(const char *id, bool active, bool has_pos, double lat, double lon) {
+static void on_sk_notification(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref) {
   em_nature_t n = em_nature_from_path(id);
-  if (n != EM_NONE) em_on_notification(n, active, has_pos, lat, lon, platform_millis());
+  if (n != EM_NONE) em_on_notification(n, active, has_pos, lat, lon, ref, platform_millis());
 }
 
 bool app_emergency_available(void) { return has_role("navigation") && alerts_source_is_up(); }
@@ -164,19 +164,21 @@ static void raise_send_alert(const char *what, sk_cmd_err_t err, int64_t now) {
   alerts_upsert_local(&al, now);
 }
 
-static sk_cmd_handle_t em_submit(const char *path, const char *body) {
+static sk_cmd_handle_t em_submit(const char *method, const char *path, const char *body) {
   sk_cmd_t k = {.expire_ms = EM_DEADLINE_MS};
+  snprintf(k.method, sizeof k.method, "%s", method);
   snprintf(k.path, sizeof k.path, "%s", path);
   snprintf(k.body, sizeof k.body, "%s", body);
   return sk_cmd_submit(&k, false, platform_millis());
 }
 
-static sk_cmd_handle_t em_send_notification(const em_state_t *s, em_nature_t n, bool cancel) {
-  char path[64], body[256];
-  snprintf(path, sizeof path, "/signalk/v2/api/notifications/%s", em_nature_path(n));
+// POST /signalk/v2/api/notifications raises it (the server's Notifications API has no per-nature endpoint except mob);
+// the reply carries the notification's id, which is what clears it later.
+static sk_cmd_handle_t em_send_raise(const em_state_t *s, em_nature_t n) {
+  char body[256];
   em_state_t tmp = *s;
   tmp.nature = n;
-  return em_notification_body(&tmp, cancel, body, sizeof body) ? em_submit(path, body) : 0;
+  return em_raise_body(&tmp, body, sizeof body) ? em_submit("", "/signalk/v2/api/notifications", body) : 0;
 }
 
 bool app_emergency_press(em_nature_t n) {
@@ -195,7 +197,7 @@ bool app_emergency_press(em_nature_t n) {
   } else {
     s = cur;
   }
-  emc.notify = em_send_notification(&s, n, false);
+  emc.notify = em_send_raise(&s, n);
   emc.waypoint = 0;
   if (emc.notify == 0) {
     if (emc.primary) em_set_send(EM_NOT_SENT);
@@ -203,7 +205,7 @@ bool app_emergency_press(em_nature_t n) {
   }
   if (emc.primary && n == EM_MOB && s.has_pos) {
     char body[256];
-    if (em_waypoint_body(&s, body, sizeof body)) emc.waypoint = em_submit("/signalk/v2/api/resources/waypoints", body);
+    if (em_waypoint_body(&s, body, sizeof body)) emc.waypoint = em_submit("", "/signalk/v2/api/resources/waypoints", body);
     em_set_waypoint_send(emc.waypoint ? EM_SENDING : EM_NOT_SENT);
   }
   return true;
@@ -213,7 +215,13 @@ bool app_emergency_cancel(void) {
   em_state_t s;
   em_snapshot(&s);
   if (s.nature == EM_NONE || !app_emergency_available()) return false;
-  emc.cancel = em_send_notification(&s, s.nature, true);
+  if (!s.id[0]) {   // the server has not told us this notification's id yet: there is nothing to address the cancel to
+    raise_send_alert("CANCEL", SKC_ERR_OFFLINE, platform_millis());
+    return false;
+  }
+  char path[96], body[40];
+  snprintf(path, sizeof path, "/signalk/v2/api/notifications/%s", s.id);
+  emc.cancel = em_cancel_body(body, sizeof body) ? em_submit("PUT", path, body) : 0;   // PUT {"state":"normal"}; POST .../mob would raise another MOB
   if (emc.cancel == 0) {
     em_set_send(EM_NOT_SENT);   // the emergency stays: other displays and the signal controller still have it
     raise_send_alert("CANCEL", SKC_ERR_OFFLINE, platform_millis());
@@ -248,7 +256,10 @@ static void emergency_tick(int64_t now) {
   if (emc.notify) {
     sk_cmd_result_t r = sk_cmd_result(emc.notify);
     if (r.state == SKC_OK) {
-      if (emc.primary) em_set_send(EM_SENT);
+      if (emc.primary) {
+        em_set_send(EM_SENT);
+        if (r.id[0]) em_set_server_id(r.id);   // the reply's id is what clears it
+      }
       alerts_clear(EM_SEND_ALERT_ID);
       emc.notify = 0;
     } else if (r.state == SKC_FAILED) {

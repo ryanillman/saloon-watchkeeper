@@ -32,11 +32,13 @@ void sk_parse_set_discovery_prefixes(const char *const *prefixes);
 const char *sk_vessel_name(void);
 const char *sk_vessel_mmsi(void);
 
-// Called for every notification on this vessel (after the alerts update), id being the path below "notifications.".
-// active: state alarm or emergency. has_pos: value.data.position.latitude and .longitude are both numbers. A null,
-// a non-object or a state other than alarm/emergency calls it with active false. The Signal K task calls it. NULL
-// removes it.
-void sk_set_emergency_cb(void (*cb)(const char *id, bool active, bool has_pos, double lat, double lon));
+// Called for every notification on this vessel (after the alerts update). `id` is the path below "notifications." (the
+// server appends the notification's UUID to it: "mob.7c0e98fc-..."); `ref` is the value's own id (that UUID), NULL when
+// it has none. active: state alarm or emergency. has_pos: a position in value.data.position (the press-time capture a
+// display sends), else in value.position (the server's own, when it raised the notification itself), with numeric
+// latitude and longitude. A null, a non-object or a state other than alarm/emergency calls it with active false. The
+// Signal K task calls it. NULL removes it.
+void sk_set_emergency_cb(void (*cb)(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref));
 
 // A bound path with its resend hint: 0 = on change ("instant"), else a fixed period in ms.
 typedef struct { bd_id_t id; uint32_t resend_ms; } sk_sub_t;

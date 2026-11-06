@@ -204,7 +204,7 @@ static void test_vessel_name_and_mmsi(void) {
 static void test_incoming_notification_preselects_the_nature(void) {
   wide();
   TEST_ASSERT_NOT_NULL(strstr(label("nature"), "NO EMERGENCY"));
-  em_on_notification(EM_FIRE, true, false, 0, 0, T);
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, T);
   refresh();
   TEST_ASSERT_NOT_NULL(strstr(label("nature"), "FIRE"));
   lv_refr_now(NULL);

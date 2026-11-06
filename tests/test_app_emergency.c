@@ -60,6 +60,12 @@ static void answer_all(int status) {
   while (take(&c, &h)) sk_cmd_finish(h, true, status);
 }
 
+static void answer_all_with_id(int status, const char *id) {
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  while (take(&c, &h)) sk_cmd_finish_id(h, true, status, id);
+}
+
 static bool send_alert(alert_t *a) { return alerts_get("device.emergency.send", a); }
 
 static void test_press_not_available_when_signalk_down(void) {
@@ -86,21 +92,39 @@ static void test_press_submits_notification_and_waypoint(void) {
   sk_cmd_t c;
   sk_cmd_handle_t h;
   TEST_ASSERT_TRUE(take(&c, &h));
-  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/mob", c.path);
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications", c.path);   // the server's Notifications API, not a per-nature path
+  TEST_ASSERT_EQUAL_STRING("", c.method);                               // a POST
   TEST_ASSERT_EQUAL_UINT16(3000, c.expire_ms);
   TEST_ASSERT_NOT_NULL(strstr(c.body, "\"state\":\"emergency\""));
+  TEST_ASSERT_NOT_NULL(strstr(c.body, "\"path\":\"mob\""));
+  TEST_ASSERT_NOT_NULL(strstr(c.body, "\"idInPath\":true"));
   TEST_ASSERT_NOT_NULL(strstr(c.body, "\"latitude\":41.500000"));
-  sk_cmd_finish(h, true, 200);
+  sk_cmd_finish_id(h, true, 200, "7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b");
   TEST_ASSERT_TRUE(take(&c, &h));
   TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/resources/waypoints", c.path);
   TEST_ASSERT_NOT_NULL(strstr(c.body, "\"coordinates\":[-70.250000,41.500000]"));
-  sk_cmd_finish(h, true, 201);
+  sk_cmd_finish_id(h, true, 201, "26d57d50-5339-4940-9371-5ae2e1ea316c");   // the waypoint's id must not become the MOB's
   app_tick();
   em_state_t s = snap();
   TEST_ASSERT_EQUAL(EM_SENT, s.send);
   TEST_ASSERT_EQUAL(EM_SENT, s.waypoint_send);
+  TEST_ASSERT_EQUAL_STRING("7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", s.id);
   alert_t a;
   TEST_ASSERT_FALSE(send_alert(&a));
+}
+
+static void test_fire_goes_to_the_generic_endpoint_with_its_own_path(void) {
+  TEST_ASSERT_TRUE(app_emergency_press(EM_FIRE));
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(take(&c, &h));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications", c.path);   // POST /notifications/fire is a 404 on a real server
+  TEST_ASSERT_NOT_NULL(strstr(c.body, "\"path\":\"fire\""));
+  TEST_ASSERT_NOT_NULL(strstr(c.body, "\"message\":\"FIRE\""));
+  sk_cmd_finish_id(h, true, 200, "f-uuid");
+  app_tick();
+  TEST_ASSERT_EQUAL_STRING("f-uuid", snap().id);
+  TEST_ASSERT_FALSE(take(&c, &h));   // no waypoint for a fire
 }
 
 static void test_press_updates_state_even_when_send_fails(void) {
@@ -152,24 +176,73 @@ static void test_refused_submit_is_not_sent(void) {
   TEST_ASSERT_TRUE(send_alert(&a));
 }
 
-static void test_cancel_success_clears_state_and_alert(void) {
+static void test_cancel_puts_state_normal_to_the_notifications_id(void) {
   TEST_ASSERT_TRUE(app_emergency_press(EM_MOB));
-  answer_all(200);
+  answer_all_with_id(200, "7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b");
   app_tick();
   TEST_ASSERT_TRUE(app_emergency_cancel());
   sk_cmd_t c;
   sk_cmd_handle_t h;
   TEST_ASSERT_TRUE(take(&c, &h));
-  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/mob", c.path);
-  TEST_ASSERT_NOT_NULL(strstr(c.body, "\"state\":\"normal\""));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", c.path);   // POST /notifications/mob would raise another MOB
+  TEST_ASSERT_EQUAL_STRING("PUT", c.method);
+  TEST_ASSERT_EQUAL_STRING("{\"state\":\"normal\"}", c.body);
   sk_cmd_finish(h, true, 200);
   app_tick();
   TEST_ASSERT_FALSE(em_active());
+  alert_t a;
+  TEST_ASSERT_FALSE(send_alert(&a));
+}
+
+static void test_cancel_without_a_known_id_is_refused_and_says_so(void) {
+  TEST_ASSERT_TRUE(app_emergency_press(EM_MOB));   // not answered yet: the server has not told us the id
+  TEST_ASSERT_FALSE(app_emergency_cancel());
+  TEST_ASSERT_TRUE(em_active());
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(take(&c, &h));   // only the raise is queued; nothing was sent for the cancel
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications", c.path);
+  TEST_ASSERT_FALSE(take(&c, &h) && !strcmp(c.method, "PUT"));
+  alert_t a;
+  TEST_ASSERT_TRUE(send_alert(&a));
+  TEST_ASSERT_NOT_NULL(strstr(a.message, "CANCEL NOT SENT"));
+}
+
+static void test_id_comes_from_the_echo_when_the_reply_had_none(void) {
+  TEST_ASSERT_TRUE(app_emergency_press(EM_MOB));
+  answer_all(200);   // a reply without an id
+  app_tick();
+  TEST_ASSERT_EQUAL_STRING("", snap().id);
+  const char *j = "{\"updates\":[{\"values\":[{\"path\":\"notifications.mob.echo-uuid\",\"value\":{\"state\":\"emergency\","
+                  "\"id\":\"echo-uuid\"}}]}]}";
+  sk_parse_message(j, strlen(j), 1000);
+  TEST_ASSERT_EQUAL_STRING("echo-uuid", snap().id);
+  TEST_ASSERT_TRUE(app_emergency_cancel());
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(take(&c, &h));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/echo-uuid", c.path);
+}
+
+static void test_a_mob_raised_elsewhere_is_cancelled_by_its_id(void) {
+  const char *j = "{\"updates\":[{\"values\":[{\"path\":\"notifications.mob.7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b\",\"value\":"
+                  "{\"state\":\"emergency\",\"position\":{\"latitude\":12.5,\"longitude\":-45.5},"
+                  "\"id\":\"7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b\"}}]}]}";
+  sk_parse_message(j, strlen(j), 1000);   // the helm's button, through the server's own MOB endpoint
+  em_state_t s = snap();
+  TEST_ASSERT_EQUAL(EM_MOB, s.nature);
+  TEST_ASSERT_EQUAL_DOUBLE(12.5, s.lat);
+  TEST_ASSERT_TRUE(app_emergency_cancel());
+  sk_cmd_t c;
+  sk_cmd_handle_t h;
+  TEST_ASSERT_TRUE(take(&c, &h));
+  TEST_ASSERT_EQUAL_STRING("/signalk/v2/api/notifications/7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", c.path);
+  TEST_ASSERT_EQUAL_STRING("PUT", c.method);
 }
 
 static void test_cancel_that_cannot_be_sent_keeps_the_emergency(void) {
   TEST_ASSERT_TRUE(app_emergency_press(EM_MOB));
-  answer_all(200);
+  answer_all_with_id(200, "uuid-1");
   app_tick();
   sk_cmd_set_connected(false);
   TEST_ASSERT_FALSE(app_emergency_cancel());
@@ -298,7 +371,7 @@ static bool sos_shown(void) {
 static void test_sos_shows_for_a_mob_and_goes_to_the_script(void) {
   app_tick();
   TEST_ASSERT_FALSE(sos_shown());
-  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);   // not a MOB
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, 1000);   // not a MOB
   app_tick();
   TEST_ASSERT_FALSE(sos_shown());
   em_reset();
@@ -327,7 +400,7 @@ static void test_fire_flood_sinking_select_the_script_page_automatically(void) {
     em_reset();
     app_tick();   // nothing declared: the shell notes that
     ui_shell_goto(0, 0);
-    em_on_notification(natures[i], true, false, 0, 0, 1000);
+    em_on_notification(natures[i], true, false, 0, 0, NULL, 1000);
     app_tick();
     TEST_ASSERT_EQUAL_UINT8_MESSAGE((uint8_t)nav_role(), ui_shell_nav()->role, em_nature_label(natures[i]));
     TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
@@ -342,7 +415,7 @@ static void test_mob_does_not_jump_the_page_by_itself(void) {
   em_reset();
   app_tick();
   ui_shell_goto(0, 0);
-  em_on_notification(EM_MOB, true, true, 41.5, -70.25, 1000);
+  em_on_notification(EM_MOB, true, true, 41.5, -70.25, NULL, 1000);
   app_tick();
   TEST_ASSERT_EQUAL_UINT8(0, ui_shell_nav()->role);   // GO on the banner (page_for) and SOS take the crew there
 }
@@ -350,12 +423,12 @@ static void test_mob_does_not_jump_the_page_by_itself(void) {
 static void test_a_press_on_this_display_does_not_need_the_jump_but_a_new_nature_still_jumps(void) {
   em_reset();
   app_tick();
-  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, 1000);
   app_tick();
   ui_shell_goto(0, 0);
-  em_on_notification(EM_FIRE, false, false, 0, 0, 2000);   // out
+  em_on_notification(EM_FIRE, false, false, 0, 0, NULL, 2000);   // out
   app_tick();
-  em_on_notification(EM_FLOOD, true, false, 0, 0, 3000);   // a new declaration
+  em_on_notification(EM_FLOOD, true, false, 0, 0, NULL, 3000);   // a new declaration
   app_tick();
   TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
   ui_shell_goto(0, 0);
@@ -374,7 +447,11 @@ int main(void) {
   RUN_TEST(test_no_write_access_is_named);
   RUN_TEST(test_drop_mid_send_ends_not_sent);
   RUN_TEST(test_refused_submit_is_not_sent);
-  RUN_TEST(test_cancel_success_clears_state_and_alert);
+  RUN_TEST(test_fire_goes_to_the_generic_endpoint_with_its_own_path);
+  RUN_TEST(test_cancel_puts_state_normal_to_the_notifications_id);
+  RUN_TEST(test_cancel_without_a_known_id_is_refused_and_says_so);
+  RUN_TEST(test_id_comes_from_the_echo_when_the_reply_had_none);
+  RUN_TEST(test_a_mob_raised_elsewhere_is_cancelled_by_its_id);
   RUN_TEST(test_cancel_that_cannot_be_sent_keeps_the_emergency);
   RUN_TEST(test_second_press_after_failure_is_a_new_capture);
   RUN_TEST(test_second_press_while_sending_is_ignored);

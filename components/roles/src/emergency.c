@@ -55,22 +55,32 @@ void em_set_send(em_send_t s) {
   UNLOCK();
 }
 
+void em_set_server_id(const char *id) {
+  LOCK();
+  snprintf(st.id, sizeof st.id, "%s", id ? id : "");
+  UNLOCK();
+}
+
 void em_set_waypoint_send(em_send_t s) {
   LOCK();
   st.waypoint_send = s;
   UNLOCK();
 }
 
-void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, double lon, int64_t now_ms) {
+void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, double lon, const char *id, int64_t now_ms) {
   if (n == EM_NONE) return;
+  bool have_id = id && id[0];
   LOCK();
   if (!active) {
-    // A "normal" the server replays (a reconnect) must not wipe a press whose notification is still being sent.
+    // A "normal" the server replays (a reconnect) must not wipe a press whose notification is still being sent, and a
+    // normal for another notification of this nature (an earlier MOB being cleared) is not about the one we hold.
     bool in_flight = st.origin == EM_ORIGIN_LOCAL && st.send == EM_SENDING;
-    if (st.nature == n && !in_flight) memset(&st, 0, sizeof st);
+    bool other = have_id && st.id[0] && strcmp(id, st.id) != 0;
+    if (st.nature == n && !in_flight && !other) memset(&st, 0, sizeof st);
   } else if (st.nature == n) {
-    // Our own echo, or a replay after a reconnect: keep what we have. A device that adopted a MOB with no position
-    // may learn it from a later payload.
+    // Our own echo, or a replay after a reconnect: keep what we have, but learn the id. A device that adopted a MOB with
+    // no position may learn it from a later payload.
+    if (!st.id[0] && have_id) snprintf(st.id, sizeof st.id, "%s", id);
     if (st.origin == EM_ORIGIN_NOTIFICATION && !st.has_pos && has_pos && isfinite(lat) && isfinite(lon)) {
       st.has_pos = true;
       st.lat = lat;
@@ -85,6 +95,7 @@ void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, do
       st.lat = lat;
       st.lon = lon;
     }
+    if (have_id) snprintf(st.id, sizeof st.id, "%s", id);
     st.captured_ms = now_ms;
   }
   UNLOCK();
@@ -103,8 +114,10 @@ static const struct { const char *path, *label; } NAMES[] = {
 
 em_nature_t em_nature_from_path(const char *id) {
   if (!id) return EM_NONE;
-  for (int i = EM_MOB; i <= EM_OTHER; i++)
-    if (!strcmp(id, NAMES[i].path)) return (em_nature_t)i;
+  for (int i = EM_MOB; i <= EM_OTHER; i++) {
+    size_t n = strlen(NAMES[i].path);
+    if (!strncmp(id, NAMES[i].path, n) && (id[n] == '\0' || (id[n] == '.' && id[n + 1]))) return (em_nature_t)i;
+  }
   return EM_NONE;
 }
 
@@ -116,20 +129,23 @@ static bool utc(int64_t epoch_s, struct tm *tm) {
   return epoch_s > 0 && gmtime_r(&t, tm) != NULL;
 }
 
-size_t em_notification_body(const em_state_t *s, bool cancel, char *out, size_t n) {
-  char head[96];
-  if (cancel) snprintf(head, sizeof head, "{\"state\":\"normal\",\"method\":[],\"message\":\"%s CANCELLED\"", em_nature_label(s->nature));
-  else snprintf(head, sizeof head, "{\"state\":\"emergency\",\"method\":[\"visual\",\"sound\"],\"message\":\"%s\"", em_nature_label(s->nature));
+size_t em_raise_body(const em_state_t *s, char *out, size_t n) {
   char data[160] = "";
   struct tm tm;
-  if (!cancel && s->nature == EM_MOB && s->has_pos) {
+  if (s->nature == EM_MOB && s->has_pos) {
     int len = snprintf(data, sizeof data, ",\"data\":{\"position\":{\"latitude\":%.6f,\"longitude\":%.6f}", s->lat, s->lon);
     if (utc(s->captured_epoch_s, &tm))
       len += snprintf(data + len, sizeof data - (size_t)len, ",\"time\":\"%04d-%02d-%02dT%02d:%02d:%02dZ\"", tm.tm_year + 1900,
                       tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     snprintf(data + len, sizeof data - (size_t)len, "}");
   }
-  int w = snprintf(out, n, "%s%s}", head, data);
+  int w = snprintf(out, n, "{\"state\":\"emergency\",\"message\":\"%s\",\"path\":\"%s\",\"idInPath\":true,\"includeCreatedAt\":true%s}",
+                   em_nature_label(s->nature), em_nature_path(s->nature), data);
+  return w > 0 && (size_t)w < n ? (size_t)w : 0;
+}
+
+size_t em_cancel_body(char *out, size_t n) {
+  int w = snprintf(out, n, "{\"state\":\"normal\"}");
   return w > 0 && (size_t)w < n ? (size_t)w : 0;
 }
 

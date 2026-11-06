@@ -263,7 +263,7 @@ static void test_mob_target_shows_bearing_distance_and_age(void) {
 static void test_mob_without_a_position_shows_no_position_and_no_arrow(void) {
   full();
   own_position(41.5, -70.25);
-  em_on_notification(EM_MOB, true, false, 0, 0, T);   // raised by something else, no position in it
+  em_on_notification(EM_MOB, true, false, 0, 0, NULL, T);   // raised by something else, no position in it
   wide();
   TEST_ASSERT_TRUE(shown("mob"));
   TEST_ASSERT_TRUE(ui_field_faulted(part("mob")));

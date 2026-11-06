@@ -4,6 +4,8 @@ An overlay never names a notifications.* path: alarms come from the server react
 notify op, for the emergency natures (mob, fire, flooding, sinking, emergency): they have no zone to cross, so the boat
 sends the notification itself, as a plugin would.
 """
+import datetime
+import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -92,15 +94,19 @@ class Notify:
 
 
 def notify_delta(n: Notify) -> dict:
-    """The delta the boat sends for a Notify."""
+    """The delta the boat sends for a Notify, in the shape the server itself produces for an emergency (its own
+    POST /notifications/mob): notifications.<nature>.<uuid>, the uuid also in value.id, the position in value.position.
+    The uuid is fixed per nature, so a "normal" clears the notification its "emergency" raised."""
+    uid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"sk-inject.{n.nature}"))
     if n.state == "normal":
-        value: dict = {"state": "normal"}
+        value: dict = {"state": "normal", "id": uid}
     else:
-        value = {"state": "emergency", "method": ["visual", "sound"], "message": n.message or NATURES[n.nature]}
+        value = {"state": "emergency", "method": ["visual", "sound"], "message": n.message or NATURES[n.nature], "id": uid,
+                 "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
         if n.nature == "mob" and n.position:
-            value["data"] = {"position": {"latitude": n.position[0], "longitude": n.position[1]}}
+            value["position"] = {"latitude": n.position[0], "longitude": n.position[1]}
     return {"context": "vessels.self",
-            "updates": [{"source": {"label": "sk-inject"}, "values": [{"path": f"notifications.{n.nature}", "value": value}]}]}
+            "updates": [{"source": {"label": "sk-inject"}, "values": [{"path": f"notifications.{n.nature}.{uid}", "value": value}]}]}
 
 
 class Overlay:

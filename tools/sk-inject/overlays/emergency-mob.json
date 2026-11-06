@@ -1,5 +1,5 @@
 {
-  "description": "A man overboard raised by something else (a plugin or the helm's button) with the position in it. At 10 s notifications.mob goes to emergency with a position near the baseline's; every display raises the alarm, shows the MOB target on the Navigation page and the SOS button. At 60 s it clears. Use the display's own MOB button to test sending.",
+  "description": "A man overboard raised by something else (a plugin or the helm's button) with the position in it. At 10 s notifications.mob.<uuid> goes to emergency (the shape the server itself produces) with a position near the baseline's; every display raises the alarm, shows the MOB target on the Navigation page and the SOS button. At 60 s it clears. Use the display's own MOB button to test sending.",
   "durationMs": 70000,
   "after": [
     { "atMs": 10000, "note": "MOB raised, with a position", "op": "notify", "nature": "mob", "state": "emergency", "position": [48.5400, -123.0100] },
