@@ -7,7 +7,7 @@ typedef struct {
   lv_obj_t *btn, *fill, *label;
   lv_timer_t *timer;
   uint32_t start;
-  bool fired;
+  bool fired, declared;
 } hold_t;
 
 static void end_hold(hold_t *h) {
@@ -88,11 +88,21 @@ static hold_t *state_of(lv_obj_t *btn) {
   return NULL;
 }
 
-void ui_holdbtn_set_declared(lv_obj_t *btn, bool declared) {
+void ui_holdbtn_restyle(lv_obj_t *btn) {
   const ui_colors_t *c = ui_theme();
   hold_t *h = state_of(btn);
-  lv_obj_set_style_bg_color(btn, declared ? c->alarm : c->strip_bg, 0);
-  if (h) lv_obj_set_style_text_color(h->label, declared ? c->bg : c->fg, 0);
+  if (!h) return;
+  lv_obj_set_style_border_color(btn, c->fg, 0);
+  lv_obj_set_style_bg_color(btn, h->declared ? c->alarm : c->strip_bg, 0);
+  lv_obj_set_style_bg_color(h->fill, c->accent, 0);
+  lv_obj_set_style_text_color(h->label, h->declared ? c->bg : c->fg, 0);   // night is one red: dark on the fill
+}
+
+void ui_holdbtn_set_declared(lv_obj_t *btn, bool declared) {
+  hold_t *h = state_of(btn);
+  if (!h) return;
+  h->declared = declared;
+  ui_holdbtn_restyle(btn);
 }
 
 lv_obj_t *ui_holdbtn_fill(lv_obj_t *btn) { hold_t *h = state_of(btn); return h ? h->fill : NULL; }
