@@ -210,3 +210,23 @@ The RGB scan occasionally loses sync: the top status bar shows at the bottom and
 | RESET SCREEN on a healthy screen | A brief redraw, no lasting flicker, touch still works |
 | Set `display.reset_after_swipe` to `true` (`config set`), swipe between pages repeatedly | One restart about 400 ms after you stop swiping (not one per swipe); note any visible flicker. If it flickers, leave the flag off |
 | Corruption still happens and RESET SCREEN does not fix it | The restart hypothesis is wrong; try a lower PCLK (`docs/hardware/boards.md`) |
+
+## Emergency: MOB, fire, flooding, SOS
+
+Add `{ "role": "navigation" }` to `config.json`. The emergency script is Navigation page 2 (swipe up from the compass). Contract with the signal controller: `docs/signal-contract.md`. Run `tools/scenario.sh emergency-mob`, `emergency-mob-nopos` and `emergency-fire` on top of the routine boat; they send the notification as a delta (the `notify` op), the exception to "alarms are never written as notifications" because these paths have no zone. Every button, CANCEL included, needs a one second hold: a tap sends nothing, and the button fills while it is held.
+
+| Scenario | Each display should show |
+|---|---|
+| `emergency-mob` at 10 s | The alarm banner and buzzer; the SOS button (red) replaces the role name on every page. The page does not jump by itself: GO on the banner opens the Navigation compass with the dashed MOB arrow, `MOB 046° 4.3 nm` (illustrative) and `MARKED n s AGO`, and the present position stays in the lower right. At 60 s everything clears |
+| `emergency-mob-nopos` at 10 s | The banner; the MOB readout flagged `NO POSITION`, `MOB POSITION UNKNOWN` under it, no arrow. The display never uses its own position |
+| `emergency-fire` at 10 s | The banner; the display jumps to the script page by itself, once (swipe away and it stays away), with `NATURE: FIRE` and the FIRE button filled. At 30 s flooding as well: the script keeps showing FIRE (one declared nature). At 60 s both clear |
+| SOS, from any page, while a MOB is declared | One tap goes to the script page. It still shows with Signal K stopped |
+| Hold MOB for 1 s on the script page (Signal K up, Navigation role configured) | The MOB is declared at once on this display (compass target, SOS). `SENDING...` then `SENT`; every other display raises it. Check on the server what arrived: path, body, the position and time at the moment of the press, and the waypoint `MOB hh:mm:ss` |
+| Release before 1 s | Nothing is declared or sent |
+| Hold MOB with the server stopped (or the token read-only) | The display declares it locally, shows `NOT SENT - TELL HELM` and the buzzer; with a read-only token `NO WRITE ACCESS`. Nothing is retried. Pressing again is a new event with a new position |
+| Signal K stopped | The five buttons and CANCEL are hidden; the script page says so and still shows vessel, position and any declared nature |
+| Hold CANCEL | The emergency clears on this display and on the others once the server has it. If the cancel cannot be sent it stays declared and says so |
+| No GPS fix at the press | The MOB is declared with no position: `NO POSITION`, no waypoint, no arrow |
+| Restart a display during a MOB | On reconnect it adopts the MOB from the server's notification, with the position from its payload |
+
+Also check on a board, 45 s after boot with the Navigation role: internal free memory with `status` (the script page and SOS add a few KB of LVGL objects while the page is shown) against the figures in `docs/hardware/boards.md`. On the server: write permission for `notifications.*` and `resources/waypoints`, whether the notification endpoint takes all five natures and the `data` field, and the waypoint body against the OpenAPI definition. The vessel name comes from Signal K's `name` unless `vessel.name` is set.

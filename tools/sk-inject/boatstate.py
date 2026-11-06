@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from overlay import Alarm, Clear, GroupOff, GroupOn, Move, Post, Put, Ramp, Set, Silent
+from overlay import Alarm, Clear, GroupOff, GroupOn, Move, Notify, Post, Put, Ramp, Set, Silent
 
 M_PER_DEG = 111320.0   # metres per degree of latitude (close enough for a test boat)
 
@@ -126,7 +126,7 @@ class BoatState:
             t = now_ms - r.start_ms
             for a in r.overlay.step(t):
                 msgs.append(f"{t / 1000:5.1f}s  {r.name}: {a}")
-                if isinstance(a, (Alarm, Post, Put)):   # need the server: handed to the daemon
+                if isinstance(a, (Alarm, Post, Put, Notify)):   # need the server: handed to the daemon
                     alarms.append((r.owner, a))
                 else:
                     self._apply(r, a, now_ms)

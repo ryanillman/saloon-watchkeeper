@@ -5,7 +5,7 @@ from boatmodel import load_baseline
 from boatstate import BoatState
 import math
 
-from overlay import Alarm, Post, Put, parse_overlay
+from overlay import Alarm, Notify, Post, Put, parse_overlay
 
 B = load_baseline(_path.SKDIR / "baseline.json")
 POS = "navigation.position"
@@ -187,6 +187,13 @@ class BoatStateTests(unittest.TestCase):
         got = [a for _, a in s.tick(1000)[1]]
         self.assertEqual(got, [Post("/plugins/anchoralarm/dropAnchor", {"radius": 45}),
                                Put("navigation.anchor.maxRadius", 45)])
+
+    def test_notify_is_returned_for_the_daemon(self):
+        s = BoatState(B)
+        s.start_overlay("t", ov({"atMs": 1000, "op": "notify", "nature": "mob", "state": "emergency",
+                                 "position": [41.5, -70.25]}), 0)
+        self.assertEqual(s.tick(500)[1], [])
+        self.assertEqual([a for _, a in s.tick(1000)[1]], [Notify("mob", "emergency", None, (41.5, -70.25))])
 
     def test_manual_drive_without_overlay(self):
         s = BoatState(B)
