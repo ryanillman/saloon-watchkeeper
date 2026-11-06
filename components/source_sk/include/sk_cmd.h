@@ -15,8 +15,9 @@ typedef enum { SKC_ERR_NONE, SKC_ERR_OFFLINE, SKC_ERR_NO_ACCESS, SKC_ERR_NO_PLUG
 typedef struct {
   bool put_number;
   char path[96];
-  char body[96];
+  char body[256];
   double value;
+  uint16_t expire_ms;   // how long it may wait to be sent; 0 = 5000. An emergency uses 3000: late is worse than never
 } sk_cmd_t;
 
 typedef uint16_t sk_cmd_handle_t;   // 0 = none

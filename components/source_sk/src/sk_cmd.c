@@ -121,7 +121,7 @@ bool sk_cmd_next(sk_cmd_t *out, sk_cmd_handle_t *h, int64_t now_ms) {
     for (int i = 0; i < SLOTS; i++)
       if (slot[i].st == S_QUEUED && (oldest < 0 || slot[i].seq < slot[oldest].seq)) oldest = i;
     if (oldest < 0) break;
-    if (now_ms - slot[oldest].at_ms > EXPIRE_MS) {   // too old to be what the user meant now
+    if (now_ms - slot[oldest].at_ms > (slot[oldest].cmd.expire_ms ? slot[oldest].cmd.expire_ms : EXPIRE_MS)) {   // too old to be what the user meant now
       fail(&slot[oldest], SKC_ERR_OFFLINE);
       continue;
     }
