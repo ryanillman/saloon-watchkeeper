@@ -52,7 +52,8 @@ static void test_rose_draws_all_states(void) {
     lv_obj_set_size(r, 376, 376);
     ui_rose_data_t all = {.have_heading = true, .heading = 0.82, .course = true, .dtk = 1.22, .xte_m = 222,
                           .have_cog = true, .cog = 1.22, .ap_bug = true, .ap_target = 0.91, .have_awa = true,
-                          .awa = 0.66, .have_twa = true, .twa = 1.07};
+                          .awa = 0.66, .have_twa = true, .twa = 1.07,
+                          .have_mob = true, .mob = 2.5};
     ui_rose_set(r, &all);
     lv_refr_now(NULL);
     ui_rose_data_t none = {.xte_m = NAN};
@@ -62,11 +63,13 @@ static void test_rose_draws_all_states(void) {
     ui_rose_set(r, &wind_only);   // wind is off the bow: it needs no heading
     lv_refr_now(NULL);
     ui_rose_data_t odd = {.have_heading = true, .heading = -3.0, .course = true, .dtk = 9.0, .xte_m = 1e9,
-                          .have_cog = true, .cog = -1.0, .ap_bug = true, .ap_target = 9.0, .have_awa = true, .awa = 7.0};
+                          .have_cog = true, .cog = -1.0, .ap_bug = true, .ap_target = 9.0, .have_awa = true, .awa = 7.0,
+                          .have_mob = true, .mob = -9.0};
     ui_rose_set(r, &odd);   // angles outside one turn, a cross-track error off the scale
     lv_refr_now(NULL);
     ui_rose_data_t nan_heading = {.have_heading = true, .heading = NAN, .course = true, .dtk = NAN, .xte_m = NAN,
-                                  .ap_bug = true, .ap_target = NAN, .have_awa = true, .awa = NAN};
+                                  .ap_bug = true, .ap_target = NAN, .have_awa = true, .awa = NAN,
+                                  .have_mob = true, .mob = NAN};
     ui_rose_set(r, &nan_heading);   // flags say yes, numbers say no: nothing may be drawn from a NAN
     lv_refr_now(NULL);
     lv_obj_delete(r);

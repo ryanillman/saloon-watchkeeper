@@ -183,6 +183,19 @@ static void draw(lv_event_t *e) {
       tri(&c, A, F, G, col->accent);
     }
 
+    if (d->have_mob && ok(d->mob)) {
+      // A dashed heavy line from the boat to a diamond on the rim: the line is one-sided and dashed, the DTK line is solid
+      // and two-sided, so night (one red) still tells them apart.
+      double a = DEG(d->mob) - hd;
+      double from = 44 * c.k, to = c.r - 14 * c.k, dash = 14 * c.k, gap = 9 * c.k;
+      int32_t lw = c.k > 0.9 ? 8 : 6;
+      for (double r0 = from; r0 < to; r0 += dash + gap) line(&c, at(&c, r0, a), at(&c, r0 + dash < to ? r0 + dash : to, a), lw, col->nav_mob, false);
+      lv_point_precise_t top = at(&c, c.r + 18 * c.k, a), bot = at(&c, c.r - 16 * c.k, a), lft = at(&c, c.r + 1 * c.k, a - 5.5),
+                         rgt = at(&c, c.r + 1 * c.k, a + 5.5);
+      tri(&c, top, lft, rgt, col->nav_mob);
+      tri(&c, bot, lft, rgt, col->nav_mob);
+    }
+
     line(&c, at(&c, c.r + 4 * c.k, 0), at(&c, c.r - 26 * c.k, 0), 5, col->nav_lubber, false);
   }
 

@@ -13,6 +13,7 @@ typedef struct {
   bool ap_bug;         double ap_target;
   bool have_awa;       double awa;         // rad off the bow, positive to starboard
   bool have_twa;       double twa;
+  bool have_mob;       double mob;         // the man-overboard target's bearing, rad true; needs a heading like the other rose-frame markers
 } ui_rose_data_t;
 
 // Size the object afterwards. The rose is a circle of ui_rose_radius_px(min(w, h)); the margin around it holds the wind

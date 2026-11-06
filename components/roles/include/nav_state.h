@@ -32,6 +32,7 @@ typedef struct {
   double xte, dtw;                        // m; NAN when not fresh. xte > 0: boat right of track
   bool ap_engaged, have_ap_target;  double ap_target;   // rad true
   bool have_current;  double set, drift;  // rad true, m/s; both or neither
+  bool have_pos;      double lat, lon;    // degrees; a fix no older than 10 s
 } nav_view_t;
 
 // Interns every path the page reads, and has the history store track apparent and server true wind speed.
@@ -40,7 +41,7 @@ void nav_ids_bind(nav_ids_t *ids);
 // The ids to subscribe to: every id above plus the parent `environment.current` (the parser flattens it to set and drift).
 size_t nav_sub_ids(const nav_ids_t *ids, bd_id_t *out, size_t max);
 
-// Maximum ages: heading, wind, SOG, COG, STW 5 s; course values, autopilot 10 s; set and drift 30 s; variation 60 s.
+// Maximum ages: position 10 s; heading, wind, SOG, COG, STW 5 s; course values, autopilot 10 s; set and drift 30 s; variation 60 s.
 // A stale or invalid value is missing. Heading is true, else magnetic plus a fresh variation, else none. True wind is the
 // server's when both its angle and speed are fresh, else computed from apparent wind and STW, else none (SOG is never used).
 // An autopilot is engaged when its fresh state is not standby, off, disabled or empty; its target counts only when engaged.
