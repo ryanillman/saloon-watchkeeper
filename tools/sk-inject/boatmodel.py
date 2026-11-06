@@ -8,7 +8,33 @@ import json
 import math
 import zlib
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+
+TIDE_HIGH_M = 3.2
+TIDE_LOW_M = 0.4
+TIDE_PERIOD_S = 12 * 3600 + 25 * 60
+TIDE_T0 = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)   # a reference high water
+
+
+class TideState(NamedTuple):
+    height_m: float
+    next_high: datetime.datetime
+    next_low: datetime.datetime
+
+
+def tide_state(now: datetime.datetime) -> TideState:
+    """The bench tide at wall-clock `now`: a cosine between TIDE_HIGH_M and TIDE_LOW_M, so a tides plugin's
+    next high and low really move with time (a constant offset from now would draw the same graph forever)."""
+    elapsed = (now - TIDE_T0).total_seconds()
+    mid, amp = (TIDE_HIGH_M + TIDE_LOW_M) / 2, (TIDE_HIGH_M - TIDE_LOW_M) / 2
+    height = mid + amp * math.cos(2 * math.pi * elapsed / TIDE_PERIOD_S)
+    half = TIDE_PERIOD_S / 2
+
+    def next_after(offset_s: float) -> datetime.datetime:
+        k = math.floor((elapsed - offset_s) / TIDE_PERIOD_S) + 1
+        return TIDE_T0 + datetime.timedelta(seconds=offset_s + k * TIDE_PERIOD_S)
+
+    return TideState(height, next_after(0), next_after(half))
 
 
 class Baseline:
@@ -55,6 +81,9 @@ def _iso(when: datetime.datetime) -> str:
 def _resolve(nominal: Any, row: dict, path: str, t_ms: float) -> Any:
     if nominal == "$now":
         return _iso(datetime.datetime.now(datetime.timezone.utc))
+    if isinstance(nominal, str) and nominal.startswith("$tide:"):
+        t = tide_state(datetime.datetime.now(datetime.timezone.utc))
+        return {"height": t.height_m, "high": _iso(t.next_high), "low": _iso(t.next_low)}[nominal[6:]]
     if isinstance(nominal, str) and nominal.startswith("$now+") and nominal.endswith("m"):
         # "$now+152m": that many minutes ahead (a tide plugin's next high or low), always in the future
         return _iso(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=float(nominal[5:-1])))
