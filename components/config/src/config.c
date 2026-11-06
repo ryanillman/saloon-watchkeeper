@@ -223,6 +223,7 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   c->buzzer = cJSON_IsTrue(cJSON_GetObjectItem(cJSON_GetObjectItem(root, "buzzer"), "enabled"));
   const cJSON *ras = cJSON_GetObjectItem(d, "reset_after_swipe");   // `config set` creates an absent key as text
   c->reset_after_swipe = cJSON_IsTrue(ras) || (cJSON_IsString(ras) && !strcmp(ras->valuestring, "true"));
+  COPY(c->vessel_name, cJSON_GetObjectItem(cJSON_GetObjectItem(root, "vessel"), "name"));
   const cJSON *ap = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "anchor"), "plugin");
   if (cJSON_IsString(ap)) {
     bool known = false;
@@ -487,6 +488,7 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   cJSON *bz = object(tree, "buzzer");
   cJSON_DeleteItemFromObject(bz, "enabled");
   cJSON_AddBoolToObject(bz, "enabled", c->buzzer);
+  set_str(object(tree, "vessel"), "name", c->vessel_name);
   set_str(object(tree, "anchor"), "plugin", c->anchor_plugin);
   write_roles(tree, c);
 

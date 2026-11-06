@@ -87,12 +87,33 @@ static void store_meta(bd_id_t id, const cJSON *m) {
 
 #define NOTE_PREFIX "notifications."
 
+static void (*emergency_cb)(const char *id, bool active, bool has_pos, double lat, double lon);
+void sk_set_emergency_cb(void (*cb)(const char *, bool, bool, double, double)) { emergency_cb = cb; }
+
+static char vessel_name[40], vessel_mmsi[16];
+const char *sk_vessel_name(void) { return vessel_name; }
+const char *sk_vessel_mmsi(void) { return vessel_mmsi; }
+
+static void learn(char *dst, size_t n, const cJSON *j) {   // only a change is written, so a reader rarely sees one mid-write
+  if (cJSON_IsString(j) && j->valuestring[0] && strncmp(dst, j->valuestring, n - 1) != 0) snprintf(dst, n, "%s", j->valuestring);
+}
+
+static void notify_emergency(const char *id, const cJSON *v, const cJSON *state) {
+  if (!emergency_cb) return;
+  bool active = cJSON_IsString(state) && state_of(state->valuestring) >= SK_STATE_ALARM;
+  const cJSON *pos = cJSON_IsObject(v) ? cJSON_GetObjectItem(cJSON_GetObjectItem(v, "data"), "position") : NULL;
+  const cJSON *lat = cJSON_GetObjectItem(pos, "latitude"), *lon = cJSON_GetObjectItem(pos, "longitude");
+  bool has_pos = active && cJSON_IsNumber(lat) && cJSON_IsNumber(lon);
+  emergency_cb(id, active, has_pos, has_pos ? lat->valuedouble : 0, has_pos ? lon->valuedouble : 0);
+}
+
 static void store_notification(const char *path, const cJSON *v, int64_t now) {
   const char *id = path + strlen(NOTE_PREFIX);
   if (!*id) return;
   const cJSON *state = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, "state") : NULL;
   if (!cJSON_IsString(state) || state_of(state->valuestring) == SK_STATE_NORMAL) {
     alerts_clear(id);
+    notify_emergency(id, v, NULL);
     return;
   }
   alert_t a = {0};
@@ -109,6 +130,7 @@ static void store_notification(const char *path, const cJSON *v, int64_t now) {
   a.acked = cJSON_IsTrue(cJSON_GetObjectItem(st, "acknowledged"));
   a.silenced = cJSON_IsTrue(cJSON_GetObjectItem(st, "silenced"));
   alerts_upsert(&a, now);
+  notify_emergency(id, v, state);
 }
 
 // Stamps the update's own time on the sample, unless the model refused the write (another source holds the path).
@@ -215,6 +237,8 @@ bool sk_parse_full(const char *json, size_t len) {
   bool ok = cJSON_IsObject(root);
   if (ok) {
     const cJSON *uuid = cJSON_GetObjectItem(root, "uuid"), *mmsi = cJSON_GetObjectItem(root, "mmsi");
+    learn(vessel_name, sizeof vessel_name, cJSON_GetObjectItem(root, "name"));
+    learn(vessel_mmsi, sizeof vessel_mmsi, mmsi);
     char ctx[96];
     if (cJSON_IsString(uuid)) {
       snprintf(ctx, sizeof ctx, "vessels.%s", uuid->valuestring);

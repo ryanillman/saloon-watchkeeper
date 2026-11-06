@@ -27,6 +27,17 @@ bool sk_parse_full(const char *json, size_t len);   // false if not a JSON objec
 // ones the configured roles read are kept. The array must outlive its use.
 void sk_parse_set_discovery_prefixes(const char *const *prefixes);
 
+// The vessel's own name and MMSI from the last full snapshot ("" when unknown). A snapshot without them keeps what
+// was learned. Written by the Signal K task, read by the UI.
+const char *sk_vessel_name(void);
+const char *sk_vessel_mmsi(void);
+
+// Called for every notification on this vessel (after the alerts update), id being the path below "notifications.".
+// active: state alarm or emergency. has_pos: value.data.position.latitude and .longitude are both numbers. A null,
+// a non-object or a state other than alarm/emergency calls it with active false. The Signal K task calls it. NULL
+// removes it.
+void sk_set_emergency_cb(void (*cb)(const char *id, bool active, bool has_pos, double lat, double lon));
+
 // A bound path with its resend hint: 0 = on change ("instant"), else a fixed period in ms.
 typedef struct { bd_id_t id; uint32_t resend_ms; } sk_sub_t;
 

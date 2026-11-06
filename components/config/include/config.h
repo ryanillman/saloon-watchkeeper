@@ -45,6 +45,7 @@ typedef struct {
   char start_role[12];
   bool buzzer;
   bool reset_after_swipe;   // display.reset_after_swipe: restart the display scan 400 ms after the last page change
+  char vessel_name[32];     // vessel.name: shown on the emergency script; empty = use the name Signal K reports
   char anchor_plugin[24];   // anchor.plugin: "hoekens-anchor-alarm" (default) | "anchoralarm"; which Signal K plugin the Anchor page commands
   cfg_role_t roles[CFG_MAX_ROLES];
   uint8_t role_count;
