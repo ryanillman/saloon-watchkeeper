@@ -44,7 +44,7 @@ void sk_cmd_init(void) {
 
 static void fail(slot_t *s, sk_cmd_err_t err) {
   s->st = S_DONE;
-  s->res = (sk_cmd_result_t){SKC_FAILED, err};
+  s->res = (sk_cmd_result_t){SKC_FAILED, err, ""};
 }
 
 static int active_count(void) {
@@ -107,7 +107,7 @@ out:
 sk_cmd_result_t sk_cmd_result(sk_cmd_handle_t h) {
   ensure_lock();
   LOCK();
-  sk_cmd_result_t r = {SKC_FAILED, SKC_ERR_NONE};
+  sk_cmd_result_t r = {SKC_FAILED, SKC_ERR_NONE, ""};
   for (int i = 0; i < SLOTS; i++)
     if (slot[i].st != S_EMPTY && slot[i].h == h && h) r = slot[i].res;
   UNLOCK();
