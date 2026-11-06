@@ -122,6 +122,23 @@ static void test_declared_label_is_readable_in_every_palette(void) {
   }
 }
 
+// The quick panel can change palette while it is open.
+static void test_restyle_follows_a_palette_change(void) {
+  ui_theme_set_current(PALETTE_DAY);
+  lv_obj_t *b = make(held0, NULL);
+  ui_holdbtn_set_declared(b, true);
+  ui_theme_set_current(PALETTE_NIGHT);
+  ui_holdbtn_restyle(b);
+  const ui_colors_t *c = ui_theme();
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_border_color(b, LV_PART_MAIN), c->fg));
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_bg_color(b, LV_PART_MAIN), c->alarm));   // still declared
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_text_color(ui_holdbtn_label(b), LV_PART_MAIN), c->bg));
+  ui_holdbtn_set_declared(b, false);
+  ui_theme_set_current(PALETTE_DAY);
+  ui_holdbtn_restyle(b);
+  TEST_ASSERT_TRUE(lv_color_eq(lv_obj_get_style_bg_color(b, LV_PART_MAIN), ui_theme()->strip_bg));
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -137,5 +154,6 @@ int main(void) {
   RUN_TEST(test_the_fill_grows_while_held_and_resets);
   RUN_TEST(test_deleting_a_button_during_a_hold_is_safe);
   RUN_TEST(test_declared_label_is_readable_in_every_palette);
+  RUN_TEST(test_restyle_follows_a_palette_change);
   return UNITY_END();
 }

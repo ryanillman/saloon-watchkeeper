@@ -16,5 +16,8 @@ lv_obj_t *ui_holdbtn_create(lv_obj_t *parent, const char *text, const lv_font_t 
 // red, so red text on a red fill would vanish.
 void ui_holdbtn_set_declared(lv_obj_t *btn, bool declared);
 
+// Re-applies the current palette (a panel that stays open while the palette changes), keeping the declared state.
+void ui_holdbtn_restyle(lv_obj_t *btn);
+
 lv_obj_t *ui_holdbtn_fill(lv_obj_t *btn);    // the progress fill, for tests
 lv_obj_t *ui_holdbtn_label(lv_obj_t *btn);
