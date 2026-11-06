@@ -25,6 +25,7 @@ typedef struct {
   double lat, lon;                 // degrees; valid when has_pos
   int64_t captured_ms;             // platform_millis() at the press or the receipt
   int64_t captured_epoch_s;        // UTC seconds at the press, 0 when the clock was not known
+  char id[40];                     // the server's id (a UUID) for this notification: the key to clear it. "" until known
 } em_state_t;
 
 void em_reset(void);
@@ -35,20 +36,27 @@ bool em_active(void);
 void em_press(em_nature_t n, bool has_pos, double lat, double lon, int64_t now_ms, int64_t epoch_s);
 void em_set_send(em_send_t s);
 void em_set_waypoint_send(em_send_t s);
-// A Signal K notification for `n` (active: state alarm or emergency). Normal clears the same nature. A different
-// nature never displaces a MOB.
-void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, double lon, int64_t now_ms);
+// The id the server's reply to the raise carried. Authoritative: a later echo does not replace it.
+void em_set_server_id(const char *id);
+// A Signal K notification for `n` (active: state alarm or emergency); `id` is its value.id (NULL or "" when it has none).
+// Normal clears the same nature, unless it names a different notification than the one we hold. A different nature
+// never displaces a MOB.
+void em_on_notification(em_nature_t n, bool active, bool has_pos, double lat, double lon, const char *id, int64_t now_ms);
 // The cancel reached Signal K: forget the emergency.
 void em_cancel_sent(void);
 
-// Notification id (the path after "notifications.") to a nature; EM_NONE when it is not one of ours.
+// Notification id (the path after "notifications.") to a nature: "mob", or "mob.<anything>" (the server appends the
+// notification's UUID); EM_NONE when it is not one of ours.
 em_nature_t em_nature_from_path(const char *id);
 const char *em_nature_path(em_nature_t n);    // "mob", "fire", "flooding", "sinking", "emergency" (OTHER: provisional)
 const char *em_nature_label(em_nature_t n);   // "MAN OVERBOARD", "FIRE", ...
 
-// The notification value written to notifications.<path>, or the cancel (state normal). Returns the length, 0 when
-// `n` is too small. A MOB with a position carries data.position and data.time.
-size_t em_notification_body(const em_state_t *s, bool cancel, char *out, size_t n);
+// The body of POST /signalk/v2/api/notifications (the server's Notifications API): state and message, path with idInPath
+// (the notification lands at notifications.<path>.<uuid>, and the reply carries the uuid). A MOB with a position carries
+// data.position and data.time. Returns the length, 0 when `n` is too small.
+size_t em_raise_body(const em_state_t *s, char *out, size_t n);
+// The body of PUT /signalk/v2/api/notifications/<uuid>: {"state":"normal"}.
+size_t em_cancel_body(char *out, size_t n);
 // The Signal K waypoint (GeoJSON Point, longitude first), named "MOB hh:mm:ss" (UTC). 0 with no position.
 size_t em_waypoint_body(const em_state_t *s, char *out, size_t n);
 

@@ -87,8 +87,8 @@ static void store_meta(bd_id_t id, const cJSON *m) {
 
 #define NOTE_PREFIX "notifications."
 
-static void (*emergency_cb)(const char *id, bool active, bool has_pos, double lat, double lon);
-void sk_set_emergency_cb(void (*cb)(const char *, bool, bool, double, double)) { emergency_cb = cb; }
+static void (*emergency_cb)(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref);
+void sk_set_emergency_cb(void (*cb)(const char *, bool, bool, double, double, const char *)) { emergency_cb = cb; }
 
 static char vessel_name[40], vessel_mmsi[16];
 const char *sk_vessel_name(void) { return vessel_name; }
@@ -98,13 +98,25 @@ static void learn(char *dst, size_t n, const cJSON *j) {   // only a change is w
   if (cJSON_IsString(j) && j->valuestring[0] && strncmp(dst, j->valuestring, n - 1) != 0) snprintf(dst, n, "%s", j->valuestring);
 }
 
+static bool position_of(const cJSON *pos, double *lat, double *lon) {
+  const cJSON *la = cJSON_GetObjectItem(pos, "latitude"), *lo = cJSON_GetObjectItem(pos, "longitude");
+  if (!cJSON_IsNumber(la) || !cJSON_IsNumber(lo)) return false;
+  *lat = la->valuedouble;
+  *lon = lo->valuedouble;
+  return true;
+}
+
 static void notify_emergency(const char *id, const cJSON *v, const cJSON *state) {
   if (!emergency_cb) return;
   bool active = cJSON_IsString(state) && state_of(state->valuestring) >= SK_STATE_ALARM;
-  const cJSON *pos = cJSON_IsObject(v) ? cJSON_GetObjectItem(cJSON_GetObjectItem(v, "data"), "position") : NULL;
-  const cJSON *lat = cJSON_GetObjectItem(pos, "latitude"), *lon = cJSON_GetObjectItem(pos, "longitude");
-  bool has_pos = active && cJSON_IsNumber(lat) && cJSON_IsNumber(lon);
-  emergency_cb(id, active, has_pos, has_pos ? lat->valuedouble : 0, has_pos ? lon->valuedouble : 0);
+  double lat = 0, lon = 0;
+  bool has_pos = false;
+  if (active && cJSON_IsObject(v)) {   // the display's own capture, else the position the server had when it raised it
+    has_pos = position_of(cJSON_GetObjectItem(cJSON_GetObjectItem(v, "data"), "position"), &lat, &lon) ||
+              position_of(cJSON_GetObjectItem(v, "position"), &lat, &lon);
+  }
+  const cJSON *ref = cJSON_IsObject(v) ? cJSON_GetObjectItem(v, "id") : NULL;
+  emergency_cb(id, active, has_pos, has_pos ? lat : 0, has_pos ? lon : 0, cJSON_IsString(ref) ? ref->valuestring : NULL);
 }
 
 static void store_notification(const char *path, const cJSON *v, int64_t now) {

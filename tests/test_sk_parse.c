@@ -222,12 +222,13 @@ static void test_notification_normal_clears(void) {
   TEST_ASSERT_EQUAL_UINT8(0, s.count);
 }
 
-static char em_id[24];
+static char em_id[64], em_ref[48];
 static bool em_active, em_pos;
 static double em_lat, em_lon;
 static int em_calls;
-static void on_em(const char *id, bool active, bool has_pos, double lat, double lon) {
+static void on_em(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref) {
   snprintf(em_id, sizeof em_id, "%s", id);
+  snprintf(em_ref, sizeof em_ref, "%s", ref ? ref : "(null)");
   em_active = active;
   em_pos = has_pos;
   em_lat = lat;
@@ -259,6 +260,44 @@ static void test_notification_calls_emergency_cb_with_position(void) {
   alerts_snapshot_t s;   // the generic alert handling still happens
   alerts_snapshot(&s);
   TEST_ASSERT_EQUAL_UINT8(1, s.count);
+  sk_set_emergency_cb(NULL);
+}
+
+#define SERVER_MOB(value) "{\"updates\":[{\"values\":[{\"path\":\"notifications.mob.7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b\",\"value\":" value "}]}]}"
+
+static void test_servers_own_mob_carries_its_uuid_in_the_path_and_value_position(void) {
+  // What POST /signalk/v2/api/notifications/mob produces: notifications.mob.<uuid>, the server's position in value.position.
+  em_calls = 0;
+  sk_set_emergency_cb(on_em);
+  feed(SERVER_MOB("{\"state\":\"emergency\",\"message\":\"Person Overboard!\",\"position\":{\"latitude\":41.5,\"longitude\":-70.25,\"altitude\":0},"
+                  "\"createdAt\":\"2026-11-06T18:00:00Z\",\"id\":\"7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b\"}"));
+  TEST_ASSERT_EQUAL(1, em_calls);
+  TEST_ASSERT_EQUAL_STRING("mob.7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", em_id);
+  TEST_ASSERT_EQUAL_STRING("7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b", em_ref);
+  TEST_ASSERT_TRUE(em_active);
+  TEST_ASSERT_TRUE(em_pos);
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, em_lat);
+  TEST_ASSERT_EQUAL_DOUBLE(-70.25, em_lon);
+  sk_set_emergency_cb(NULL);
+}
+
+static void test_data_position_wins_over_the_servers_value_position(void) {
+  em_calls = 0;
+  sk_set_emergency_cb(on_em);   // the press-time capture beats the position the server had when it handled the request
+  feed(SERVER_MOB("{\"state\":\"emergency\",\"position\":{\"latitude\":1.0,\"longitude\":2.0},"
+                  "\"data\":{\"position\":{\"latitude\":41.5,\"longitude\":-70.25}},\"id\":\"u\"}"));
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, em_lat);
+  TEST_ASSERT_EQUAL_DOUBLE(-70.25, em_lon);
+  feed(SERVER_MOB("{\"state\":\"emergency\",\"position\":null,\"id\":\"u\"}"));   // the server had no fix: null
+  TEST_ASSERT_FALSE(em_pos);
+  sk_set_emergency_cb(NULL);
+}
+
+static void test_notification_without_id_calls_cb_with_null_ref(void) {
+  em_calls = 0;
+  sk_set_emergency_cb(on_em);
+  feed(MOB_NOTE("{\"state\":\"emergency\"}"));
+  TEST_ASSERT_EQUAL_STRING("(null)", em_ref);
   sk_set_emergency_cb(NULL);
 }
 
@@ -425,6 +464,9 @@ int main(void) {
   RUN_TEST(test_notification_normal_clears);
   RUN_TEST(test_parse_full_reads_name_and_mmsi);
   RUN_TEST(test_notification_calls_emergency_cb_with_position);
+  RUN_TEST(test_servers_own_mob_carries_its_uuid_in_the_path_and_value_position);
+  RUN_TEST(test_data_position_wins_over_the_servers_value_position);
+  RUN_TEST(test_notification_without_id_calls_cb_with_null_ref);
   RUN_TEST(test_notification_without_position_calls_cb_with_no_position);
   RUN_TEST(test_notification_normal_and_null_call_cb_inactive);
   RUN_TEST(test_other_vessel_notification_ignored_by_cb);

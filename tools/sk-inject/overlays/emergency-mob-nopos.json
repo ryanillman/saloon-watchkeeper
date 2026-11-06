@@ -1,5 +1,5 @@
 {
-  "description": "A man overboard raised with no position in it. At 10 s notifications.mob goes to emergency; the displays raise the alarm and the Navigation page shows MOB NO POSITION with no arrow (a display never uses its own position at receipt). At 60 s it clears.",
+  "description": "A man overboard raised with no position in it. At 10 s notifications.mob.<uuid> goes to emergency (the shape the server itself produces); the displays raise the alarm and the Navigation page shows MOB NO POSITION with no arrow (a display never uses its own position at receipt). At 60 s it clears.",
   "durationMs": 70000,
   "after": [
     { "atMs": 10000, "note": "MOB raised, no position", "op": "notify", "nature": "mob", "state": "emergency" },

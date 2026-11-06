@@ -29,7 +29,7 @@ static void test_press_without_fix_has_no_position(void) {
   em_state_t s = snap();
   TEST_ASSERT_FALSE(s.has_pos);
   char body[300];
-  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_TRUE(em_raise_body(&s, body, sizeof body) > 0);
   TEST_ASSERT_NULL(strstr(body, "position"));
   char wp[300];
   TEST_ASSERT_EQUAL(0, em_waypoint_body(&s, wp, sizeof wp));
@@ -37,7 +37,7 @@ static void test_press_without_fix_has_no_position(void) {
 
 static void test_echo_never_overwrites_local_capture(void) {
   em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
-  em_on_notification(EM_MOB, true, true, 10.0, 10.0, 2000);
+  em_on_notification(EM_MOB, true, true, 10.0, 10.0, NULL, 2000);
   em_state_t s = snap();
   TEST_ASSERT_EQUAL(EM_ORIGIN_LOCAL, s.origin);
   TEST_ASSERT_EQUAL_DOUBLE(41.5, s.lat);
@@ -45,26 +45,26 @@ static void test_echo_never_overwrites_local_capture(void) {
 }
 
 static void test_replay_adopts_payload_position(void) {
-  em_on_notification(EM_MOB, true, true, 12.5, -45.5, 5000);
+  em_on_notification(EM_MOB, true, true, 12.5, -45.5, NULL, 5000);
   em_state_t s = snap();
   TEST_ASSERT_EQUAL(EM_MOB, s.nature);
   TEST_ASSERT_EQUAL(EM_ORIGIN_NOTIFICATION, s.origin);
   TEST_ASSERT_TRUE(s.has_pos);
   TEST_ASSERT_EQUAL_DOUBLE(12.5, s.lat);
   em_reset();
-  em_on_notification(EM_MOB, true, false, 0, 0, 5000);
+  em_on_notification(EM_MOB, true, false, 0, 0, NULL, 5000);
   s = snap();
   TEST_ASSERT_EQUAL(EM_MOB, s.nature);
   TEST_ASSERT_FALSE(s.has_pos);   // never our own position at receipt
 }
 
 static void test_notification_normal_clears(void) {
-  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, 1000);
   TEST_ASSERT_TRUE(em_active());
-  em_on_notification(EM_FIRE, false, false, 0, 0, 2000);
+  em_on_notification(EM_FIRE, false, false, 0, 0, NULL, 2000);
   TEST_ASSERT_FALSE(em_active());
-  em_on_notification(EM_FIRE, true, false, 0, 0, 3000);
-  em_on_notification(EM_FLOOD, false, false, 0, 0, 4000);   // another nature going normal leaves it
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, 3000);
+  em_on_notification(EM_FLOOD, false, false, 0, 0, NULL, 4000);   // another nature going normal leaves it
   TEST_ASSERT_TRUE(em_active());
 }
 
@@ -78,16 +78,16 @@ static void test_cancel_not_sent_keeps_state(void) {
 
 static void test_stale_normal_does_not_clear_a_press_in_flight(void) {
   em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);   // the notification is still being sent
-  em_on_notification(EM_MOB, false, false, 0, 0, 1100);      // an old "normal" replayed by the server
+  em_on_notification(EM_MOB, false, false, 0, 0, NULL, 1100);      // an old "normal" replayed by the server
   TEST_ASSERT_TRUE(em_active());
   em_set_send(EM_SENT);
-  em_on_notification(EM_MOB, false, false, 0, 0, 2000);      // once sent, a normal is a real clear (cancelled elsewhere)
+  em_on_notification(EM_MOB, false, false, 0, 0, NULL, 2000);      // once sent, a normal is a real clear (cancelled elsewhere)
   TEST_ASSERT_FALSE(em_active());
 }
 
 static void test_mob_is_not_displaced_by_another_nature(void) {
   em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
-  em_on_notification(EM_FIRE, true, false, 0, 0, 2000);
+  em_on_notification(EM_FIRE, true, false, 0, 0, NULL, 2000);
   TEST_ASSERT_EQUAL(EM_MOB, snap().nature);
 }
 
@@ -108,28 +108,66 @@ static void test_ddm_rounding(void) {
   ddm(179.9999999, false, "180\xC2\xB0" "00.000'E");
 }
 
-static void test_notification_body_shape(void) {
+static void test_raise_body_matches_the_servers_notifications_api(void) {
   em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
   em_state_t s = snap();
   char body[300];
-  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_TRUE(em_raise_body(&s, body, sizeof body) > 0);
+  // POST /signalk/v2/api/notifications: state and message are required; path with idInPath gives notifications.mob.<uuid>
   TEST_ASSERT_NOT_NULL(strstr(body, "\"state\":\"emergency\""));
-  TEST_ASSERT_NOT_NULL(strstr(body, "\"method\":[\"visual\",\"sound\"]"));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"message\":\"MAN OVERBOARD\""));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"path\":\"mob\""));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"idInPath\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"includeCreatedAt\":true"));
   TEST_ASSERT_NOT_NULL(strstr(body, "\"data\":{\"position\":{\"latitude\":41.500000,\"longitude\":-70.250000}"));
   TEST_ASSERT_NOT_NULL(strstr(body, "\"time\":\"2023-11-14T22:13:20Z\""));
-  TEST_ASSERT_TRUE(em_notification_body(&s, true, body, sizeof body) > 0);
-  TEST_ASSERT_NOT_NULL(strstr(body, "\"state\":\"normal\""));
-  TEST_ASSERT_NULL(strstr(body, "position"));
   char tiny[10];
-  TEST_ASSERT_EQUAL(0, em_notification_body(&s, false, tiny, sizeof tiny));   // overflow reports 0
+  TEST_ASSERT_EQUAL(0, em_raise_body(&s, tiny, sizeof tiny));   // overflow reports 0
 }
 
-static void test_fire_body_has_no_position(void) {
+static void test_fire_body_has_its_own_path_and_no_position(void) {
   em_press(EM_FIRE, true, 41.5, -70.25, 1000, 1700000000);
   em_state_t s = snap();
   char body[300];
-  TEST_ASSERT_TRUE(em_notification_body(&s, false, body, sizeof body) > 0);
+  TEST_ASSERT_TRUE(em_raise_body(&s, body, sizeof body) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"path\":\"fire\""));
+  TEST_ASSERT_NOT_NULL(strstr(body, "\"message\":\"FIRE\""));
   TEST_ASSERT_NULL(strstr(body, "position"));
+}
+
+static void test_cancel_body_is_a_put_of_state_normal(void) {
+  char body[40];
+  TEST_ASSERT_TRUE(em_cancel_body(body, sizeof body) > 0);
+  TEST_ASSERT_EQUAL_STRING("{\"state\":\"normal\"}", body);
+}
+
+static void test_server_id_is_learned_from_the_reply_or_the_echo(void) {
+  em_press(EM_MOB, true, 41.5, -70.25, 1000, 1700000000);
+  TEST_ASSERT_EQUAL_STRING("", snap().id);
+  em_on_notification(EM_MOB, true, true, 10.0, 10.0, "uuid-from-echo", 2000);   // the echo: id only, not the position
+  em_state_t s = snap();
+  TEST_ASSERT_EQUAL_STRING("uuid-from-echo", s.id);
+  TEST_ASSERT_EQUAL_DOUBLE(41.5, s.lat);
+  em_set_server_id("uuid-from-reply");   // the POST reply is authoritative
+  TEST_ASSERT_EQUAL_STRING("uuid-from-reply", snap().id);
+  em_on_notification(EM_MOB, true, false, 0, 0, "uuid-from-echo", 3000);
+  TEST_ASSERT_EQUAL_STRING("uuid-from-reply", snap().id);   // a later echo does not replace it
+}
+
+static void test_adopted_notification_keeps_its_id(void) {
+  em_on_notification(EM_MOB, true, true, 12.5, -45.5, "uuid-1", 5000);
+  TEST_ASSERT_EQUAL_STRING("uuid-1", snap().id);
+}
+
+static void test_normal_for_another_notification_does_not_clear(void) {
+  em_on_notification(EM_MOB, true, true, 12.5, -45.5, "uuid-new", 5000);
+  em_on_notification(EM_MOB, false, false, 0, 0, "uuid-old", 6000);   // an earlier MOB being cleared
+  TEST_ASSERT_TRUE(em_active());
+  em_on_notification(EM_MOB, false, false, 0, 0, "uuid-new", 7000);
+  TEST_ASSERT_FALSE(em_active());
+  em_on_notification(EM_FIRE, true, false, 0, 0, "uuid-f", 8000);
+  em_on_notification(EM_FIRE, false, false, 0, 0, NULL, 9000);   // no id on the normal: it matches by nature
+  TEST_ASSERT_FALSE(em_active());
 }
 
 static void test_waypoint_body_is_geojson_point_lon_first(void) {
@@ -157,6 +195,15 @@ static void test_target_bearing_and_distance(void) {
   TEST_ASSERT_FALSE(em_target(&s, 41.0, -70.0, &brg, &dist));
 }
 
+static void test_nature_from_path_accepts_the_servers_id_suffix(void) {
+  TEST_ASSERT_EQUAL(EM_MOB, em_nature_from_path("mob.7c0e98fc-2e6a-453c-a7d9-7cf715e2c47b"));   // notifications.mob.<uuid>
+  TEST_ASSERT_EQUAL(EM_FIRE, em_nature_from_path("fire.abc"));
+  TEST_ASSERT_EQUAL(EM_FLOOD, em_nature_from_path("flooding.a.b"));
+  TEST_ASSERT_EQUAL(EM_NONE, em_nature_from_path("mobile"));
+  TEST_ASSERT_EQUAL(EM_NONE, em_nature_from_path("firewall.x"));
+  TEST_ASSERT_EQUAL(EM_NONE, em_nature_from_path("mob."));
+}
+
 static void test_nature_paths(void) {
   TEST_ASSERT_EQUAL(EM_MOB, em_nature_from_path("mob"));
   TEST_ASSERT_EQUAL(EM_FLOOD, em_nature_from_path("flooding"));
@@ -177,8 +224,13 @@ int main(void) {
   RUN_TEST(test_stale_normal_does_not_clear_a_press_in_flight);
   RUN_TEST(test_mob_is_not_displaced_by_another_nature);
   RUN_TEST(test_ddm_rounding);
-  RUN_TEST(test_notification_body_shape);
-  RUN_TEST(test_fire_body_has_no_position);
+  RUN_TEST(test_raise_body_matches_the_servers_notifications_api);
+  RUN_TEST(test_fire_body_has_its_own_path_and_no_position);
+  RUN_TEST(test_cancel_body_is_a_put_of_state_normal);
+  RUN_TEST(test_server_id_is_learned_from_the_reply_or_the_echo);
+  RUN_TEST(test_adopted_notification_keeps_its_id);
+  RUN_TEST(test_normal_for_another_notification_does_not_clear);
+  RUN_TEST(test_nature_from_path_accepts_the_servers_id_suffix);
   RUN_TEST(test_waypoint_body_is_geojson_point_lon_first);
   RUN_TEST(test_target_bearing_and_distance);
   RUN_TEST(test_nature_paths);
