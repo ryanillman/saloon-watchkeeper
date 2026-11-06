@@ -52,6 +52,13 @@ void ui_shell_goto(uint8_t role, uint8_t page);
 // gives one call). NULL turns it off.
 void ui_shell_set_settle_cb(void (*cb)(void), uint32_t delay_ms);
 
+// SOS, in the top strip where the role name is (the name makes way while it shows): a single tap calls `cb`. The app
+// shows it while a man-overboard is declared and calls this every tick, so a repeat of the same state touches nothing.
+// The touch target reaches at least 48 px tall. NULL cb: taps do nothing.
+void ui_shell_set_sos(bool visible);
+void ui_shell_set_sos_cb(void (*cb)(void));
+lv_obj_t *ui_shell_sos(void);
+
 // The top strip and its status text, for the alert marker.
 lv_obj_t *ui_shell_strip(void);
 lv_obj_t *ui_shell_status(void);   // "SK OFFLINE" etc.; empty while live

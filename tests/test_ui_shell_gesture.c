@@ -86,6 +86,18 @@ static void test_rebuild_picks_up_a_grown_page_count(void) {
   TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
 }
 
+// Swipes are handled by the content area; the strip never navigated. The SOS button must not change that.
+static void test_swipes_still_navigate_while_the_sos_shows(void) {
+  ui_shell_create(lv_display_get_default(), SIZE_WIDE, PALETTE_DAY, roles, 3, 0);
+  ui_shell_set_sos(true);
+  lv_timer_handler();
+  drag(600, 240, 200, 240);
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->role);
+  drag(400, 420, 400, 120);   // up: the next page of this role... role B has one page, so nothing moves
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->role);
+  ui_shell_set_sos(false);
+}
+
 static int settled;
 static void on_settled(void) { settled++; }
 static void advance(uint32_t ms) {
@@ -130,6 +142,7 @@ int main(void) {
   lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);   // read only when step() asks
 
   UNITY_BEGIN();
+  RUN_TEST(test_swipes_still_navigate_while_the_sos_shows);
   RUN_TEST(test_settle_cb_fires_once_after_rapid_swipes);
   RUN_TEST(test_settle_cb_null_is_inert);
   RUN_TEST(test_rebuild_picks_up_a_grown_page_count);

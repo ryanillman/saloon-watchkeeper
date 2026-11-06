@@ -221,8 +221,22 @@ bool app_emergency_cancel(void) {
   return true;
 }
 
+// The SOS button in the strip jumps to the script page of the Navigation role.
+static void on_sos(void) {
+  for (uint8_t i = 0; i < a.count; i++)
+    if (!strcmp(a.cfg.roles[i].role, "navigation")) {
+      ui_shell_goto(i, 1);
+      return;
+    }
+}
+
 // UI task, every tick: reads the answers to what the buttons sent.
 static void emergency_tick(int64_t now) {
+  if (a.ui) {   // shown for any MOB, Signal K up or not: it only goes to the script, which matters most with the network gone
+    em_state_t shown;
+    em_snapshot(&shown);
+    ui_shell_set_sos(shown.nature == EM_MOB && has_role("navigation"));
+  }
   if (emc.notify) {
     sk_cmd_result_t r = sk_cmd_result(emc.notify);
     if (r.state == SKC_OK) {
@@ -689,6 +703,7 @@ void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.screen = lv_display_get_screen_active(disp);
   a.ui = true;
   ui_shell_set_strip_tap(toggle_quick);
+  ui_shell_set_sos_cb(on_sos);
   apply_swipe_reset();
   ui_alerts_attach(a.screen, ui_shell_strip(), sc, app_alert_role, alert_page);
   apply_backlight();

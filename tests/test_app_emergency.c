@@ -290,6 +290,35 @@ static void test_script_page_is_wired_to_the_app(void) {
   ui_shell_goto(0, 0);
 }
 
+static bool sos_shown(void) {
+  lv_obj_t *o = ui_shell_sos();
+  return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void test_sos_shows_for_a_mob_and_goes_to_the_script(void) {
+  app_tick();
+  TEST_ASSERT_FALSE(sos_shown());
+  em_on_notification(EM_FIRE, true, false, 0, 0, 1000);   // not a MOB
+  app_tick();
+  TEST_ASSERT_FALSE(sos_shown());
+  em_reset();
+  TEST_ASSERT_TRUE(app_emergency_press(EM_MOB));
+  app_tick();
+  TEST_ASSERT_TRUE(sos_shown());
+  ui_shell_goto(0, 0);   // wherever the crew are
+  lv_obj_send_event(ui_shell_sos(), LV_EVENT_CLICKED, NULL);
+  int8_t nav = app_alert_role("mob");
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)nav, ui_shell_nav()->role);
+  TEST_ASSERT_EQUAL_UINT8(1, ui_shell_nav()->page);
+  alerts_source_up(false);   // the script (position, name) matters most when the network is gone
+  app_tick();
+  TEST_ASSERT_TRUE(sos_shown());
+  em_cancel_sent();
+  app_tick();
+  TEST_ASSERT_FALSE(sos_shown());
+  ui_shell_goto(0, 0);
+}
+
 int main(void) {
   lv_init();
   disp = lv_display_create(800, 480);
@@ -314,5 +343,6 @@ int main(void) {
   RUN_TEST(test_alert_role_maps_emergency_ids_to_navigation);
   RUN_TEST(test_vessel_name_config_overrides_signalk);
   RUN_TEST(test_script_page_is_wired_to_the_app);
+  RUN_TEST(test_sos_shows_for_a_mob_and_goes_to_the_script);
   return UNITY_END();
 }

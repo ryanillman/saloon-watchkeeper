@@ -8,7 +8,8 @@ static struct {
   size_class_t sc;
   palette_t pal;
   void (*strip_tap)(void);
-  lv_obj_t *screen, *strip, *tap, *home_btn, *home_icon, *name, *dots, *clock, *src, *status, *content;
+  void (*sos_cb)(void);
+  lv_obj_t *screen, *strip, *tap, *home_btn, *home_icon, *sos, *name, *dots, *clock, *src, *status, *content;
   ui_src_t src_state;
   char status_text[24], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
@@ -61,6 +62,8 @@ static void apply_palette(void) {
   lv_obj_set_style_bg_opa(s.content, LV_OPA_TRANSP, 0);
   lv_obj_set_style_text_color(s.clock, c->fg, 0);
   lv_obj_set_style_text_color(s.home_icon, c->fg, 0);
+  lv_obj_set_style_bg_color(s.sos, c->alarm, 0);
+  lv_obj_set_style_text_color(lv_obj_get_child(s.sos, 0), c->bg, 0);
   draw_source();
 }
 
@@ -181,7 +184,7 @@ static void on_strip_tap(lv_event_t *e) {
 // forget them so a late caller (the alert markers align to the status label) never touches freed memory.
 static void on_strip_delete(lv_event_t *e) {
   (void)e;
-  s.strip = s.tap = s.home_btn = s.home_icon = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
+  s.strip = s.tap = s.home_btn = s.home_icon = s.sos = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
 }
 
 static void on_home(lv_event_t *e) {
@@ -190,6 +193,23 @@ static void on_home(lv_event_t *e) {
 }
 
 void ui_shell_set_strip_tap(void (*fn)(void)) { s.strip_tap = fn; }
+
+static void on_sos(lv_event_t *e) {
+  (void)e;
+  if (s.sos_cb) s.sos_cb();
+}
+void ui_shell_set_sos_cb(void (*cb)(void)) { s.sos_cb = cb; }
+lv_obj_t *ui_shell_sos(void) { return s.sos; }
+void ui_shell_set_sos(bool visible) {
+  if (!s.sos || visible != lv_obj_has_flag(s.sos, LV_OBJ_FLAG_HIDDEN)) return;   // the app calls this every tick
+  if (visible) {
+    lv_obj_remove_flag(s.sos, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s.name, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(s.sos, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s.name, LV_OBJ_FLAG_HIDDEN);
+  }
+}
 lv_obj_t *ui_shell_strip_tap(void) { return s.tap; }
 
 void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
@@ -271,6 +291,22 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_set_style_text_font(s.home_icon, &lv_font_montserrat_20, 0);
   lv_label_set_text(s.home_icon, LV_SYMBOL_HOME);
   lv_obj_center(s.home_icon);
+
+  // SOS: where the role name is, created after the strip tap so it wins there. Hidden until a MOB is declared.
+  s.sos = lv_obj_create(s.strip);
+  lv_obj_remove_style_all(s.sos);
+  lv_obj_set_size(s.sos, 76, strip_h - 4);
+  lv_obj_align(s.sos, LV_ALIGN_LEFT_MID, strip_h - 4, 0);
+  lv_obj_set_style_bg_opa(s.sos, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(s.sos, 6, 0);
+  lv_obj_set_ext_click_area(s.sos, 8);   // 48 px of reach in the 36 px strip
+  lv_obj_add_flag(s.sos, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(s.sos, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(s.sos, on_sos, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *sos_label = lv_label_create(s.sos);
+  lv_obj_set_style_text_font(sos_label, &lv_font_montserrat_20, 0);
+  lv_label_set_text(sos_label, "SOS");
+  lv_obj_center(sos_label);
 
   s.content = lv_obj_create(s.screen);
   lv_obj_remove_style_all(s.content);
