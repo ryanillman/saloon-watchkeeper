@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "history.h"
+#include "emergency.h"
 #include "nav_state.h"
 #include "navigation_page.h"
 #include "units.h"
@@ -41,13 +42,31 @@ void navigation_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *out
   if (!isnan(peak)) snprintf(out->context[1], sizeof out->context[1], "max %.0f %s", units_from_si(Q_SPEED, peak, u), units_label(Q_SPEED, u));
 }
 
+// Page 0 is the compass. Page 1 is the emergency script (built in emergency_page.c).
+static void nav_build(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b) {
+  if (page == 0) {
+    navigation_build_page(area, 0, sc, b);
+    return;
+  }
+  navigation_page_reset();   // the compass widgets are gone with the cleaned area
+}
+
+// Which page shows an alert: a MOB the compass (it carries the MOB target), every other declared emergency the script.
+static uint8_t nav_page_for(const role_binding_t *b, size_class_t sc, const char *path) {
+  (void)b;
+  (void)sc;
+  em_nature_t n = em_nature_from_path(path);
+  return n == EM_NONE || n == EM_MOB ? 0 : 1;
+}
+
 const role_def_t role_navigation = {
   .name = "navigation",
   .title = "NAVIGATION",
   .groups = NULL,
   .group_count = 0,
-  .page_count = 1,
-  .build_page = navigation_build_page,
+  .page_count = 2,
+  .page_for = nav_page_for,
+  .build_page = nav_build,
   .refresh = navigation_refresh,
   .tile = navigation_tile,
 };

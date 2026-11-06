@@ -227,6 +227,24 @@ static void test_page_builds_in_every_size_with_no_data(void) {
   }
 }
 
+static void test_navigation_has_a_script_page(void) {
+  TEST_ASSERT_EQUAL_UINT8(2, role_find("navigation")->page_count);
+}
+
+static void test_page_for_mob_is_the_main_page(void) {
+  TEST_ASSERT_EQUAL_UINT8(0, role_find("navigation")->page_for(NULL, SIZE_WIDE, "mob"));
+}
+
+static void test_page_for_fire_flood_sinking_other_is_the_script(void) {
+  const role_def_t *d = role_find("navigation");
+  const char *ids[] = {"fire", "flooding", "sinking", "emergency"};
+  for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT8(1, d->page_for(NULL, SIZE_WIDE, ids[i]));
+    TEST_ASSERT_EQUAL_UINT8(1, d->page_for(NULL, SIZE_SQUARE, ids[i]));
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, d->page_for(NULL, SIZE_WIDE, "something.else"));
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(1024, 600);
@@ -249,5 +267,8 @@ int main(void) {
   RUN_TEST(test_units_follow_config);
   RUN_TEST(test_square_board_drops_dtw);
   RUN_TEST(test_page_builds_in_every_size_with_no_data);
+  RUN_TEST(test_navigation_has_a_script_page);
+  RUN_TEST(test_page_for_mob_is_the_main_page);
+  RUN_TEST(test_page_for_fire_flood_sinking_other_is_the_script);
   return UNITY_END();
 }

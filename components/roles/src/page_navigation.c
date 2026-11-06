@@ -91,6 +91,8 @@ void navigation_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   w.built = true;
 }
 
+void navigation_page_reset(void) { memset(&w, 0, sizeof w); }
+
 lv_obj_t *navigation_page_part(const char *name) {
   if (!w.built) return NULL;
   static const char *const names[] = {"rose", "heading", "ap_badge", "awa", "aws", "twa", "tws", "sog", "course", "xte", "dtw", "ap_hdg", "set_drift"};

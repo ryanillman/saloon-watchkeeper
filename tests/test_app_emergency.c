@@ -252,6 +252,17 @@ static void test_position_is_subscribed_with_the_navigation_role(void) {
   TEST_ASSERT_TRUE(found);
 }
 
+static void test_alert_role_maps_emergency_ids_to_navigation(void) {
+  int8_t nav = -1;
+  for (uint8_t i = 0; i < app_config()->role_count; i++)
+    if (!strcmp(app_config()->roles[i].role, "navigation")) nav = (int8_t)i;
+  TEST_ASSERT_TRUE(nav >= 0);
+  const char *ids[] = {"mob", "fire", "flooding", "sinking", "emergency"};
+  for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) TEST_ASSERT_EQUAL_INT8(nav, app_alert_role(ids[i]));
+  TEST_ASSERT_EQUAL_INT8(-1, app_alert_role("mobile"));   // the boundary check holds
+  TEST_ASSERT_EQUAL_INT8(-1, app_alert_role("firewall"));
+}
+
 int main(void) {
   lv_init();
   disp = lv_display_create(800, 480);
@@ -273,5 +284,6 @@ int main(void) {
   RUN_TEST(test_no_fix_sends_no_position_and_no_waypoint);
   RUN_TEST(test_incoming_notification_sets_the_state);
   RUN_TEST(test_position_is_subscribed_with_the_navigation_role);
+  RUN_TEST(test_alert_role_maps_emergency_ids_to_navigation);
   return UNITY_END();
 }
