@@ -16,6 +16,7 @@
 #include "app.h"
 #include "app_cmd.h"
 #include "boatdata.h"
+#include "emergency.h"
 #include "lvgl.h"
 #include "platform.h"
 #include "sim_boards.h"
@@ -219,9 +220,13 @@ static void fixture_nav(const char *state) {
   if (!strcmp(state, "nohdg")) bd_set_invalid(bd_find("navigation.headingTrue"));
   if (!strcmp(state, "computed")) bd_set_invalid(bd_find("environment.wind.angleTrueWater"));   // the display works it out
   if (!strcmp(state, "noset")) bd_set_invalid(bd_find("environment.current.drift"));
+  bd_set_position(bd_intern("navigation.position"), 41.5402833, -70.25, SK_SOURCE_ID, now);   // the present position shows in every state
+  em_reset();
+  if (!strcmp(state, "mob")) em_press(EM_MOB, true, 41.5902833, -70.18, now - 125000, 1700000000);   // marked 2 min ago, NE of us
+  if (!strcmp(state, "mobnopos")) em_on_notification(EM_MOB, true, false, 0, 0, now);               // raised elsewhere, no position in it
 }
 
-static const char *const nav_states[] = {"full", "nocourse", "noap", "nohdg", "computed", "noset", "windahead", "bugnear"};
+static const char *const nav_states[] = {"full", "nocourse", "noap", "nohdg", "computed", "noset", "windahead", "bugnear", "mob", "mobnopos"};
 
 static void fixture_history(void) {
   {   // twelve hours of wind for the Navigation tile, building from 6 to 10 m/s over the last hour
