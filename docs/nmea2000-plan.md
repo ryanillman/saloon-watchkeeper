@@ -13,7 +13,7 @@ Next: **phase 1**, in this order. None of it needs CAN code or boat data.
 4. Strip: `ALARMS DISABLED` text, and the multi-source indicator (`ui_src_t` is Signal K only today).
 5. Anchor watch-lost message names the cause (`SK OFFLINE` against plugin silent); a test with a second source live and Signal K down; the `docs/testing.md` scenario.
 
-Waiting on the boat: the capture below (engine gateway and Cerbo arrive the week of 2026-11-09). Phase 2 and later do not start before it. Settle the Power-in-CAN-only question once the capture shows what the Cerbo puts on the bus.
+Update 2026-11-08 (later): the display reads the bus on real boards and in the simulator (decoders for depth, wind, battery, engine, tanks, heading, COG/SOG, speed, position, time; `sources.nmea2000` config; `app_can`). The instance cache for a cold start with Signal K down is built (`source_can/can_instances`; see `docs/testing.md`). The strip's multi-source dots and `ALARMS DISABLED` are built (`docs/testing.md`). Still open: the phase 1 degradation audit, apparent versus true wind references, and verification of every PGN layout and default id against a real capture. Update 2026-11-08: the Victron bench capture is skipped and the phase order below is superseded by `docs/specs/2026-11-08-n2k-library-design.md`. Decoders and default ids are written from canboat and stay **unverified** until a real capture exists. The library's `n2k` and `n2k_node` components are built and host-tested (`docs/superpowers/plans/2026-11-08-n2k-core-and-node.md`); the Power-in-CAN-only question stays open.
 
 Build notes for this machine: it needed `ninja-build pkg-config libsdl2-dev libcurl4-openssl-dev libpng-dev`. The first `cmake` configure fetches LVGL, Unity and cJSON from GitHub. `build/sim` is the build directory.
 
@@ -28,7 +28,8 @@ Non-goals
 - NMEA 2000 over Wi-Fi. Gateways differ (Yacht Devices RAW, Actisense ASCII, canboat JSON, 0183-only). We leave a hook (below) and build nothing until someone asks. Signal K gateways need no code: they are Signal K.
 - Alarms from NMEA 2000. There are no thresholds or alarms in CAN data. Pure CAN mode has no alarms.
 - A local anchor watch. Signal K owns the anchor point, radius and polygon zones, so the display cannot watch without it. Anchor is the one exception to "no local alarms" (see Anchor).
-- Transmitting on the bus. Listen-only, no address claim.
+- Transmitting from the display. The display stays listen-only with no address claim. The library does transmit (address claim, ISO Request replies, fast-packet send) for the signals controller, which sends NMEA 2000 alerts when it loses Signal K; see `docs/specs/2026-11-08-n2k-library-design.md`.
+- Showing NMEA 2000 Alert PGNs (126983 to 126986) on the display. Not for now; the controller's alerts are for other devices on the bus.
 
 ## Source modes
 
@@ -170,6 +171,8 @@ Gate: measure with `status` after each phase on all three boards. Floor: lcd7b l
 
 ## Phases
 
+Superseded 2026-11-08 for phases 2 to 5: see `docs/specs/2026-11-08-n2k-library-design.md` (core and node, then decoders and simulator source, then TWAI and board hooks, then config). Phase 1 below is unchanged. The original list:
+
 0. **Prerequisites: done 2026-11-05.** Source table, ranks, states and arbitration in `boatdata`, `bd_admit` in `sk_parse`, the app registers Signal K (rank 2) and publishes its state; tests in `test_boatdata` and `test_sk_parse`. The multi-source strip indicator moves to phase 1 with the `ALARMS DISABLED` text, since it has nothing to show until a CAN source exists.
 1. **Degradation audit and fixes (can start now):** the `-fallback` snapshots, the Anchor FAIL page and tile, the Tide FAIL flag, the `ALARMS DISABLED` text, the anchor cause message. All testable in the simulator without CAN code.
 2. **`n2k` decoder (after the capture):** fast-packet, the PGNs for Engine, Tanks, Batteries, Depth, Wind and Navigation basics; the path table; the `ids` map; host tests.
@@ -187,14 +190,9 @@ Phase 1 is deliberately before any CAN code: it is the part with the most design
 3. **Instance map: config file only in v1.** On-device mapping is a later step, after the config-file version has been used on a real boat.
 4. **Default ids are unverified, and the bench has no data yet.** The boat has few sensors today; the engine gateway and the Cerbo arrive in the week of 2026-11-09. Phases 0 and 1 need no real data and can start now. Nothing that depends on naming or PGN coverage (phase 2 onward) starts before the capture below.
 
-## Capture needed before phase 2
+## Capture (deferred)
 
-When the gateway and Cerbo are connected, record on the boat:
-- the bus: `candump -L` from a SocketCAN adapter (or the gateway's raw log) for a few minutes with the engine running and stopped;
-- Signal K's output for the same period: the paths under `propulsion`, `tanks`, `electrical` and `environment`, with their ids and units;
-- which server provider turns the PGNs into paths, and any source or instance overrides in its settings.
-
-The Signal K output is the reference for the default ids, since on this boat it is what fallback has to line up with. The `candump` log doubles as the replay input for the simulator and the host tests. Open item: whether the Cerbo outputs NMEA 2000 at all, or reaches Signal K only through `signalk-venus` (VE.Direct/MQTT). If it is the latter, battery and Power data have no CAN source, and the Power role's CAN fallback stays FAIL, which the plan already treats as acceptable.
+The capture is no longer a gate (2026-11-08). When the engine gateway and Cerbo are connected, still record `candump -L` for a few minutes with the engine running and stopped, and Signal K's output for the same period (paths under `propulsion`, `tanks`, `electrical`, `environment`, with ids and units), plus any provider overrides. It verifies the default ids and PGN tables, and the `candump` log doubles as the replay input for the simulator and host tests. Open item: whether the Cerbo outputs NMEA 2000 at all or reaches Signal K only through `signalk-venus`; if the latter, the Power role's CAN fallback stays FAIL.
 
 ## Remaining open item
 

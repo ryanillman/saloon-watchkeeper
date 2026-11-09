@@ -97,4 +97,13 @@ static const board_t lcd7 = {
 };
 
 const board_t *board_get(void) { return &lcd7; }
+
+esp_err_t board_can_pins(int *tx_gpio, int *rx_gpio) {
+  *tx_gpio = 20;
+  *rx_gpio = 19;
+  return ESP_OK;
+}
+
+// EXIO5 high routes GPIO19/20 to the CAN transceiver and takes them from native USB.
+esp_err_t board_can_enable(void) { return ch422g_set(EXIO_USB_SEL, 1); }
 #endif

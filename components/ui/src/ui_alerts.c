@@ -1,5 +1,6 @@
 // Signal K alerts on the glass. Pure presentation: the app hands over a snapshot
 // every tick; button presses go back through alerts_request.
+#include <stdint.h>
 #include "ui_alerts.h"
 #include <stdio.h>
 #include <string.h>
@@ -39,8 +40,14 @@ typedef struct {
   uint8_t n, n_acked;
   bool source_up;
   int32_t status_w;
+  uint32_t sources_gen;   // the dots and the status text moved: the markers follow the status
+  int32_t name_w, dots_w, clock_w;   // the left of the strip changed (another role, more pages, a time appeared); clock_w is the text length, 0 for none
   const ui_colors_t *theme;
 } mkey_t;
+
+// What the strip says when alarms are not coming from Signal K: it is down, or the bus is the only source. Alerts
+// exist only in Signal K, so nothing is raised or can be acknowledged while this shows.
+#define ALARMS_DISABLED_TEXT "ALARMS DISABLED"
 
 PLATFORM_EXT_BSS static struct {
   lv_obj_t *screen, *strip;
@@ -297,8 +304,55 @@ static void build_marker(void) {
 }
 
 // On square boards the strip has no room for a second label beside the page dots, so
-// "SK ALERTS OFFLINE" takes over the status text. Wide boards show it beside the status.
+// "ALARMS DISABLED" takes over the status text. Wide boards show it beside the status.
 static bool offline_in_status(void) { return u.sc == SIZE_SQUARE && ui_shell_status(); }
+
+// Right to left: status, acknowledged-alarm bell, alert/warn count, offline text. The status text changes width, so
+// the markers sit against its left edge and the layout is refreshed first.
+static void align_right_cluster(lv_obj_t *status, unsigned n, unsigned na) {
+  lv_obj_update_layout(u.strip);
+  lv_obj_t *left = status;
+  if (na) {
+    if (left) lv_obj_align_to(u.acked_marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+    else lv_obj_align(u.acked_marker, LV_ALIGN_RIGHT_MID, -12, 0);
+    left = u.acked_marker;
+  }
+  if (left) lv_obj_align_to(u.marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else lv_obj_align(u.marker, LV_ALIGN_RIGHT_MID, -12, 0);
+  if (n) lv_obj_align_to(u.offline, u.marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else if (na) lv_obj_align_to(u.offline, u.acked_marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else if (status) lv_obj_align_to(u.offline, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+  else lv_obj_align(u.offline, LV_ALIGN_RIGHT_MID, -12, 0);
+  lv_obj_update_layout(u.strip);
+}
+
+static int32_t width_of(lv_obj_t *o) { return o ? lv_obj_get_width(o) : 0; }   // some tests attach the alerts to a strip without every part
+
+static bool part_visible(lv_obj_t *o) {
+  if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return false;
+  if (lv_obj_check_type(o, &lv_label_class) && !lv_label_get_text(o)[0]) return false;
+  return lv_obj_get_width(o) > 0;
+}
+
+// Does the right-hand cluster (offline text, markers, status) come within a few pixels of the left one (title or SOS,
+// page dots, clock)?
+static bool strip_crowded(void) {
+  lv_obj_t *left[] = {ui_shell_name(), ui_shell_sos(), ui_shell_dots(), ui_shell_clock()};
+  lv_obj_t *right[] = {u.offline, u.marker, u.acked_marker, ui_shell_status()};
+  int32_t left_edge = INT32_MIN, right_edge = INT32_MAX;
+  lv_area_t a;
+  for (size_t i = 0; i < sizeof left / sizeof left[0]; i++)
+    if (part_visible(left[i])) {
+      lv_obj_get_coords(left[i], &a);
+      if (a.x2 > left_edge) left_edge = a.x2;
+    }
+  for (size_t i = 0; i < sizeof right / sizeof right[0]; i++)
+    if (part_visible(right[i])) {
+      lv_obj_get_coords(right[i], &a);
+      if (a.x1 < right_edge) right_edge = a.x1;
+    }
+  return right_edge < left_edge + 12;
+}
 
 static void update_marker(const alerts_snapshot_t *s) {
   lv_obj_t *status = ui_shell_status();
@@ -307,7 +361,9 @@ static void update_marker(const alerts_snapshot_t *s) {
     n += s->a[i].state == AL_ALERT || s->a[i].state == AL_WARN;
     na += s->a[i].state >= AL_ALARM && s->a[i].acked && !s->a[i].send_failed;
   }
-  mkey_t k = {(uint8_t)n, (uint8_t)na, s->source_up, status ? lv_obj_get_width(status) : 0, ui_theme()};
+  mkey_t k = {(uint8_t)n, (uint8_t)na, s->source_up, status ? lv_obj_get_width(status) : 0, ui_shell_sources_gen(),
+              width_of(ui_shell_name()), width_of(ui_shell_dots()),
+              ui_shell_clock_wanted() ? (int32_t)strlen(lv_label_get_text(ui_shell_clock())) : 0, ui_theme()};
   if (!memcmp(&k, &u.mkey, sizeof k)) return;
   u.mkey = k;
 
@@ -325,33 +381,28 @@ static void update_marker(const alerts_snapshot_t *s) {
   lv_obj_set_style_text_color(u.acked_marker, c->alarm, 0);
   show(u.acked_marker, na > 0);
 
+  ui_shell_set_source_text_hidden(false);   // start from the full strip; things give way below if it is crowded
+  ui_shell_set_clock_yielded(false);
   bool in_status = offline_in_status();
   if (in_status) {
-    ui_shell_set_status_override(s->source_up ? NULL : "SK ALERTS OFFLINE", c->alarm);
+    ui_shell_set_status_override(s->source_up ? NULL : ALARMS_DISABLED_TEXT, c->alarm);
     set_text(u.offline, "");
     show(u.offline, false);
   } else {
-    set_text(u.offline, s->source_up ? "" : "SK ALERTS OFFLINE");
+    set_text(u.offline, s->source_up ? "" : ALARMS_DISABLED_TEXT);
     lv_obj_set_style_text_color(u.offline, c->warn, 0);
     show(u.offline, !s->source_up);
   }
 
-  // Sit left of the status text, which changes width; the offline text goes left of the marker.
-  lv_obj_update_layout(u.strip);
-  // Right to left: status, acknowledged-alarm bell, alert/warn count, offline text.
-  lv_obj_t *left = status;
-  if (na) {
-    if (left) lv_obj_align_to(u.acked_marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-    else lv_obj_align(u.acked_marker, LV_ALIGN_RIGHT_MID, -12, 0);
-    left = u.acked_marker;
+  align_right_cluster(status, n, na);
+  // Too full: the clock gives way first (an error message matters more), then the source text, whose state the dots
+  // still show. ALARMS DISABLED and the alert markers never give way.
+  if (ui_shell_clock_wanted() && strip_crowded()) ui_shell_set_clock_yielded(true);
+  if (ui_shell_source_text_shown() && strip_crowded()) {
+    ui_shell_set_source_text_hidden(true);
+    align_right_cluster(status, n, na);
   }
-  if (left) lv_obj_align_to(u.marker, left, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-  else lv_obj_align(u.marker, LV_ALIGN_RIGHT_MID, -12, 0);
-  if (n) lv_obj_align_to(u.offline, u.marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-  else if (na) lv_obj_align_to(u.offline, u.acked_marker, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-  else if (status) lv_obj_align_to(u.offline, status, LV_ALIGN_OUT_LEFT_MID, -12, 0);
-  else lv_obj_align(u.offline, LV_ALIGN_RIGHT_MID, -12, 0);
-  u.mkey.status_w = status ? lv_obj_get_width(status) : 0;   // the override changed it
+  u.mkey.status_w = status ? lv_obj_get_width(status) : 0;   // the override and the hiding changed it
 }
 
 // ---- list ----
@@ -520,7 +571,7 @@ bool ui_alerts_go_visible(void) { return ui_alerts_banner_visible() && !lv_obj_h
 const char *ui_alerts_acked_text(void) { return u.acked_label ? lv_label_get_text(u.acked_label) : ""; }
 const char *ui_alerts_marker_text(void) { return u.marker_label ? lv_label_get_text(u.marker_label) : ""; }
 const char *ui_alerts_offline_text(void) {
-  if (offline_in_status()) return strcmp(lv_label_get_text(ui_shell_status()), "SK ALERTS OFFLINE") ? "" : "SK ALERTS OFFLINE";
+  if (offline_in_status()) return strcmp(lv_label_get_text(ui_shell_status()), ALARMS_DISABLED_TEXT) ? "" : ALARMS_DISABLED_TEXT;
   return u.offline ? lv_label_get_text(u.offline) : "";
 }
 const char *ui_alerts_corner_text(void) { return u.corner ? lv_label_get_text(u.corner) : ""; }

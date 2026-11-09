@@ -1,0 +1,175 @@
+#include "can_probe.h"
+#include "sdkconfig.h"
+#if CONFIG_BI_DIAG_CAN_PROBE
+#include <string.h>
+#include "board.h"
+#include "can_twai.h"
+#include "esp_app_desc.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "n2k_bus_task.h"
+
+static const char *TAG = "can_probe";
+
+#define PGN_ALERT 126983  // verify: canboat
+#define ALERT_LEN 28
+#define LOG_PER_SECOND 20
+
+static n2k_bus_t bus;
+static n2k_node_t node;
+static n2k_qent_t queue[32];
+static n2k_fp_slot_t slots[8];
+static SemaphoreHandle_t mutex;
+
+static uint32_t now_ms(void *ctx) {
+  (void)ctx;
+  return (uint32_t)(esp_timer_get_time() / 1000);
+}
+static void lock(void *ctx) {
+  (void)ctx;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+}
+static void unlock(void *ctx) {
+  (void)ctx;
+  xSemaphoreGive(mutex);
+}
+
+// Runs on the bus task. Log at most LOG_PER_SECOND lines so a busy bus cannot flood the console.
+static void on_msg(const n2k_msg_t *m, void *ctx) {
+  (void)ctx;
+  static uint32_t window_start, in_window;
+  uint32_t t = now_ms(NULL);
+  if (t - window_start >= 1000) {
+    window_start = t;
+    in_window = 0;
+  }
+  if (in_window++ >= LOG_PER_SECOND) return;
+  ESP_LOGI(TAG, "rx pgn=%u src=%u len=%u b0=%02x", (unsigned)m->pgn, m->src, m->len, m->len ? m->data[0] : 0);
+}
+
+#if CONFIG_BI_DIAG_CAN_PROBE_SENSORS
+// Simulated sensors: the same values and layouts as tools/n2k-inject.py "basic", with the depth wandering
+// a little so a display visibly updates. Single-frame PGNs, priority 3.  // verify: canboat
+static void le16(uint8_t *p, int v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void le32(uint8_t *p, uint32_t v) { le16(p, (int)(v & 0xFFFF)); le16(p + 2, (int)(v >> 16)); }
+
+static void send_sensors(uint32_t step) {
+  uint8_t d[8];
+  memset(d, 0xFF, sizeof d);                                     // depth 128267
+  d[0] = 1; le32(d + 1, (uint32_t)((12.3 + 0.1 * (step % 10)) * 100 + 0.5)); le16(d + 5, 400); d[7] = 10;
+  n2k_node_send(&node, 128267, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // apparent wind 130306: 8 m/s, 40 degrees
+  d[0] = 1; le16(d + 1, 800); le16(d + 3, 6981); d[5] = 2;
+  n2k_node_send(&node, 130306, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // battery 1, 127508: 12.6 V, -8.5 A, 298.15 K
+  d[0] = 1; le16(d + 1, 1260); le16(d + 3, -85); le16(d + 5, 29815);
+  n2k_node_send(&node, 127508, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // engine 0 rapid, 127488: 2400 rpm
+  d[0] = 0; le16(d + 1, 9600); d[5] = 0;
+  n2k_node_send(&node, 127488, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // fresh water 1 at 62 % of 200 L, 127505
+  d[0] = (1 << 4) | 1; le16(d + 1, 15500); le32(d + 3, 2000);
+  n2k_node_send(&node, 127505, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // fuel 0 at 35 % of 300 L
+  d[0] = 0; le16(d + 1, 8750); le32(d + 3, 3000);
+  n2k_node_send(&node, 127505, N2K_BROADCAST, 3, d, 8);
+
+  uint8_t e[26];                                                 // engine dynamic 127489 (fast-packet)
+  memset(e, 0xFF, sizeof e);
+  e[0] = 0; le16(e + 1, 3200); le16(e + 3, 3532); le16(e + 5, 35000); le16(e + 7, 1380); le16(e + 9, 125);
+  le32(e + 11, 3600 + step);                                     // oil 3.2 bar, 353.2 K, coolant 350.0 K, 13.8 V, 12.5 L/h
+  n2k_node_send(&node, 127489, N2K_BROADCAST, 3, e, sizeof e);
+  uint8_t c[11];                                                 // DC detailed status 127506 (fast-packet)
+  memset(c, 0xFF, sizeof c);
+  c[0] = 1; c[1] = 1; c[2] = 0; c[3] = 82; c[4] = 100; le16(c + 5, 600);   // battery 1: SOC 82 %, 600 min left
+  n2k_node_send(&node, 127506, N2K_BROADCAST, 3, c, sizeof c);
+  memset(d, 0xFF, sizeof d);                                     // heading 127250: true 1.5708 rad, variation 0.05
+  d[0] = 1; le16(d + 1, 15708); le16(d + 3, 0x7FFF); le16(d + 5, 500); d[7] = 0;
+  n2k_node_send(&node, 127250, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // COG/SOG 129026: 3.1416 rad true, 5.14 m/s
+  d[0] = 1; d[1] = 0; le16(d + 2, 31416); le16(d + 4, 514);
+  n2k_node_send(&node, 129026, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // speed through water 128259: 4.9 m/s
+  d[0] = 1; le16(d + 1, 490);
+  n2k_node_send(&node, 128259, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // position 129025: 41.5402833, -70.25
+  le32(d, (uint32_t)(int32_t)415402833); le32(d + 4, (uint32_t)(int32_t)-702500000);
+  n2k_node_send(&node, 129025, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // system time 126992: day 20000 plus 12:00:00 and counting
+  d[0] = 1; d[1] = 0; le16(d + 2, 20000); le32(d + 4, (43200 + step % 3600) * 10000u);
+  n2k_node_send(&node, 126992, N2K_BROADCAST, 3, d, 8);
+}
+#endif
+
+void can_probe_run(void) {
+  const board_t *board = board_get();
+  ESP_LOGI(TAG, "CAN probe on %s", board->id);
+  ESP_ERROR_CHECK(board->init());
+
+  int tx, rx;
+  ESP_ERROR_CHECK(board_can_pins(&tx, &rx));
+  ESP_ERROR_CHECK(board_can_enable());  // 7" boards: native USB is gone from here on
+  ESP_ERROR_CHECK(can_twai_open(&(can_twai_cfg_t){.tx_gpio = tx, .rx_gpio = rx, .listen_only = false}));
+
+  uint8_t mac[6];
+  ESP_ERROR_CHECK(esp_efuse_mac_get_default(mac));
+  n2k_node_config_t cfg = {
+    .name = {.unique_number = (uint32_t)mac[3] << 16 | (uint32_t)mac[4] << 8 | mac[5],
+             .manufacturer = 2046,  // verify: an unassigned/test value
+             .function = 130, .device_class = 25, .industry_group = 4},
+    .preferred_address = (uint8_t)(0x40 + (mac[5] & 0x3F)),
+  };
+  cfg.product.n2k_db_version = 2100;
+  cfg.product.product_code = 1;
+  strcpy(cfg.product.model_id, "bi-can-probe");
+  strncpy(cfg.product.sw_version, esp_app_get_description()->version, sizeof cfg.product.sw_version - 1);
+
+  mutex = xSemaphoreCreateMutex();
+  n2k_node_ops_t nops = {n2k_bus_tx_frame, now_ms, lock, unlock, &bus};
+  n2k_node_init(&node, &cfg, &nops, queue, 32);
+  n2k_can_ops_t can = can_twai_ops();
+  n2k_bus_init(&bus, &can, &node, slots, 8, on_msg, NULL, now_ms, NULL);
+  n2k_node_start(&node);
+  ESP_ERROR_CHECK(n2k_bus_task_start(&bus, 4096, 5));
+  ESP_LOGI(TAG, "claiming address 0x%02x, name unique=%u", cfg.preferred_address, (unsigned)cfg.name.unique_number);
+
+  uint8_t counter = 0;
+  for (uint32_t sec = 0;; sec++) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+#if CONFIG_BI_DIAG_CAN_PROBE_SENSORS
+    if (n2k_node_state(&node) == N2K_NODE_READY) send_sensors(sec);
+#endif
+    if (sec % 5 == 4) {
+      uint8_t alert[ALERT_LEN];
+      memset(alert, 0xA5, sizeof alert);
+      alert[0] = counter++;
+      n2k_send_t r = n2k_node_send(&node, PGN_ALERT, N2K_BROADCAST, 2, alert, sizeof alert);
+      if (r != N2K_SEND_OK) ESP_LOGW(TAG, "send alert %u: result %d (node state %d)", alert[0], (int)r, (int)n2k_node_state(&node));
+    }
+    if (sec % 20 == 14) {  // ask everyone for product information; the replies are logged by on_msg
+      const uint8_t req[3] = {0x14, 0xF0, 0x01};  // PGN 126996, little-endian
+      n2k_send_t r = n2k_node_send(&node, 59904, N2K_BROADCAST, 6, req, sizeof req);
+      ESP_LOGI(TAG, "sent ISO request for product info: result %d", (int)r);
+    }
+    if (sec % 10 == 9) {
+      const n2k_bus_stats_t *s = n2k_bus_stats(&bus);
+      can_twai_stats_t d;
+      can_twai_stats(&d);
+      ESP_LOGI(TAG, "can: state=%d addr=0x%02x rx=%u tx=%u refused=%u drop=%u failed=%u bus_off=%u txerr=%u rxerr=%u node_dropped=%u",
+               (int)n2k_node_state(&node), n2k_node_address(&node), (unsigned)s->rx_frames, (unsigned)s->tx_frames,
+               (unsigned)s->tx_refused, (unsigned)d.rx_dropped, (unsigned)d.tx_failed, (unsigned)s->bus_off_events,
+               d.tx_err_count, d.rx_err_count, (unsigned)n2k_node_dropped(&node));
+      ESP_LOGI(TAG, "RAM: internal free %u, lowest %u, largest block %u; PSRAM free %u",
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    }
+  }
+}
+#endif  // CONFIG_BI_DIAG_CAN_PROBE

@@ -75,7 +75,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `alarm-coolant`, tap ACK | The banner goes away and a bell with `1` appears in the top strip, left of the status text; the server shows the notification acknowledged. Tap the bell for the list, where the alarm stays with its ACK hidden. Tap SILENCE first and the buzzer stops, the server shows silenced. If the ACK did not reach the server the banner stays, steady, with `ACK NOT SENT` |
 | `alarm-coolant` at 40 s | Banner (or bell, if acknowledged) disappears and the coolant value returns to white |
 | `warn-tank-low` at 10 s | The first fresh water tank is driven to 10 % (default zones: warn below 15 %). No banner. Amber `1` marker left of the status text; tap it for the list (`WARN`, `Fresh water low`, age, ACK). The fresh water tank value is amber |
-| Server stopped with an alarm showing | Banner gone, `SK ALERTS OFFLINE` in the strip, `SK OFFLINE` status, buzzer silent |
+| Server stopped with an alarm showing | Banner gone, `ALARMS DISABLED` in the strip, `SK OFFLINE` status, buzzer silent |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 
@@ -117,7 +117,7 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 | `alarm-coolant`, SILENCE | PASS: server `silenced: true`, `sound` dropped from `method` |
 | `alarm-coolant` at 40 s | PASS: banner gone, coolant white |
 | `warn-tank-low` | PASS: no banner, amber `1` marker, list shows `WARN`, `Fresh water low`, age, ACK; tank value amber |
-| Server stopped with an alarm | PASS: banner gone, `SK ALERTS OFFLINE`, `SK OFFLINE` (buzzer is hardware only) |
+| Server stopped with an alarm | PASS: banner gone, `ALARMS DISABLED`, `SK OFFLINE` (buzzer is hardware only) |
 | Server stopped | PASS: `SK OFFLINE`, every field flagged within 2 s |
 | Server restarted | PASS: `SK LIVE`, fields live again |
 
@@ -233,3 +233,98 @@ Add `{ "role": "navigation" }` to `config.json`. The emergency script is Navigat
 | Restart a display during a MOB | On reconnect it adopts the MOB from the server's notification, with the position from its payload |
 
 Also check on a board, 45 s after boot with the Navigation role: internal free memory with `status` (the script page and SOS add a few KB of LVGL objects while the page is shown) against the figures in `docs/hardware/boards.md`. On the server: write permission for the token (a read-only token shows `NO WRITE ACCESS`). The endpoints and bodies were verified against signalk-server 2.35.1 on 2026-11-06 (`docs/signal-contract.md`); recheck after a server upgrade. The vessel name comes from Signal K's `name` unless `vessel.name` is set.
+
+## CAN bench (NMEA 2000 probe)
+
+What it checks: the `n2k`, `n2k_node` and `n2k_bus` libraries and the `can_twai` driver on real hardware, before any display code uses them. Each board runs a probe image (`CONFIG_BI_DIAG_CAN_PROBE`, in place of the normal app) that claims an address, sends a 28-byte alert (PGN 126983, rolling counter in byte 0) every 5 s, logs every message it hears (at most 20 lines per second), and sends an ISO Request for product information to the whole bus every 20 s (logged as `sent ISO request ...`, with each reply as `rx pgn=126996 ... len=134`), and prints a `can:` status line and a RAM line every 10 s. Two or three boards are enough; each one ACKs the others. A single board alone on a bus gets no ACK (its `failed` count climbs) and proves nothing.
+
+**Build** (`. ~/esp/esp-idf/export.sh` first):
+
+```sh
+for b in square4 lcd7 lcd7b; do idf.py -D BOARD=$b -D BI_EXTRA=diag/can-probe.defaults -B build/$b-canprobe build; done
+```
+
+**Wire** the boards CANH to CANH and CANL to CANL as a daisy chain with a 120 Ω resistor across CANH and CANL at each physical end of the chain (the 7B has a DIP-switch terminator; use it at one end). Boards powered from the same PC over USB already share a ground; otherwise add a GND wire. Pins are in `docs/hardware/boards.md`.
+
+**Flash and watch.** The 7" boards switch the CAN transceiver in through EXIO5, which takes the native USB pair away: from the moment the probe starts, the console is the UART Type-C port (UART switch on UART1; the 7B's is the CH340 on `/dev/ttyACM2`). So flash and monitor those two through the UART port, and flash square4 over its USB:
+
+```sh
+idf.py -B build/square4-canprobe -p /dev/ttyACM0 flash monitor
+idf.py -B build/lcd7b-canprobe   -p /dev/ttyACM2 flash monitor
+idf.py -B build/lcd7-canprobe    -p <the lcd7 CH343 port> flash monitor
+```
+
+`tools/deploy.sh` matches the native-USB serial, so it cannot see lcd7 while the probe is on it. To put a normal image back on lcd7, flash it through the UART port too; if a 7" board is unreachable over native USB, power-cycle it (the CH422G keeps EXIO5 high across a plain reset) or use the UART port.
+
+### Expected
+
+- Within about a second of power-up each board logs `claiming address 0x..`. Addresses differ between boards (the preferred address is `0x40 + (MAC low byte & 0x3F)`); if two boards pick the same one, the lower NAME keeps it and the other moves to 128 or above.
+- `can: state=2` on every board (node states: 0 idle, 1 claiming, 2 ready, 3 cannot claim).
+- Every 5 s each board logs the others' alert: `rx pgn=126983 src=<their address> len=28 b0=<counter>`, with `b0` counting up by one per alert. Claims (`pgn=60928`) appear at start.
+- `rx` and `tx` climb; `refused`, `drop`, `failed` and `bus_off` stay 0. `txerr` and `rxerr` stay near 0.
+- No-ACK behaviour: with only two boards on the bus, unplug one. The survivor's alerts get no ACK, so its `failed` count climbs and `txerr` rises to about 128 (error-passive) and stays there; ACK errors do not push a node on to bus-off. On replug the traffic resumes without a reboot, `failed` stops climbing, and the other board's alerts are heard again. With three boards the bus stays healthy when one is unplugged.
+- Optional, forces the bus-off path: with two or more boards running, briefly short CANH to CANL at the wires (a few seconds; the TJA1051 tolerates a bus short, but only do this on the bench). A transmitting board's `txerr` runs past 255 and `bus_off` becomes 1; after the short is removed the board recovers by itself, `state` returns to 2 after a new claim (about 250 ms), `node_dropped` shows what was queued, and alerts resume. This matters because the controller must come back without a reboot.
+- The `RAM:` line is recorded per board (internal free, lowest, largest block). The normal app is not running, so this is the cost of the CAN stack plus the board bring-up only; the real memory gate (`docs/hardware/boards.md`, Internal RAM) is rechecked when the display uses it.
+
+Record results in `docs/hardware/boards.md` under each board's CAN row.
+
+### Bench notes (2026-11-08)
+
+- A SocketCAN adapter such as the gs_usb ("Geschwister Schneider") one shows up as `can0`, not a device file. Bring it up with `sudo ip link set can0 up type can bitrate 250000` in a real terminal (the `!` prefix has no tty for the sudo password). This adapter does not support `restart-ms`, so after a bus-off, `down` then `up` is the only reset. `candump` comes from the `can-utils` package; `-e` (error frames) cannot be combined with `-L`.
+- Terminate only the two physical ends of the chain (120 Ω each); leave the boards' own DIP terminators off.
+- Judge the adapter by its state (`ip -d link show can0`), not the berr-counter value, which the driver leaves stale.
+- Let the boards talk to each other for the node tests (the probe's own request sender); the adapter is for listening, and a few single requests (`cansend can0 18EA78F0#14F001` asks the node at 0x78 for product info).
+
+## Simulator on a CAN bus
+
+The simulator can read NMEA 2000 from a SocketCAN interface, listen-only (it has no node and never transmits): `build/sim/sim --can <ifname>`. The decoders and default Signal K ids are from memory and **unverified** until a real capture exists; this slice covers depth (128267), apparent wind (130306), battery (127508), engine rapid (127488) and tank level (127505).
+
+- `--can <if>`: the CAN source fills only paths Signal K has already created (the SK + NMEA 2k mode). Signal K, when live, wins on every path it writes.
+- `--can <if> --can-only`: the CAN source creates its own paths (CAN only mode). Use this with no Signal K server.
+
+Virtual bus, no hardware (needs root once):
+
+```sh
+sudo modprobe vcan && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0
+tools/n2k-inject.py vcan0 --rate 1 basic          # one terminal
+build/sim/sim --can vcan0 --can-only               # another
+```
+
+Real bus: bring the adapter up first (`sudo ip link set can0 up type can bitrate 250000`, see "CAN bench") and run `build/sim/sim --can can0 --can-only`. The simulator logs `can: <if> listening` on stderr; the boat instruments' probe images send only alert PGNs, so with those alone it stays CONNECTING.
+
+The `basic` scenario shows depth 12.3 m (surface offset 0.4 m), apparent wind 8 m/s at 40° to starboard, battery 1 at 12.6 V and -8.5 A, engine 0 at 2400 rpm, fresh water 1 at 62 % and fuel 0 at 35 %. Which pages show them depends on the config's roles and ids: the engine appears under the id `0`, the battery under `1` and the tanks under their instances unless the config names them (the instance map is a later step). Stop the injector and the source goes OFFLINE after 5 s and its values turn to FAIL.
+
+`tests/test_can_socketcan` loops a frame through `vcan0` when it exists and skips itself when it does not.
+
+### Live check on the bench bus (2026-11-08)
+
+A board can act as the sensor so the real bus carries instrument data without Signal K: build the probe with the sensors added (`idf.py -D BOARD=square4 -D "BI_EXTRA=diag/can-probe.defaults;diag/can-probe-sensors.defaults" -B build/square4-canprobe-sensors build`) and flash it. It sends the `basic` scenario once a second (depth wandering 12.3 to 13.2 m so updates are visible). Then, with the adapter up:
+
+```sh
+build/sim/sim --board sim800 --config <dir with a config.json whose signalk port is unused> --can can0 --can-only --capture out.png --after 7
+```
+
+The config must keep the simulator off the local Signal K test server (for example `"signalk": { "host": "127.0.0.1", "port": 3999 }`): Signal K is rank 2 and wins wherever it has a fresh value, so with it running the screen shows its data, not the bus's. Result on the bench: Glance shows Engine 2400 RPM, Power 12.6 V and -8.5 A, Tanks W 62 % and F 35 %, Navigation 16 kn apparent, Depth 40.4 ft. Engine and Power still say NO DATA because this slice carries no coolant, oil or state of charge.
+
+### The display on the bus (hardware)
+
+Needs two boards on the bus: one runs the sensors probe (`idf.py -D BOARD=<b> -D "BI_EXTRA=diag/can-probe.defaults;diag/can-probe-sensors.defaults" -B build/<b>-canprobe-sensors build`), the other the normal firmware with the bus enabled. Enable it over the display board's console (the 7" boards: the UART port; `tools/deploy.sh` flashes the normal image):
+
+```
+config set sources.nmea2000.enabled true
+config set sources.nmea2000.mode only
+reboot
+status
+```
+
+`status` must show `can: live rx=<climbing> values=<climbing> unmapped=0 bus_off=0` and, in `only` mode, `signalk: offline` (the client is not started). Mode `fallback` keeps Signal K first and fills only paths it has, so with a server up most instance values count as `unmapped` until `sources.nmea2000.ids` maps them. The `ids` map has dots in its keys (`engine.0`), so `config set` cannot write it: edit `config.json` on the SD card (see `docs/config.example.json`). Enabling or disabling the bus needs a reboot. On the 7" boards the bus takes native USB away.
+
+### The instance cache
+
+In `fallback` mode the display writes `instances.json` (and keeps `instances.bak.json`) to the SD card: the engine, battery and tank leaves Signal K has delivered a valid value for. A path is added within 5 s of Signal K delivering it; a path is dropped only after Signal K has been live for a minute without it. At boot, with the bus enabled in `fallback` mode, the cached paths are created empty (the boot log says `can: restored <n> instance paths from the cache`), so the roles find their instances and the bus has places to write even when the server is down. Check it: let the display run with Signal K live for a minute, change `sources.signalk.port` to an unused port with `config set`, `reboot`, and read the boot log. Delete `instances.json` and `instances.bak.json` to make it forget the boat. It is not used in `only` mode or with the bus off.
+
+## The strip's sources and ALARMS DISABLED
+
+The right of the top strip shows the data sources in use. Signal K is a circle; the NMEA 2000 bus, once `sources.nmea2000.enabled`, is a rounded square to its left. Each is a filled shape when live, a hollow ring while connecting (amber) and a ring with a cross when offline (red), so the state reads without colour. In bus-only mode (`mode: only`) the Signal K dot is hidden. The status text names the sources that are not live, using the worse state: `SK OFFLINE`, `SK CONNECTING`, `NMEA 2k OFFLINE`, `NMEA 2k CONNECTING`, `SK + NMEA 2k OFFLINE`. When the strip is crowded (the alert markers, a long title, many page dots) the clock gives way first, since an error matters more than the time; only if it is still too full does the status text step aside and leave the state to the dots. A source goes offline after 5 s with no message the decoders recognise (measured on the bench: about 4 to 5 s after the sensor went silent, and live again within about 3 s of it returning). `ALARMS DISABLED` shows whenever alarms are not coming from Signal K: it is down, or the bus is the only source (then it is steady). On the square board it replaces the status text.
+
+Check in the simulator (`build/sim/sim --board sim480 --config <dir> --can can0 [--can-only] --capture out.png --after 6`): Signal K live with the bus not yet live shows the hollow bus square (and `NMEA 2k CONNECTING` where there is room); a config whose Signal K port is unused shows `ALARMS DISABLED` and the crossed circle; `--can-only` shows no Signal K dot and a steady `ALARMS DISABLED`.

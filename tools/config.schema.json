@@ -23,7 +23,19 @@
             "token": { "type": "string", "description": "Written by the device after you approve its access request" }
           }
         },
-        "n2k": { "type": "object", "properties": { "enabled": { "type": "boolean", "default": false } } }
+        "nmea2000": {
+          "type": "object",
+          "description": "The NMEA 2000 bus as a data source (listen-only). Needs the board's CAN transceiver; on the 7 inch boards it takes native USB away.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "mode": { "enum": ["fallback", "only"], "default": "fallback", "description": "fallback: Signal K first, the bus fills in when it is quiet. only: no Signal K client, the bus creates every path" },
+            "ids": {
+              "type": "object",
+              "description": "Bus instance to Signal K id, e.g. \"engine.0\": \"port\", \"battery.1\": \"279\", \"tank.fuel.0\": \"port\". Up to 16.",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "units": {

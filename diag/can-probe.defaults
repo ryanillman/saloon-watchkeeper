@@ -1,0 +1,5 @@
+# CAN bench probe (see docs/testing.md "CAN bench"). The 7" boards lose native USB when CAN is on,
+# so the console goes to the UART Type-C port.
+CONFIG_BI_DIAG_CAN_PROBE=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is not set

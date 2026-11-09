@@ -35,9 +35,20 @@ typedef struct {
   cfg_override_t ovr[8]; uint8_t ovr_count;
   char exclude[8][48]; uint8_t exclude_count;
 } cfg_role_t;
+// sources.nmea2000: the NMEA 2000 bus as a data source. ids maps a bus instance to the Signal K id the
+// server uses ("engine.0" -> "port", "battery.1" -> "279", "tank.fuel.0" -> "port").
+typedef struct { char key[24]; char id[24]; } cfg_n2k_id_t;
+#define CFG_MAX_N2K_IDS 16
+typedef struct {
+  bool enabled;
+  bool only;   // mode "only": no Signal K, the bus creates every path. "fallback" (default): Signal K first
+  cfg_n2k_id_t ids[CFG_MAX_N2K_IDS];
+  uint8_t id_count;
+} cfg_n2k_t;
 typedef struct {
   cfg_wifi_t wifi;
   cfg_sk_t sk;
+  cfg_n2k_t n2k;
   cfg_units_t units;
   char palette[6];          // "auto" | "day" | "dusk" | "night"
   uint8_t brightness;       // 0..100

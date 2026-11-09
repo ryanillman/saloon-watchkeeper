@@ -18,5 +18,12 @@ typedef struct {
   void (*reset_display)(void);                 // restarts the RGB scan from the top of the frame; call from the LVGL task
 } board_t;
 
+// CAN (NMEA 2000) wiring of this board. board_can_pins returns ESP_ERR_NOT_SUPPORTED when the
+// board has no transceiver. board_can_enable switches the transceiver in: on the 7" boards it
+// drives EXIO5 high, which DISABLES NATIVE USB (logs and flashing then go through the UART port).
+// Call it after board->init(); the default after init is USB.
+esp_err_t board_can_pins(int *tx_gpio, int *rx_gpio);
+esp_err_t board_can_enable(void);
+
 // The board this image was built for (CONFIG_BI_BOARD_*).
 const board_t *board_get(void);

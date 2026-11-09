@@ -8,6 +8,8 @@
 #include "anchor_watch.h"
 #include "nav_state.h"
 #include "boatdata.h"
+#include "app_can.h"
+#include "can_instances.h"
 #include "depth_state.h"
 #include "emergency.h"
 #include "emergency_page.h"
@@ -41,6 +43,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   size_class_t sc;
   uint32_t discoveries;
   size_t fuel_levels;   // tanks.fuel.*.currentLevel known last time subscriptions were sent
+  size_t path_count;    // bd_count() at the last look for new instances
   void (*buzzer)(bool on);
   bool buzzer_ok, buzzer_state;
   char dir[128];   // config directory; empty = no SD card, nothing is saved
@@ -335,6 +338,8 @@ static void anchor_tick(int64_t now) {
   anchor_watch_tick(&anchor_watch, &v, alerts_source_is_up(), now, a.dir[0] ? a.dir : NULL);
 }
 
+PLATFORM_EXT_BSS static can_instances_state_t inst_cache;   // ~4 KB, off internal RAM
+
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
   bd_source_register(BD_SRC_SK, "signalk", 2);   // preferred over any raw bus source (NMEA 2000 will rank 1)
@@ -370,6 +375,12 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
     memset(report, 0, sizeof *report);
   }
   sk_cmd_init();
+  // The NMEA 2000 bus as a fallback to Signal K: after a boot with the server down, the paths Signal K had delivered are
+  // restored empty, so the bus has somewhere to write and the roles find their instances.
+  if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only) {
+    size_t n = can_instances_init(&inst_cache, a.dir);
+    if (n) fprintf(stderr, "can: restored %u instance paths from the cache\n", (unsigned)n);
+  }
   anchor_watch_init(&anchor_watch, a.dir[0] ? a.dir : NULL, platform_millis(), 60000);
   anchor_setup();
   return &a.cfg;
@@ -980,32 +991,42 @@ static void update_clock(int64_t now) {
 
 void app_tick(void) {
   run_posted();
-  if (a.network) {
-    uint32_t d = sk_client_discovery_count();
-    if (d != a.discoveries) {   // the server told us what this boat has
-      a.discoveries = d;
-      ui_setup_discovery_changed();
-      bd_id_t fuel[8];
-      size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
-      bool fuel_new = fuel_n != a.fuel_levels;
-      a.fuel_levels = fuel_n;
-      bool inst = instances_changed();
-      if (inst) {   // rebuild only when there is something new to show
-        app_bind();
-        ui_shell_rebuild();
-      }
-      if (inst || fuel_new) {   // fuel tanks are not an engine instance, but the dial reads them
-        PLATFORM_EXT_BSS static sk_sub_t ids[256];
-        sk_client_rebind(ids, app_bound_ids(ids, 256));
-      }
+  uint32_t d = a.network ? sk_client_discovery_count() : a.discoveries;
+  size_t paths = bd_count();
+  if (d != a.discoveries || paths != a.path_count) {   // the server told us what this boat has, or any source (the NMEA 2000 bus) made new paths
+    if (d != a.discoveries) ui_setup_discovery_changed();
+    a.discoveries = d;
+    a.path_count = paths;
+    bd_id_t fuel[8];
+    size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
+    bool fuel_new = fuel_n != a.fuel_levels;
+    a.fuel_levels = fuel_n;
+    bool inst = instances_changed();
+    if (inst) {   // rebuild only when there is something new to show
+      app_bind();
+      ui_shell_rebuild();
     }
-    switch (sk_client_state()) {
-      case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
-      case SK_DISCOVERING:
-      case SK_CONNECTING: ui_shell_set_source(UI_SRC_CONNECTING); bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING); break;
-      default: ui_shell_set_source(UI_SRC_OFFLINE); bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE); break;
+    if (a.network && (inst || fuel_new)) {   // fuel tanks are not an engine instance, but the dial reads them
+      PLATFORM_EXT_BSS static sk_sub_t ids[256];
+      sk_client_rebind(ids, app_bound_ids(ids, 256));
     }
   }
+  if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only)   // learn the boat's instances from Signal K for the next cold start
+    can_instances_tick(&inst_cache, a.network && sk_client_state() == SK_LIVE, platform_millis(), a.dir);
+  ui_src_t sk_ui = UI_SRC_OFFLINE;   // no client yet (or none by design in "only" mode): the dot says so
+  if (a.network) {
+    switch (sk_client_state()) {
+      case SK_LIVE: sk_ui = UI_SRC_LIVE; bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
+      case SK_DISCOVERING:
+      case SK_CONNECTING: sk_ui = UI_SRC_CONNECTING; bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING); break;
+      default: sk_ui = UI_SRC_OFFLINE; bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE); break;
+    }
+  }
+  // The strip's two dots: Signal K (hidden when the bus is the only source) and the NMEA 2000 bus (shown once enabled;
+  // a bus that failed to start reads as offline).
+  bd_src_state_t bus = bd_source_state(BD_SRC_N2K);
+  ui_shell_set_sources((ui_source_t){app_network_wanted(&a.cfg), sk_ui},
+                       (ui_source_t){a.cfg.n2k.enabled, bus == BD_SRC_LIVE ? UI_SRC_LIVE : bus == BD_SRC_CONNECTING ? UI_SRC_CONNECTING : UI_SRC_OFFLINE});
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   update_clock(platform_millis());
   hist_tick(platform_millis());
