@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define N2K_BROADCAST 255
 #define N2K_FP_MAX 223  // fast-packet payload limit: 6 + 31 * 7
 
@@ -95,3 +99,7 @@ typedef struct {
 } n2k_seq_t;
 
 uint8_t n2k_seq_next(n2k_seq_t *s, uint32_t pgn, uint8_t dst);
+
+#ifdef __cplusplus
+}
+#endif

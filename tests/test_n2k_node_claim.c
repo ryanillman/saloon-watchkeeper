@@ -185,6 +185,23 @@ static void test_bus_reset_restarts_claim(void) {
   TEST_ASSERT_EQUAL(N2K_NODE_CLAIMING, n2k_node_state(&node));
 }
 
+static void test_defended_claim_keeps_the_wait(void) {
+  tx_ok = false;
+  n2k_node_start(&node);  // first claim refused: still pending
+  now += 100;
+  tx_ok = true;
+  deliver_claim(0x40, name_with_unique(0x1FFFFF));  // higher NAME: we defend
+  TEST_ASSERT_EQUAL_INT(1, nframes);
+  n2k_node_tick(&node);
+  TEST_ASSERT_EQUAL(N2K_NODE_CLAIMING, n2k_node_state(&node));  // not READY on the strength of an unset timestamp
+  now += 249;
+  n2k_node_tick(&node);
+  TEST_ASSERT_EQUAL(N2K_NODE_CLAIMING, n2k_node_state(&node));
+  now += 1;
+  n2k_node_tick(&node);
+  TEST_ASSERT_EQUAL(N2K_NODE_READY, n2k_node_state(&node));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_name_pack_orders_fields);
@@ -197,5 +214,6 @@ int main(void) {
   RUN_TEST(test_failed_tx_retried_on_tick);
   RUN_TEST(test_claim_timer_survives_clock_wrap);
   RUN_TEST(test_bus_reset_restarts_claim);
+  RUN_TEST(test_defended_claim_keeps_the_wait);
   return UNITY_END();
 }

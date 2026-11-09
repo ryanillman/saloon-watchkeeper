@@ -28,6 +28,9 @@ void n2k_node_init(n2k_node_t *n, const n2k_node_config_t *cfg, const n2k_node_o
 n2k_node_state_t n2k_node_state(const n2k_node_t *n) { return n->state; }
 uint8_t n2k_node_address(const n2k_node_t *n) { return n->address; }
 
+static void lock(n2k_node_t *n) { if (n->ops.lock) n->ops.lock(n->ops.ctx); }
+static void unlock(n2k_node_t *n) { if (n->ops.unlock) n->ops.unlock(n->ops.ctx); }
+
 static bool seen(const n2k_node_t *n, unsigned a) { return n->seen[a >> 3] >> (a & 7) & 1; }
 
 static void send_claim(n2k_node_t *n) {
@@ -45,7 +48,7 @@ static void send_claim(n2k_node_t *n) {
 
 // Claim from the current address; `timed` restarts the 250 ms wait when the frame goes out.
 static void claim(n2k_node_t *n, bool timed) {
-  n->claim_timed = timed;
+  if (timed || !n->claim_pending) n->claim_timed = timed;  // a defence never cancels a pending timed claim
   send_claim(n);
 }
 
@@ -55,6 +58,7 @@ void n2k_node_start(n2k_node_t *n) {
 }
 
 void n2k_node_bus_reset(n2k_node_t *n) {
+  lock(n);  // other tasks may be inside n2k_node_send
   n->dropped += (uint32_t)n->qlen;
   n->qhead = n->qlen = 0;
   n->tx_active = false;
@@ -62,10 +66,24 @@ void n2k_node_bus_reset(n2k_node_t *n) {
   memset(n->seen, 0, sizeof n->seen);
   n->address = n->cfg.preferred_address;
   n->state = N2K_NODE_CLAIMING;
+  unlock(n);
   claim(n, true);
 }
 
+// Drop the message being sent (if any): what is on the wire came from an address we no longer hold.
+static void abort_tx(n2k_node_t *n) {
+  if (!n->tx_active) return;
+  n->tx_active = false;
+  n->stall = 0;
+  lock(n);
+  n->qhead = (n->qhead + 1) % n->qcount;
+  n->qlen--;
+  unlock(n);
+  n->dropped++;
+}
+
 static void lose_address(n2k_node_t *n) {
+  abort_tx(n);
   for (unsigned a = 128; a <= 247; a++) {
     if (!seen(n, a)) {
       n->address = (uint8_t)a;
@@ -78,9 +96,6 @@ static void lose_address(n2k_node_t *n) {
   n->state = N2K_NODE_CANNOT_CLAIM;
   claim(n, false);
 }
-
-static void lock(n2k_node_t *n) { if (n->ops.lock) n->ops.lock(n->ops.ctx); }
-static void unlock(n2k_node_t *n) { if (n->ops.unlock) n->ops.unlock(n->ops.ctx); }
 
 uint32_t n2k_node_dropped(const n2k_node_t *n) { return n->dropped; }
 
@@ -200,17 +215,6 @@ void n2k_node_tick(n2k_node_t *n) {
       (uint32_t)(n->ops.now_ms(n->ops.ctx) - n->claim_sent_ms) >= N2K_NODE_CLAIM_WAIT_MS)
     n->state = N2K_NODE_READY;
 
-  if (n->state != N2K_NODE_READY) {
-    if (n->tx_active) {  // lost the address mid-message: what is on the wire is garbage now
-      n->tx_active = false;
-      n->stall = 0;
-      lock(n);
-      n->qhead = (n->qhead + 1) % n->qcount;
-      n->qlen--;
-      unlock(n);
-      n->dropped++;
-    }
-    return;
-  }
+  if (n->state != N2K_NODE_READY) return;
   send_one(n);
 }

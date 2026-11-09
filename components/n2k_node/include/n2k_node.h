@@ -5,6 +5,10 @@
 #pragma once
 #include "n2k.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define N2K_NODE_CLAIM_WAIT_MS 250
 #define N2K_NODE_ADDR_NONE 254
 
@@ -50,6 +54,9 @@ typedef struct {
 } n2k_qent_t;
 
 // Defined here only so callers can place it; treat the fields as private.
+// Threading: n2k_node_send may be called from any task (it takes the lock). Everything
+// else (on_msg, tick, start, bus_reset) belongs to the single bus task, except that
+// bus_reset also locks so another task may request it.
 typedef struct {
   n2k_node_config_t cfg;
   n2k_node_ops_t ops;
@@ -89,3 +96,7 @@ n2k_send_t n2k_node_send(n2k_node_t *n, uint32_t pgn, uint8_t dst, uint8_t prio,
 
 // Messages dropped by n2k_node_bus_reset, an address loss mid-send, or 5 ticks of bus refusal.
 uint32_t n2k_node_dropped(const n2k_node_t *n);
+
+#ifdef __cplusplus
+}
+#endif

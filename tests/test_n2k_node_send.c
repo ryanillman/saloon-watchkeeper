@@ -263,6 +263,38 @@ static void test_lock_called_around_queue(void) {
   TEST_ASSERT_EQUAL_INT(locks, unlocks);
 }
 
+static void test_address_loss_mid_message_never_resumes_from_old_address(void) {
+  make_ready();
+  uint8_t d[100];
+  for (int i = 0; i < 100; i++) d[i] = (uint8_t)i;
+  n2k_node_send(&node, 126983, 255, 2, d, 100);
+  tx_budget = 3;
+  n2k_node_tick(&node);
+  TEST_ASSERT_EQUAL_INT(3, nframes);
+  tx_budget = -1;
+  uint8_t other[8];
+  uint64_t lower = 1;  // a NAME lower than ours
+  for (int i = 0; i < 8; i++) other[i] = (uint8_t)(lower >> (8 * i));
+  n2k_msg_t m = {60928, 0x40, 255, 6, 8, other};
+  n2k_node_on_msg(&node, &m);
+  int before = nframes;
+  now += 300;  // a late tick must not resume the old message
+  n2k_node_tick(&node);
+  for (int i = before; i < nframes; i++) TEST_ASSERT_NOT_EQUAL(0x40, frames[i].id & 0xFF);
+  TEST_ASSERT_EQUAL_UINT32(1, n2k_node_dropped(&node));
+}
+
+static void test_bus_reset_takes_the_lock(void) {
+  ops.lock = fake_lock;
+  ops.unlock = fake_unlock;
+  make_node(4);
+  make_ready();
+  locks = unlocks = 0;
+  n2k_node_bus_reset(&node);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT(1, locks);
+  TEST_ASSERT_EQUAL_INT(locks, unlocks);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_send_before_ready_refused);
@@ -278,5 +310,7 @@ int main(void) {
   RUN_TEST(test_iso_request_product_info);
   RUN_TEST(test_iso_request_unsupported_ignored);
   RUN_TEST(test_lock_called_around_queue);
+  RUN_TEST(test_address_loss_mid_message_never_resumes_from_old_address);
+  RUN_TEST(test_bus_reset_takes_the_lock);
   return UNITY_END();
 }
