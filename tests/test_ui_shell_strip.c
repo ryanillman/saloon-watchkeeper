@@ -18,15 +18,16 @@ static const ui_role_view_t views[] = {{.name = "GLANCE", .page_count = 1}, {.na
 
 static lv_display_t *disp, *old_disp;
 
-static void open_shell(int32_t w, int32_t h, size_class_t sc, palette_t pal) {
+static void open_shell_with(const ui_role_view_t *v, uint8_t count, int32_t w, int32_t h, size_class_t sc, palette_t pal) {
   old_disp = lv_display_get_default();
   disp = lv_display_create(w, h);
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_default(disp);
-  ui_shell_create(disp, sc, pal, views, 2, 0);
+  ui_shell_create(disp, sc, pal, v, count, 0);
   ui_alerts_attach(lv_display_get_screen_active(disp), ui_shell_strip(), sc, role_of, NULL);
 }
+static void open_shell(int32_t w, int32_t h, size_class_t sc, palette_t pal) { open_shell_with(views, 2, w, h, sc, pal); }
 static void close_shell(void) {
   lv_display_set_default(old_disp);
   lv_display_delete(disp);
@@ -261,6 +262,36 @@ static void test_home_button_returns_to_the_start_roles_first_page(void) {
   close_shell();
 }
 
+
+// Every role name the app has, with as many pages as a role gets: the clock and the page dots must clear the name on
+// every page (the Navigation title ran into the clock on the square board).
+static const ui_role_view_t all_roles[] = {
+  {.name = "GLANCE", .page_count = 1}, {.name = "ENGINE", .page_count = 4}, {.name = "POWER", .page_count = 6},
+  {.name = "TANKS", .page_count = 1},  {.name = "ANCHOR", .page_count = 2}, {.name = "NAVIGATION", .page_count = 3},
+  {.name = "DEPTH", .page_count = 2},  {.name = "NAVIGATION", .page_count = 6},
+};
+#define ALL_ROLES (sizeof all_roles / sizeof all_roles[0])
+
+static void every_role_clears_the_clock(int32_t w, int32_t h, size_class_t sc) {
+  open_shell_with(all_roles, ALL_ROLES, w, h, sc, PALETTE_DAY);
+  ui_shell_set_clock("23:39");
+  ui_shell_set_source(UI_SRC_LIVE);
+  for (uint8_t r = 0; r < ALL_ROLES; r++)
+    for (uint8_t pg = 0; pg < all_roles[r].page_count; pg++) {
+      ui_shell_goto(r, pg);
+      update(true);
+      char msg[48];
+      snprintf(msg, sizeof msg, "%s page %u", all_roles[r].name, (unsigned)pg);
+      TEST_ASSERT_TRUE_MESSAGE(shown(ui_shell_clock()), msg);
+      TEST_ASSERT_FALSE_MESSAGE(meet(ui_shell_name(), ui_shell_clock()), msg);
+      check_no_overlap();
+    }
+  close_shell();
+}
+static void test_every_role_clears_the_clock_on_square(void) { every_role_clears_the_clock(480, 480, SIZE_SQUARE); }
+static void test_every_role_clears_the_clock_on_800(void) { every_role_clears_the_clock(800, 480, SIZE_WIDE); }
+static void test_every_role_clears_the_clock_on_1024(void) { every_role_clears_the_clock(1024, 600, SIZE_WIDE); }
+
 int main(void) {
   lv_init();
   lv_display_t *d0 = lv_display_create(800, 480);
@@ -273,6 +304,9 @@ int main(void) {
   RUN_TEST(test_marked_strip_clear_on_square);
   RUN_TEST(test_marked_strip_clear_on_800);
   RUN_TEST(test_marked_strip_clear_on_1024);
+  RUN_TEST(test_every_role_clears_the_clock_on_square);
+  RUN_TEST(test_every_role_clears_the_clock_on_800);
+  RUN_TEST(test_every_role_clears_the_clock_on_1024);
   RUN_TEST(test_clock_shows_text_and_hides_on_null);
   RUN_TEST(test_setting_the_same_clock_and_source_again_redraws_nothing);
   RUN_TEST(test_live_is_a_bare_dot_and_trouble_adds_text);

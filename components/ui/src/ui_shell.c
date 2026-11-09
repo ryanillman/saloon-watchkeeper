@@ -49,7 +49,17 @@ static void draw_source(void) {
 }
 
 static void place_clock(void) {
-  lv_obj_update_layout(s.strip);   // the dots' width is their content
+  lv_obj_update_layout(s.strip);   // the dots' and the title's widths are their content
+  if (s.sc == SIZE_SQUARE) {
+    // The square strip has no room for centred dots with the clock hanging off their left: a long title (NAVIGATION)
+    // ran into it. Pack title, dots and clock from the left instead. The SOS button takes the title's place while it
+    // shows, so the cluster starts after whichever is wider and does not move when SOS comes and goes.
+    lv_obj_t *left = lv_obj_get_x2(s.sos) > lv_obj_get_x2(s.name) ? s.sos : s.name;
+    lv_obj_align_to(s.dots, left, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
+    lv_obj_update_layout(s.strip);
+    lv_obj_align_to(s.clock, s.dots, LV_ALIGN_OUT_RIGHT_MID, 14, 0);
+    return;
+  }
   lv_obj_align_to(s.clock, s.dots, LV_ALIGN_OUT_LEFT_MID, -16, 0);
 }
 
@@ -96,13 +106,10 @@ static lv_obj_tree_walk_res_t no_scroll(lv_obj_t *obj, void *user) {
 
 static void rebuild(void) {
   lv_obj_clean(s.content);
+  lv_label_set_text(s.name, s.nav.role_count == 0 ? "" : s.roles[s.nav.role].name);   // before the dots: they sit after it
   draw_dots();
-  if (s.nav.role_count == 0) {
-    lv_label_set_text(s.name, "");
-    return;
-  }
+  if (s.nav.role_count == 0) return;
   const ui_role_view_t *r = &s.roles[s.nav.role];
-  lv_label_set_text(s.name, r->name);
   if (r->build_page) r->build_page(s.content, s.nav.page, s.sc, r->ctx);
   lv_obj_tree_walk(s.content, no_scroll, NULL);
 }
