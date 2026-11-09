@@ -2,7 +2,8 @@
   "version": 1,
   "wifi": { "ssid": "YOUR-WIFI", "password": "YOUR-PASSWORD" },
   "sources": {
-    "signalk": { "host": "auto", "port": 3000 }
+    "signalk": { "host": "auto", "port": 3000 },
+    "nmea2000": { "enabled": false, "mode": "fallback", "ids": {} }
   },
   "units": { "temperature": "C", "pressure": "bar", "volume": "L", "speed": "kn", "distance": "nm", "depth": "ft" },
   "vessel": { "name": "" },
