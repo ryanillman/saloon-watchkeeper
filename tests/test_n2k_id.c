@@ -42,7 +42,7 @@ static void test_pdu1_pgn_excludes_destination(void) {
 }
 
 static void test_fast_pgn_table(void) {
-  const uint32_t fast[] = {126996, 126983, 126984, 126985, 126986, 126208, 126720, 127489, 130816, 131071};
+  const uint32_t fast[] = {126996, 126983, 126984, 126985, 126986, 126208, 126720, 127489, 127506, 129029, 130816, 131071};
   const uint32_t single[] = {59904, 60928, 127488, 127508, 130306, 61184, 65280, 126993};
   for (size_t k = 0; k < sizeof fast / sizeof *fast; k++) TEST_ASSERT_TRUE_MESSAGE(n2k_pgn_is_fast(fast[k]), "fast");
   for (size_t k = 0; k < sizeof single / sizeof *single; k++) TEST_ASSERT_FALSE_MESSAGE(n2k_pgn_is_fast(single[k]), "single");
