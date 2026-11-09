@@ -31,6 +31,8 @@ static const uint32_t fast_pgns[] = {
   126996,  // product information
   126998,  // configuration information
   127489,  // engine parameters, dynamic
+  127506,  // DC detailed status  // verify: canboat
+  129029,  // GNSS position data  // verify: canboat
 };
 
 bool n2k_pgn_is_fast(uint32_t pgn) {
