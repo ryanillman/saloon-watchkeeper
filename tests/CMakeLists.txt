@@ -62,6 +62,7 @@ bi_test(test_app_apply app boatdata config platform alerts ui)
 bi_test(test_app_anchor app boatdata config platform alerts ui)
 bi_test(test_app_emergency app boatdata config platform alerts ui roles source_sk_core)
 bi_test(test_app_cmd app boatdata config platform alerts ui)
+bi_test(test_app_can app boatdata config platform)
 
 add_test(NAME snapshot_smoke
   COMMAND ${CMAKE_COMMAND} -DSIM=$<TARGET_FILE:sim> -DOUT=${CMAKE_BINARY_DIR}/snap
