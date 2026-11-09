@@ -318,3 +318,7 @@ status
 ```
 
 `status` must show `can: live rx=<climbing> values=<climbing> unmapped=0 bus_off=0` and, in `only` mode, `signalk: offline` (the client is not started). Mode `fallback` keeps Signal K first and fills only paths it has, so with a server up most instance values count as `unmapped` until `sources.nmea2000.ids` maps them. The `ids` map has dots in its keys (`engine.0`), so `config set` cannot write it: edit `config.json` on the SD card (see `docs/config.example.json`). Enabling or disabling the bus needs a reboot. On the 7" boards the bus takes native USB away.
+
+### The instance cache
+
+In `fallback` mode the display writes `instances.json` (and keeps `instances.bak.json`) to the SD card: the engine, battery and tank leaves Signal K has delivered a valid value for. A path is added within 5 s of Signal K delivering it; a path is dropped only after Signal K has been live for a minute without it. At boot, with the bus enabled in `fallback` mode, the cached paths are created empty (the boot log says `can: restored <n> instance paths from the cache`), so the roles find their instances and the bus has places to write even when the server is down. Check it: let the display run with Signal K live for a minute, change `sources.signalk.port` to an unused port with `config set`, `reboot`, and read the boot log. Delete `instances.json` and `instances.bak.json` to make it forget the boat. It is not used in `only` mode or with the bus off.
