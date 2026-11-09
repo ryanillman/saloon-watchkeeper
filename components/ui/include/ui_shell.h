@@ -42,17 +42,21 @@ void ui_shell_set_source(ui_src_t st);   // the Signal K state alone, with Signa
 // The strip shows up to two data sources: Signal K (a circle) and the NMEA 2000 bus (a rounded square, left of it),
 // each in the three states above. A source that is not `shown` has no dot: the bus dot is hidden until the bus is
 // enabled, and the Signal K dot is hidden when the bus is the only source (no Signal K client runs then). The status
-// text names the sources that are not live, using the worse state: "SK OFFLINE", "CAN CONNECTING", "SK + CAN OFFLINE".
+// text names the sources that are not live, using the worse state: "SK OFFLINE", "NMEA 2k CONNECTING", "SK + NMEA 2k OFFLINE".
 // The app calls this every tick; a repeat of the same sources redraws nothing.
 typedef struct {
   bool shown;
   ui_src_t state;
 } ui_source_t;
 void ui_shell_set_sources(ui_source_t sk, ui_source_t can);
-// When the strip is crowded the source text ("SK + CAN OFFLINE") is the first thing to give way: the dots show the same
+// When the strip is crowded the source text ("SK + NMEA 2k OFFLINE") is the first thing to give way: the dots show the same
 // state. The alert layout hides it and unhides it. An override (ALARMS DISABLED on the square board) is never hidden.
 void ui_shell_set_source_text_hidden(bool hidden);
 bool ui_shell_source_text_shown(void);   // the source text is the status label's text right now
+// The clock is the least important part of the strip: when there is no room for it beside an error message it gives way
+// first (the alert layout hides it and shows it again). The time is kept and the clock keeps running underneath.
+void ui_shell_set_clock_yielded(bool yielded);
+bool ui_shell_clock_wanted(void);   // a time is set, whether or not the clock is showing
 uint32_t ui_shell_sources_gen(void);   // changes whenever the dots or the status text were redrawn (the alert markers follow them)
 
 // The clock, left of the page dots. NULL hides it. The text is copied.
