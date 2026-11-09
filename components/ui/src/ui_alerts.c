@@ -41,7 +41,7 @@ typedef struct {
   bool source_up;
   int32_t status_w;
   uint32_t sources_gen;   // the dots and the status text moved: the markers follow the status
-  int32_t name_w, dots_w, clock_w;   // the left of the strip changed (another role, more pages, the clock appeared)
+  int32_t name_w, dots_w, clock_w;   // the left of the strip changed (another role, more pages, a time appeared); clock_w is the text length, 0 for none
   const ui_colors_t *theme;
 } mkey_t;
 
@@ -326,7 +326,6 @@ static void align_right_cluster(lv_obj_t *status, unsigned n, unsigned na) {
   lv_obj_update_layout(u.strip);
 }
 
-static bool part_shown(lv_obj_t *o) { return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN); }
 static int32_t width_of(lv_obj_t *o) { return o ? lv_obj_get_width(o) : 0; }   // some tests attach the alerts to a strip without every part
 
 static bool part_visible(lv_obj_t *o) {
@@ -364,7 +363,7 @@ static void update_marker(const alerts_snapshot_t *s) {
   }
   mkey_t k = {(uint8_t)n, (uint8_t)na, s->source_up, status ? lv_obj_get_width(status) : 0, ui_shell_sources_gen(),
               width_of(ui_shell_name()), width_of(ui_shell_dots()),
-              part_shown(ui_shell_clock()) ? width_of(ui_shell_clock()) : 0, ui_theme()};
+              ui_shell_clock_wanted() ? (int32_t)strlen(lv_label_get_text(ui_shell_clock())) : 0, ui_theme()};
   if (!memcmp(&k, &u.mkey, sizeof k)) return;
   u.mkey = k;
 
@@ -382,7 +381,8 @@ static void update_marker(const alerts_snapshot_t *s) {
   lv_obj_set_style_text_color(u.acked_marker, c->alarm, 0);
   show(u.acked_marker, na > 0);
 
-  ui_shell_set_source_text_hidden(false);   // start from the full text; it hides again below if the strip is crowded
+  ui_shell_set_source_text_hidden(false);   // start from the full strip; things give way below if it is crowded
+  ui_shell_set_clock_yielded(false);
   bool in_status = offline_in_status();
   if (in_status) {
     ui_shell_set_status_override(s->source_up ? NULL : ALARMS_DISABLED_TEXT, c->alarm);
@@ -395,7 +395,10 @@ static void update_marker(const alerts_snapshot_t *s) {
   }
 
   align_right_cluster(status, n, na);
-  if (ui_shell_source_text_shown() && strip_crowded()) {   // the source text gives way first: the dots show the same state
+  // Too full: the clock gives way first (an error message matters more), then the source text, whose state the dots
+  // still show. ALARMS DISABLED and the alert markers never give way.
+  if (ui_shell_clock_wanted() && strip_crowded()) ui_shell_set_clock_yielded(true);
+  if (ui_shell_source_text_shown() && strip_crowded()) {
     ui_shell_set_source_text_hidden(true);
     align_right_cluster(status, n, na);
   }

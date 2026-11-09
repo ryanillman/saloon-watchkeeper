@@ -13,7 +13,8 @@ static struct {
   ui_source_t sk, can;   // the two data sources and what they are doing
   uint32_t sources_gen;
   bool text_hidden;   // the source text gave way to a crowded strip
-  char status_text[24], over_text[24];   // the app's status, and a temporary replacement
+  bool clock_has_text, clock_yield;   // a time was set; the clock gave way to an error message
+  char status_text[32], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
   bool over;
   uint8_t home;   // the role the home button returns to (page 0)
@@ -76,7 +77,7 @@ static void source_status(char *out, size_t n, lv_color_t *col) {
   out[0] = 0;
   *col = c->fg;
   if (worst == UI_SRC_LIVE) return;
-  const char *names[2] = {"SK", "CAN"};
+  const char *names[2] = {"SK", "NMEA 2k"};
   size_t len = 0;
   for (int i = 0; i < 2; i++)
     if (all[i]->shown && all[i]->state == worst) len += (size_t)snprintf(out + len, n - len, "%s%s", len ? " + " : "", names[i]);
@@ -98,8 +99,9 @@ static void place_clock(void) {
   if (s.sc == SIZE_SQUARE) {
     // The square strip has no room for centred dots with the clock hanging off their left: a long title (NAVIGATION)
     // ran into it. Pack title, dots and clock from the left instead. The SOS button takes the title's place while it
-    // shows, so the cluster starts after whichever is wider and does not move when SOS comes and goes.
-    lv_obj_t *left = lv_obj_get_x2(s.sos) > lv_obj_get_x2(s.name) ? s.sos : s.name;
+    // shows, so while it does the cluster starts after whichever is wider.
+    bool sos_up = !lv_obj_has_flag(s.sos, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *left = sos_up && lv_obj_get_x2(s.sos) > lv_obj_get_x2(s.name) ? s.sos : s.name;
     lv_obj_align_to(s.dots, left, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
     lv_obj_update_layout(s.strip);
     lv_obj_align_to(s.clock, s.dots, LV_ALIGN_OUT_RIGHT_MID, 14, 0);
@@ -125,9 +127,11 @@ static void apply_palette(void) {
 static void draw_dots(void) {
   const ui_colors_t *c = ui_theme_colors(s.pal);
   lv_obj_clean(s.dots);
-  if (s.nav.role_count == 0) return;
-  uint8_t pages = s.nav.page_count[s.nav.role];
-  if (pages <= 1) return;
+  uint8_t pages = s.nav.role_count == 0 ? 0 : s.nav.page_count[s.nav.role];
+  if (pages <= 1) {
+    place_clock();   // no dots, but the clock still follows the (new) title
+    return;
+  }
   int32_t d = s.sc == SIZE_WIDE ? 10 : pages > 4 ? 6 : 8;   // a role with many pages (Power) gets smaller dots on the square board
   lv_obj_set_style_pad_column(s.dots, s.sc != SIZE_WIDE && pages > 4 ? 5 : 8, 0);
   for (uint8_t i = 0; i < pages; i++) {
@@ -262,6 +266,7 @@ void ui_shell_set_sos(bool visible) {
     lv_obj_add_flag(s.sos, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(s.name, LV_OBJ_FLAG_HIDDEN);
   }
+  place_clock();   // the square strip packs the dots and clock after the SOS button or the title, whichever shows
 }
 lv_obj_t *ui_shell_strip_tap(void) { return s.tap; }
 
@@ -425,7 +430,9 @@ bool ui_shell_source_text_shown(void) { return s.status && !s.over && !s.text_hi
 void ui_shell_set_clock(const char *hhmm) {   // the app calls this every tick: touch nothing that has not changed
   if (!s.clock) return;
   bool hidden = lv_obj_has_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
-  if (!hhmm) {
+  s.clock_has_text = hhmm != NULL;
+  if (!hhmm || s.clock_yield) {   // no time, or the clock gave way: stay hidden, but remember the text for later
+    if (hhmm && strcmp(lv_label_get_text(s.clock), hhmm) != 0) lv_label_set_text(s.clock, hhmm);
     if (!hidden) lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
     return;
   }
@@ -434,6 +441,18 @@ void ui_shell_set_clock(const char *hhmm) {   // the app calls this every tick: 
   if (hidden) lv_obj_remove_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
   place_clock();
 }
+
+void ui_shell_set_clock_yielded(bool yielded) {
+  if (!s.clock || yielded == s.clock_yield) return;
+  s.clock_yield = yielded;
+  if (yielded) {
+    lv_obj_add_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+  } else if (s.clock_has_text) {
+    lv_obj_remove_flag(s.clock, LV_OBJ_FLAG_HIDDEN);
+    place_clock();
+  }
+}
+bool ui_shell_clock_wanted(void) { return s.clock && s.clock_has_text; }
 
 void ui_shell_set_status_override(const char *text, lv_color_t color) {
   if (!s.status) return;

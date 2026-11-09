@@ -169,7 +169,7 @@ static void test_strip_hides_signal_k_when_the_bus_is_the_only_source(void) {
   TEST_ASSERT_FALSE(dot_shown(ui_shell_source_dot()));
   TEST_ASSERT_TRUE(dot_shown(ui_shell_can_dot()));
   // The bus has not been started in this test: the dot says offline, with the text that names it.
-  TEST_ASSERT_EQUAL_STRING("CAN OFFLINE", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k OFFLINE", lv_label_get_text(ui_shell_status()));
 }
 
 static bool clock_hidden(void) { return lv_obj_has_flag(ui_shell_clock(), LV_OBJ_FLAG_HIDDEN); }

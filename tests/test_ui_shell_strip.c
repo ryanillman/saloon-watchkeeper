@@ -79,6 +79,7 @@ static void check_no_overlap(void) {
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     for (size_t j = i + 1; j < sizeof p / sizeof p[0]; j++) {
       if (p[i] == p[j] || !shown(p[i]) || !shown(p[j])) continue;   // square: the offline text is the status label
+      if (lv_obj_get_width(p[i]) == 0 || lv_obj_get_width(p[j]) == 0) continue;   // an empty page-dot box has no pixels
       lv_area_t ai, aj;
       lv_obj_get_coords(p[i], &ai);
       lv_obj_get_coords(p[j], &aj);
@@ -341,14 +342,14 @@ static void test_status_text_names_what_is_not_live(void) {
     {true, UI_SRC_OFFLINE, false, UI_SRC_OFFLINE, "SK OFFLINE"},
     {true, UI_SRC_CONNECTING, false, UI_SRC_OFFLINE, "SK CONNECTING"},
     {true, UI_SRC_LIVE, true, UI_SRC_LIVE, ""},
-    {true, UI_SRC_LIVE, true, UI_SRC_OFFLINE, "CAN OFFLINE"},
-    {true, UI_SRC_LIVE, true, UI_SRC_CONNECTING, "CAN CONNECTING"},
+    {true, UI_SRC_LIVE, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},
+    {true, UI_SRC_LIVE, true, UI_SRC_CONNECTING, "NMEA 2k CONNECTING"},
     {true, UI_SRC_OFFLINE, true, UI_SRC_LIVE, "SK OFFLINE"},
-    {true, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "SK + CAN OFFLINE"},
-    {true, UI_SRC_CONNECTING, true, UI_SRC_CONNECTING, "SK + CAN CONNECTING"},
+    {true, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "SK + NMEA 2k OFFLINE"},
+    {true, UI_SRC_CONNECTING, true, UI_SRC_CONNECTING, "SK + NMEA 2k CONNECTING"},
     {true, UI_SRC_OFFLINE, true, UI_SRC_CONNECTING, "SK OFFLINE"},      // the worse state is named; the shapes show the rest
-    {true, UI_SRC_CONNECTING, true, UI_SRC_OFFLINE, "CAN OFFLINE"},
-    {false, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "CAN OFFLINE"},       // bus only: Signal K is not in use and never named
+    {true, UI_SRC_CONNECTING, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},
+    {false, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},       // bus only: Signal K is not in use and never named
     {false, UI_SRC_OFFLINE, true, UI_SRC_LIVE, ""},
   };
   for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) {
@@ -415,6 +416,35 @@ static void test_both_sources_strip_clear_on_square(void) { both_sources_strip(4
 static void test_both_sources_strip_clear_on_800(void) { both_sources_strip(800, 480, SIZE_WIDE); }
 static void test_both_sources_strip_clear_on_1024(void) { both_sources_strip(1024, 600, SIZE_WIDE); }
 
+
+// The status text is an error message; the clock is the least important thing in the strip. When there is not room for both,
+// the clock gives way first, then (only if still too full) the text.
+static void test_the_clock_gives_way_before_the_error_text(void) {
+  open_shell_with(real_roles, REAL_ROLES, 480, 480, SIZE_SQUARE, PALETTE_DAY);
+  ui_shell_set_clock("23:39");
+  ui_shell_goto(5, 0);   // NAVIGATION, two page dots: the widest real title
+  sources(true, UI_SRC_LIVE, true, UI_SRC_CONNECTING);   // "NMEA 2k CONNECTING": too long to sit beside the clock
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k CONNECTING", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_FALSE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_OFFLINE);   // the shorter "NMEA 2k OFFLINE" still fits beside it: nothing gives way
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k OFFLINE", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_CONNECTING);
+  ui_shell_goto(0, 0);   // GLANCE: a short title and no dots: room for both
+  update(true);
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k CONNECTING", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_LIVE);   // the bus is live: no text, and the clock is back on the busy title too
+  ui_shell_goto(5, 0);
+  update(true);
+  TEST_ASSERT_EQUAL_STRING("", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  close_shell();
+}
+
 int main(void) {
   lv_init();
   lv_display_t *d0 = lv_display_create(800, 480);
@@ -438,6 +468,7 @@ int main(void) {
   RUN_TEST(test_both_sources_strip_clear_on_square);
   RUN_TEST(test_both_sources_strip_clear_on_800);
   RUN_TEST(test_both_sources_strip_clear_on_1024);
+  RUN_TEST(test_the_clock_gives_way_before_the_error_text);
   RUN_TEST(test_clock_shows_text_and_hides_on_null);
   RUN_TEST(test_setting_the_same_clock_and_source_again_redraws_nothing);
   RUN_TEST(test_live_is_a_bare_dot_and_trouble_adds_text);
