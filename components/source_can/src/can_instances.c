@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "boatdata.h"
+#include "platform.h"
 #include "cJSON.h"
 
 // The leaves source_can writes, as boatdata patterns ('*' is one segment).
@@ -190,7 +191,7 @@ bool can_instances_tick(can_instances_state_t *s, bool signalk_live, int64_t now
   if (s->live_since_ms < 0) s->live_since_ms = now_ms;
   if (s->last_scan_ms >= 0 && now_ms - s->last_scan_ms < CI_SCAN_MS) return false;
   s->last_scan_ms = now_ms;
-  static can_instances_t live;   // ~4 KB: not on the UI task's stack (called from one task only)
+  PLATFORM_EXT_BSS static can_instances_t live;   // ~4 KB: not on the UI task's stack, and not internal RAM (called from one task only)
   can_instances_scan(&live);
   bool settled = now_ms - s->live_since_ms >= CI_SETTLE_MS;
   if (!can_instances_update(&s->cache, &live, settled)) return false;

@@ -5,8 +5,8 @@
 
 static bool started;
 static source_can_t src;
-static source_can_id_t ids[CFG_MAX_N2K_IDS];
-static cfg_n2k_id_t id_text[CFG_MAX_N2K_IDS];   // the strings ids[] points at must outlive a config change
+PLATFORM_EXT_BSS static source_can_id_t ids[CFG_MAX_N2K_IDS];
+PLATFORM_EXT_BSS static cfg_n2k_id_t id_text[CFG_MAX_N2K_IDS];   // the strings ids[] points at must outlive a config change
 static n2k_bus_t bus;
 PLATFORM_EXT_BSS static n2k_fp_slot_t slots[8];   // ~2 KB of fast-packet reassembly: not internal RAM
 
