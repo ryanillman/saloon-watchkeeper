@@ -16,11 +16,14 @@
 #include "app.h"
 #include "app_cmd.h"
 #include "boatdata.h"
+#include "can_socketcan.h"
 #include "emergency.h"
 #include "lvgl.h"
 #include "platform.h"
 #include "sim_boards.h"
+#include "n2k_bus.h"
 #include "sk_parse.h"
+#include "source_can.h"
 #include "history.h"
 #include "snapshot.h"
 #include "ui_alerts.h"
@@ -650,9 +653,41 @@ static palette_t parse_palette(const char *s) {
   return PALETTE_DAY;
 }
 
+// ---- NMEA 2000 bus (--can): listen-only, no node, so the simulator never transmits ----
+static can_socketcan_t *can_sock;
+static n2k_bus_t can_bus;
+static source_can_t can_src;
+static n2k_fp_slot_t can_slots[8];
+static uint32_t can_now(void *ctx) {
+  (void)ctx;
+  return (uint32_t)platform_millis();
+}
+static bool can_start(const char *ifname, bool create_paths) {
+  can_sock = can_socketcan_open(ifname);
+  if (!can_sock) {
+    fprintf(stderr, "can: cannot open %s: %s (bring it up first: sudo ip link set %s up type can bitrate 250000)\n",
+            ifname, strerror(errno), ifname);
+    return false;
+  }
+  static const source_can_cfg_t cfg_existing = {false, NULL, 0}, cfg_create = {true, NULL, 0};
+  source_can_init(&can_src, create_paths ? &cfg_create : &cfg_existing);
+  n2k_can_ops_t ops = can_socketcan_ops(can_sock);
+  n2k_bus_init(&can_bus, &ops, NULL, can_slots, sizeof can_slots / sizeof can_slots[0], source_can_on_msg, &can_src,
+               can_now, NULL);
+  fprintf(stderr, "can: %s listening (%s)\n", ifname,
+          create_paths ? "CAN only: creates its own paths" : "fills paths that already exist");
+  return true;
+}
+static void can_poll(void) {
+  if (!can_sock) return;
+  n2k_bus_step(&can_bus, 256);
+  source_can_tick(&can_src);
+}
+
 int main(int argc, char **argv) {
   const char *board_id = "sim800", *snapshot_dir = NULL, *config_dir = "simcfg", *palette = NULL;
-  const char *capture = NULL;
+  const char *capture = NULL, *can_if = NULL;
+  bool can_only = false;
   int after_s = 10;
   int page = 0;
   bool console = false;
@@ -665,11 +700,14 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[i], "--after") == 0 && i + 1 < argc) after_s = atoi(argv[++i]);
     else if (strcmp(argv[i], "--page") == 0 && i + 1 < argc) page = atoi(argv[++i]);
     else if (strcmp(argv[i], "--console") == 0) console = true;
+    else if (strcmp(argv[i], "--can") == 0 && i + 1 < argc) can_if = argv[++i];
+    else if (strcmp(argv[i], "--can-only") == 0) can_only = true;
     else {
       fprintf(stderr, "usage: sim [--board sim480|sim800|sim1024] [--palette day|dusk|night]\n"
                       "           [--config <dir with config.json>] [--snapshot <dir>]\n"
                       "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n"
-                      "           [--console]   serial commands on this terminal\n");
+                      "           [--console]   serial commands on this terminal\n"
+                      "           [--can <ifname> [--can-only]]   read NMEA 2000 from a SocketCAN interface (listen-only)\n");
       return 2;
     }
   }
@@ -693,6 +731,7 @@ int main(int argc, char **argv) {
   if (palette) snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[parse_palette(palette)]);
   app_set_info(board_id, "sim");
   app_bind();
+  if (can_if && !can_start(can_if, can_only)) return 2;
 
   if (capture) {   // live data, no window: run for a while, then save the screen
     size_t px = (size_t)b->width * b->height;
@@ -708,6 +747,7 @@ int main(int argc, char **argv) {
     int64_t end = platform_millis() + (int64_t)after_s * 1000;
     while (platform_millis() < end) {
       app_tick();
+      can_poll();
       lv_timer_handler();
       usleep(100 * 1000);
     }
@@ -726,6 +766,7 @@ int main(int argc, char **argv) {
   lv_timer_create(tick_cb, 100, NULL);
 
   for (;;) {
+    can_poll();
     uint32_t wait = lv_timer_handler();
     usleep((wait > 50 ? 50 : wait) * 1000);
   }

@@ -274,3 +274,24 @@ Record results in `docs/hardware/boards.md` under each board's CAN row.
 - Terminate only the two physical ends of the chain (120 Ω each); leave the boards' own DIP terminators off.
 - Judge the adapter by its state (`ip -d link show can0`), not the berr-counter value, which the driver leaves stale.
 - Let the boards talk to each other for the node tests (the probe's own request sender); the adapter is for listening, and a few single requests (`cansend can0 18EA78F0#14F001` asks the node at 0x78 for product info).
+
+## Simulator on a CAN bus
+
+The simulator can read NMEA 2000 from a SocketCAN interface, listen-only (it has no node and never transmits): `build/sim/sim --can <ifname>`. The decoders and default Signal K ids are from memory and **unverified** until a real capture exists; this slice covers depth (128267), apparent wind (130306), battery (127508), engine rapid (127488) and tank level (127505).
+
+- `--can <if>`: the CAN source fills only paths Signal K has already created (the SK + CAN mode). Signal K, when live, wins on every path it writes.
+- `--can <if> --can-only`: the CAN source creates its own paths (CAN only mode). Use this with no Signal K server.
+
+Virtual bus, no hardware (needs root once):
+
+```sh
+sudo modprobe vcan && sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0
+tools/n2k-inject.py vcan0 --rate 1 basic          # one terminal
+build/sim/sim --can vcan0 --can-only               # another
+```
+
+Real bus: bring the adapter up first (`sudo ip link set can0 up type can bitrate 250000`, see "CAN bench") and run `build/sim/sim --can can0 --can-only`. The simulator logs `can: <if> listening` on stderr; the boat instruments' probe images send only alert PGNs, so with those alone it stays CONNECTING.
+
+The `basic` scenario shows depth 12.3 m (surface offset 0.4 m), apparent wind 8 m/s at 40° to starboard, battery 1 at 12.6 V and -8.5 A, engine 0 at 2400 rpm, fresh water 1 at 62 % and fuel 0 at 35 %. Which pages show them depends on the config's roles and ids: the engine appears under the id `0`, the battery under `1` and the tanks under their instances unless the config names them (the instance map is a later step). Stop the injector and the source goes OFFLINE after 5 s and its values turn to FAIL.
+
+`tests/test_can_socketcan` loops a frame through `vcan0` when it exists and skips itself when it does not.
