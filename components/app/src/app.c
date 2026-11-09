@@ -8,6 +8,7 @@
 #include "anchor_watch.h"
 #include "nav_state.h"
 #include "boatdata.h"
+#include "can_instances.h"
 #include "depth_state.h"
 #include "emergency.h"
 #include "emergency_page.h"
@@ -336,6 +337,8 @@ static void anchor_tick(int64_t now) {
   anchor_watch_tick(&anchor_watch, &v, alerts_source_is_up(), now, a.dir[0] ? a.dir : NULL);
 }
 
+PLATFORM_EXT_BSS static can_instances_state_t inst_cache;   // ~4 KB, off internal RAM
+
 const cfg_t *app_init(const char *dir, cfg_report_t *report) {
   bd_init();
   bd_source_register(BD_SRC_SK, "signalk", 2);   // preferred over any raw bus source (NMEA 2000 will rank 1)
@@ -371,6 +374,12 @@ const cfg_t *app_init(const char *dir, cfg_report_t *report) {
     memset(report, 0, sizeof *report);
   }
   sk_cmd_init();
+  // The NMEA 2000 bus as a fallback to Signal K: after a boot with the server down, the paths Signal K had delivered are
+  // restored empty, so the bus has somewhere to write and the roles find their instances.
+  if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only) {
+    size_t n = can_instances_init(&inst_cache, a.dir);
+    if (n) fprintf(stderr, "can: restored %u instance paths from the cache\n", (unsigned)n);
+  }
   anchor_watch_init(&anchor_watch, a.dir[0] ? a.dir : NULL, platform_millis(), 60000);
   anchor_setup();
   return &a.cfg;
@@ -1001,6 +1010,8 @@ void app_tick(void) {
       sk_client_rebind(ids, app_bound_ids(ids, 256));
     }
   }
+  if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only)   // learn the boat's instances from Signal K for the next cold start
+    can_instances_tick(&inst_cache, a.network && sk_client_state() == SK_LIVE, platform_millis(), a.dir);
   if (a.network) {
     switch (sk_client_state()) {
       case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
