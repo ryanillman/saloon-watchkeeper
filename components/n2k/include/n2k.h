@@ -67,3 +67,31 @@ void n2k_feed_frame(n2k_rx_t *rx, uint32_t can_id, const uint8_t *data, uint8_t 
 
 // Whole PGNs (gateways that send reassembled messages). Delivered as broadcast, priority 6.
 void n2k_feed_pgn(n2k_rx_t *rx, uint32_t pgn, uint8_t src, const uint8_t *data, uint16_t len, uint32_t now_ms);
+
+// ---- Transmit ---------------------------------------------------------------
+
+// Splits one message into frames. `data` must stay valid until the last frame is taken.
+typedef struct {
+  uint32_t id;
+  const uint8_t *data;
+  uint16_t len, off;
+  uint8_t seq, frame;
+  bool fast, done;
+} n2k_tx_t;
+
+// False for len 0, len over N2K_FP_MAX, or len over 8 on a PGN that is not fast-packet.
+// A fast-packet PGN uses fast-packet framing even when the payload would fit in one frame.
+bool n2k_tx_begin(n2k_tx_t *tx, uint8_t prio, uint32_t pgn, uint8_t src, uint8_t dst,
+                  const uint8_t *data, uint16_t len, uint8_t seq);
+// Next frame (always DLC 8, padded with 0xFF); false when the message is finished.
+bool n2k_tx_next(n2k_tx_t *tx, n2k_frame_t *out);
+
+// Fast-packet sequence counter (0 to 7), one per (pgn, dst). Zero-initialise before use.
+// When all 8 entries are taken, the one inserted first is reused.
+typedef struct {
+  uint32_t pgn[8];
+  uint8_t dst[8], seq[8];
+  uint8_t used, victim;  // used: entries filled so far; victim: next entry to evict once full
+} n2k_seq_t;
+
+uint8_t n2k_seq_next(n2k_seq_t *s, uint32_t pgn, uint8_t dst);
