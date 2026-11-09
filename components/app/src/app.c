@@ -8,6 +8,7 @@
 #include "anchor_watch.h"
 #include "nav_state.h"
 #include "boatdata.h"
+#include "app_can.h"
 #include "can_instances.h"
 #include "depth_state.h"
 #include "emergency.h"
@@ -1012,14 +1013,20 @@ void app_tick(void) {
   }
   if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only)   // learn the boat's instances from Signal K for the next cold start
     can_instances_tick(&inst_cache, a.network && sk_client_state() == SK_LIVE, platform_millis(), a.dir);
+  ui_src_t sk_ui = UI_SRC_OFFLINE;   // no client yet (or none by design in "only" mode): the dot says so
   if (a.network) {
     switch (sk_client_state()) {
-      case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
+      case SK_LIVE: sk_ui = UI_SRC_LIVE; bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
       case SK_DISCOVERING:
-      case SK_CONNECTING: ui_shell_set_source(UI_SRC_CONNECTING); bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING); break;
-      default: ui_shell_set_source(UI_SRC_OFFLINE); bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE); break;
+      case SK_CONNECTING: sk_ui = UI_SRC_CONNECTING; bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING); break;
+      default: sk_ui = UI_SRC_OFFLINE; bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE); break;
     }
   }
+  // The strip's two dots: Signal K (hidden when the bus is the only source) and the NMEA 2000 bus (shown once enabled;
+  // a bus that failed to start reads as offline).
+  bd_src_state_t bus = bd_source_state(BD_SRC_N2K);
+  ui_shell_set_sources((ui_source_t){app_network_wanted(&a.cfg), sk_ui},
+                       (ui_source_t){a.cfg.n2k.enabled, bus == BD_SRC_LIVE ? UI_SRC_LIVE : bus == BD_SRC_CONNECTING ? UI_SRC_CONNECTING : UI_SRC_OFFLINE});
   apply_palette();   // auto: follows environment.mode; changes only when the result does
   update_clock(platform_millis());
   hist_tick(platform_millis());

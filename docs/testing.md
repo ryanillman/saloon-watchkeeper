@@ -75,7 +75,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `alarm-coolant`, tap ACK | The banner goes away and a bell with `1` appears in the top strip, left of the status text; the server shows the notification acknowledged. Tap the bell for the list, where the alarm stays with its ACK hidden. Tap SILENCE first and the buzzer stops, the server shows silenced. If the ACK did not reach the server the banner stays, steady, with `ACK NOT SENT` |
 | `alarm-coolant` at 40 s | Banner (or bell, if acknowledged) disappears and the coolant value returns to white |
 | `warn-tank-low` at 10 s | The first fresh water tank is driven to 10 % (default zones: warn below 15 %). No banner. Amber `1` marker left of the status text; tap it for the list (`WARN`, `Fresh water low`, age, ACK). The fresh water tank value is amber |
-| Server stopped with an alarm showing | Banner gone, `SK ALERTS OFFLINE` in the strip, `SK OFFLINE` status, buzzer silent |
+| Server stopped with an alarm showing | Banner gone, `ALARMS DISABLED` in the strip, `SK OFFLINE` status, buzzer silent |
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 
@@ -117,7 +117,7 @@ Simulator against Signal K 2.35.1 on `localhost:3000`, 2026-11-03, `sim800`, 800
 | `alarm-coolant`, SILENCE | PASS: server `silenced: true`, `sound` dropped from `method` |
 | `alarm-coolant` at 40 s | PASS: banner gone, coolant white |
 | `warn-tank-low` | PASS: no banner, amber `1` marker, list shows `WARN`, `Fresh water low`, age, ACK; tank value amber |
-| Server stopped with an alarm | PASS: banner gone, `SK ALERTS OFFLINE`, `SK OFFLINE` (buzzer is hardware only) |
+| Server stopped with an alarm | PASS: banner gone, `ALARMS DISABLED`, `SK OFFLINE` (buzzer is hardware only) |
 | Server stopped | PASS: `SK OFFLINE`, every field flagged within 2 s |
 | Server restarted | PASS: `SK LIVE`, fields live again |
 
@@ -322,3 +322,9 @@ status
 ### The instance cache
 
 In `fallback` mode the display writes `instances.json` (and keeps `instances.bak.json`) to the SD card: the engine, battery and tank leaves Signal K has delivered a valid value for. A path is added within 5 s of Signal K delivering it; a path is dropped only after Signal K has been live for a minute without it. At boot, with the bus enabled in `fallback` mode, the cached paths are created empty (the boot log says `can: restored <n> instance paths from the cache`), so the roles find their instances and the bus has places to write even when the server is down. Check it: let the display run with Signal K live for a minute, change `sources.signalk.port` to an unused port with `config set`, `reboot`, and read the boot log. Delete `instances.json` and `instances.bak.json` to make it forget the boat. It is not used in `only` mode or with the bus off.
+
+## The strip's sources and ALARMS DISABLED
+
+The right of the top strip shows the data sources in use. Signal K is a circle; the NMEA 2000 bus, once `sources.nmea2000.enabled`, is a rounded square to its left. Each is a filled shape when live, a hollow ring while connecting (amber) and a ring with a cross when offline (red), so the state reads without colour. In bus-only mode (`mode: only`) the Signal K dot is hidden. The status text names the sources that are not live, using the worse state: `SK OFFLINE`, `SK CONNECTING`, `CAN OFFLINE`, `CAN CONNECTING`, `SK + CAN OFFLINE`. When the strip is crowded (the alert markers, a long title, many page dots) the status text steps aside and the dots carry the state. `ALARMS DISABLED` shows whenever alarms are not coming from Signal K: it is down, or the bus is the only source (then it is steady). On the square board it replaces the status text.
+
+Check in the simulator (`build/sim/sim --board sim480 --config <dir> --can can0 [--can-only] --capture out.png --after 6`): Signal K live with the bus not yet live shows the hollow bus square (and `CAN CONNECTING` where there is room); a config whose Signal K port is unused shows `ALARMS DISABLED` and the crossed circle; `--can-only` shows no Signal K dot and a steady `ALARMS DISABLED`.

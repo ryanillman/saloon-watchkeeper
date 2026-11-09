@@ -1,7 +1,7 @@
 #pragma once
 // Signal K alerts on the glass: the alarm banner (un-acknowledged alarms only), the alert/warn
 // marker, the acknowledged-alarm bell, the list,
-// and "SK ALERTS OFFLINE". Everything is driven by ui_alerts_update.
+// and "ALARMS DISABLED". Everything is driven by ui_alerts_update.
 #include <stdbool.h>
 #include <stdint.h>
 #include "alerts.h"
@@ -29,7 +29,7 @@ const char *ui_alerts_banner_text(void);
 bool ui_alerts_go_visible(void);
 const char *ui_alerts_acked_text(void);     // "" when hidden, bell and count of acknowledged alarm/emergency
 const char *ui_alerts_marker_text(void);    // "" when hidden, "2" for two alert/warn
-const char *ui_alerts_offline_text(void);   // "SK ALERTS OFFLINE" or ""
+const char *ui_alerts_offline_text(void);   // "ALARMS DISABLED" or ""
 const char *ui_alerts_corner_text(void);    // banner corner: "+N", "ACK NOT SENT" or ""
 bool ui_alerts_list_visible(void);
 uint8_t ui_alerts_list_rows(void);
