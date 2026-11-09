@@ -41,6 +41,7 @@ PLATFORM_EXT_BSS static struct {   // ~19 KB: PSRAM on the boards
   size_class_t sc;
   uint32_t discoveries;
   size_t fuel_levels;   // tanks.fuel.*.currentLevel known last time subscriptions were sent
+  size_t path_count;    // bd_count() at the last look for new instances
   void (*buzzer)(bool on);
   bool buzzer_ok, buzzer_state;
   char dir[128];   // config directory; empty = no SD card, nothing is saved
@@ -980,25 +981,27 @@ static void update_clock(int64_t now) {
 
 void app_tick(void) {
   run_posted();
-  if (a.network) {
-    uint32_t d = sk_client_discovery_count();
-    if (d != a.discoveries) {   // the server told us what this boat has
-      a.discoveries = d;
-      ui_setup_discovery_changed();
-      bd_id_t fuel[8];
-      size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
-      bool fuel_new = fuel_n != a.fuel_levels;
-      a.fuel_levels = fuel_n;
-      bool inst = instances_changed();
-      if (inst) {   // rebuild only when there is something new to show
-        app_bind();
-        ui_shell_rebuild();
-      }
-      if (inst || fuel_new) {   // fuel tanks are not an engine instance, but the dial reads them
-        PLATFORM_EXT_BSS static sk_sub_t ids[256];
-        sk_client_rebind(ids, app_bound_ids(ids, 256));
-      }
+  uint32_t d = a.network ? sk_client_discovery_count() : a.discoveries;
+  size_t paths = bd_count();
+  if (d != a.discoveries || paths != a.path_count) {   // the server told us what this boat has, or any source (the NMEA 2000 bus) made new paths
+    if (d != a.discoveries) ui_setup_discovery_changed();
+    a.discoveries = d;
+    a.path_count = paths;
+    bd_id_t fuel[8];
+    size_t fuel_n = bd_match("tanks.fuel.*.currentLevel", fuel, 8);
+    bool fuel_new = fuel_n != a.fuel_levels;
+    a.fuel_levels = fuel_n;
+    bool inst = instances_changed();
+    if (inst) {   // rebuild only when there is something new to show
+      app_bind();
+      ui_shell_rebuild();
     }
+    if (a.network && (inst || fuel_new)) {   // fuel tanks are not an engine instance, but the dial reads them
+      PLATFORM_EXT_BSS static sk_sub_t ids[256];
+      sk_client_rebind(ids, app_bound_ids(ids, 256));
+    }
+  }
+  if (a.network) {
     switch (sk_client_state()) {
       case SK_LIVE: ui_shell_set_source(UI_SRC_LIVE); bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE); break;
       case SK_DISCOVERING:

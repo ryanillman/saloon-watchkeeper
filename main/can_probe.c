@@ -22,7 +22,7 @@ static const char *TAG = "can_probe";
 
 static n2k_bus_t bus;
 static n2k_node_t node;
-static n2k_qent_t queue[8];
+static n2k_qent_t queue[16];
 static n2k_fp_slot_t slots[8];
 static SemaphoreHandle_t mutex;
 
@@ -52,6 +52,35 @@ static void on_msg(const n2k_msg_t *m, void *ctx) {
   ESP_LOGI(TAG, "rx pgn=%u src=%u len=%u b0=%02x", (unsigned)m->pgn, m->src, m->len, m->len ? m->data[0] : 0);
 }
 
+#if CONFIG_BI_DIAG_CAN_PROBE_SENSORS
+// Simulated sensors: the same values and layouts as tools/n2k-inject.py "basic", with the depth wandering
+// a little so a display visibly updates. Single-frame PGNs, priority 3.  // verify: canboat
+static void le16(uint8_t *p, int v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void le32(uint8_t *p, uint32_t v) { le16(p, (int)(v & 0xFFFF)); le16(p + 2, (int)(v >> 16)); }
+
+static void send_sensors(uint32_t step) {
+  uint8_t d[8];
+  memset(d, 0xFF, sizeof d);                                     // depth 128267
+  d[0] = 1; le32(d + 1, (uint32_t)((12.3 + 0.1 * (step % 10)) * 100 + 0.5)); le16(d + 5, 400); d[7] = 10;
+  n2k_node_send(&node, 128267, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // apparent wind 130306: 8 m/s, 40 degrees
+  d[0] = 1; le16(d + 1, 800); le16(d + 3, 6981); d[5] = 2;
+  n2k_node_send(&node, 130306, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // battery 1, 127508: 12.6 V, -8.5 A, 298.15 K
+  d[0] = 1; le16(d + 1, 1260); le16(d + 3, -85); le16(d + 5, 29815);
+  n2k_node_send(&node, 127508, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // engine 0 rapid, 127488: 2400 rpm
+  d[0] = 0; le16(d + 1, 9600); d[5] = 0;
+  n2k_node_send(&node, 127488, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // fresh water 1 at 62 % of 200 L, 127505
+  d[0] = (1 << 4) | 1; le16(d + 1, 15500); le32(d + 3, 2000);
+  n2k_node_send(&node, 127505, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // fuel 0 at 35 % of 300 L
+  d[0] = 0; le16(d + 1, 8750); le32(d + 3, 3000);
+  n2k_node_send(&node, 127505, N2K_BROADCAST, 3, d, 8);
+}
+#endif
+
 void can_probe_run(void) {
   const board_t *board = board_get();
   ESP_LOGI(TAG, "CAN probe on %s", board->id);
@@ -77,7 +106,7 @@ void can_probe_run(void) {
 
   mutex = xSemaphoreCreateMutex();
   n2k_node_ops_t nops = {n2k_bus_tx_frame, now_ms, lock, unlock, &bus};
-  n2k_node_init(&node, &cfg, &nops, queue, 8);
+  n2k_node_init(&node, &cfg, &nops, queue, 16);
   n2k_can_ops_t can = can_twai_ops();
   n2k_bus_init(&bus, &can, &node, slots, 8, on_msg, NULL, now_ms, NULL);
   n2k_node_start(&node);
@@ -87,6 +116,9 @@ void can_probe_run(void) {
   uint8_t counter = 0;
   for (uint32_t sec = 0;; sec++) {
     vTaskDelay(pdMS_TO_TICKS(1000));
+#if CONFIG_BI_DIAG_CAN_PROBE_SENSORS
+    if (n2k_node_state(&node) == N2K_NODE_READY) send_sensors(sec);
+#endif
     if (sec % 5 == 4) {
       uint8_t alert[ALERT_LEN];
       memset(alert, 0xA5, sizeof alert);

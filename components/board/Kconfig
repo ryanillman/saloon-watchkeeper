@@ -18,6 +18,11 @@ menu "Boat instruments board"
     bool "Boot into the CAN bench probe (claim an address, send test alerts, log traffic) instead of the UI"
     default n
 
+  config BI_DIAG_CAN_PROBE_SENSORS
+    bool "CAN bench probe also sends simulated depth, wind, battery, engine and tank data once a second"
+    depends on BI_DIAG_CAN_PROBE
+    default n
+
   config BI_DIAG_COLORBARS
     bool "Show color bars for 5 s before the UI"
     default n
