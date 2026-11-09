@@ -2,6 +2,9 @@
 #include "n2k_node.h"
 
 #define PGN_ADDRESS_CLAIM 60928
+#define PGN_ISO_REQUEST 59904
+#define PGN_PRODUCT_INFO 126996
+#define PRODUCT_INFO_LEN 134
 
 uint64_t n2k_name_pack(const n2k_name_fields_t *f) {
   return (uint64_t)(f->unique_number & 0x1FFFFF) | (uint64_t)(f->manufacturer & 0x7FF) << 21 |
@@ -52,6 +55,7 @@ void n2k_node_start(n2k_node_t *n) {
 }
 
 void n2k_node_bus_reset(n2k_node_t *n) {
+  n->dropped += (uint32_t)n->qlen;
   n->qhead = n->qlen = 0;
   n->tx_active = false;
   n->stall = 0;
@@ -75,6 +79,60 @@ static void lose_address(n2k_node_t *n) {
   claim(n, false);
 }
 
+static void lock(n2k_node_t *n) { if (n->ops.lock) n->ops.lock(n->ops.ctx); }
+static void unlock(n2k_node_t *n) { if (n->ops.unlock) n->ops.unlock(n->ops.ctx); }
+
+uint32_t n2k_node_dropped(const n2k_node_t *n) { return n->dropped; }
+
+static n2k_send_t enqueue(n2k_node_t *n, uint32_t pgn, uint8_t dst, uint8_t prio, const uint8_t *data, uint16_t len) {
+  if (len == 0 || len > N2K_FP_MAX || (len > 8 && !n2k_pgn_is_fast(pgn))) return N2K_SEND_BAD_LENGTH;
+  lock(n);
+  n2k_send_t r = N2K_SEND_OK;
+  if (n->state != N2K_NODE_READY) {
+    r = N2K_SEND_NOT_READY;
+  } else if (n->qlen >= n->qcount) {
+    r = N2K_SEND_QUEUE_FULL;
+  } else {
+    n2k_qent_t *e = &n->queue[(n->qhead + n->qlen) % n->qcount];
+    e->pgn = pgn;
+    e->dst = dst;
+    e->prio = prio;
+    e->len = len;
+    memcpy(e->data, data, len);
+    n->qlen++;
+  }
+  unlock(n);
+  return r;
+}
+
+n2k_send_t n2k_node_send(n2k_node_t *n, uint32_t pgn, uint8_t dst, uint8_t prio, const uint8_t *data, uint16_t len) {
+  return enqueue(n, pgn, dst, prio, data, len);
+}
+
+static void put_str(uint8_t *out, const char *s) {  // 32 bytes: text, NUL, then 0xFF
+  size_t l = 0;
+  while (l < 31 && s[l]) l++;
+  memset(out, 0xFF, 32);
+  memcpy(out, s, l);
+  out[l] = 0;
+}
+
+static void reply_product_info(n2k_node_t *n, uint8_t to) {
+  const n2k_product_t *p = &n->cfg.product;
+  uint8_t b[PRODUCT_INFO_LEN];
+  b[0] = (uint8_t)p->n2k_db_version;
+  b[1] = (uint8_t)(p->n2k_db_version >> 8);
+  b[2] = (uint8_t)p->product_code;
+  b[3] = (uint8_t)(p->product_code >> 8);
+  put_str(b + 4, p->model_id);
+  put_str(b + 36, p->sw_version);
+  put_str(b + 68, p->model_version);
+  put_str(b + 100, p->serial);
+  b[132] = p->certification;
+  b[133] = p->load_equivalency;
+  enqueue(n, PGN_PRODUCT_INFO, to, 6, b, PRODUCT_INFO_LEN);
+}
+
 void n2k_node_on_msg(n2k_node_t *n, const n2k_msg_t *m) {
   if (m->pgn == PGN_ADDRESS_CLAIM && m->len == 8) {
     uint64_t other = 0;
@@ -86,7 +144,50 @@ void n2k_node_on_msg(n2k_node_t *n, const n2k_msg_t *m) {
       else
         claim(n, false);  // we outrank them: say so again, keep the schedule
     }
+  } else if (m->pgn == PGN_ISO_REQUEST && m->len >= 3 && n->state == N2K_NODE_READY &&
+             (m->dst == n->address || m->dst == N2K_BROADCAST)) {
+    uint32_t want = m->data[0] | (uint32_t)m->data[1] << 8 | (uint32_t)m->data[2] << 16;
+    if (want == PGN_ADDRESS_CLAIM)
+      claim(n, false);
+    else if (want == PGN_PRODUCT_INFO)
+      reply_product_info(n, m->src);
+    // anything else: ignored (v1 sends no NAK)
   }
+}
+
+// Sends at most one complete queued message; resumes a partly sent one.
+static void send_one(n2k_node_t *n) {
+  if (!n->tx_active) {
+    if (n->qlen == 0) return;
+    n2k_qent_t *e = &n->queue[n->qhead];
+    n2k_tx_begin(&n->tx, e->prio, e->pgn, n->address, e->dst, e->data, e->len, n2k_seq_next(&n->seq, e->pgn, e->dst));
+    n->tx_active = true;
+  }
+  n2k_frame_t f;
+  for (;;) {
+    n2k_tx_t before = n->tx;
+    if (!n2k_tx_next(&n->tx, &f)) break;
+    if (!n->ops.tx_frame(&f, n->ops.ctx)) {
+      n->tx = before;
+      if (++n->stall >= 5) {
+        n->tx_active = false;
+        n->stall = 0;
+        n->dropped++;
+        lock(n);
+        n->qhead = (n->qhead + 1) % n->qcount;
+        n->qlen--;
+        unlock(n);
+      }
+      return;
+    }
+    n->stall = 0;
+    if (n->tx.done) break;
+  }
+  n->tx_active = false;
+  lock(n);
+  n->qhead = (n->qhead + 1) % n->qcount;
+  n->qlen--;
+  unlock(n);
 }
 
 void n2k_node_tick(n2k_node_t *n) {
@@ -98,4 +199,18 @@ void n2k_node_tick(n2k_node_t *n) {
   if (n->state == N2K_NODE_CLAIMING &&
       (uint32_t)(n->ops.now_ms(n->ops.ctx) - n->claim_sent_ms) >= N2K_NODE_CLAIM_WAIT_MS)
     n->state = N2K_NODE_READY;
+
+  if (n->state != N2K_NODE_READY) {
+    if (n->tx_active) {  // lost the address mid-message: what is on the wire is garbage now
+      n->tx_active = false;
+      n->stall = 0;
+      lock(n);
+      n->qhead = (n->qhead + 1) % n->qcount;
+      n->qlen--;
+      unlock(n);
+      n->dropped++;
+    }
+    return;
+  }
+  send_one(n);
 }
