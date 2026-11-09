@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "app.h"
+#include "app_can.h"
 #include "app_cmd.h"
 #include "platform.h"
 #include "unity.h"
@@ -92,6 +93,28 @@ static void test_status_has_all_keys(void) {
   for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out, keys[i]), keys[i]);
 }
 
+static bool no_frames(n2k_frame_t *f, void *ctx) { (void)f; (void)ctx; return false; }
+static bool no_send(const n2k_frame_t *f, void *ctx) { (void)f; (void)ctx; return false; }
+static n2k_can_state_t can_ok(void *ctx) { (void)ctx; return N2K_CAN_OK; }
+static void no_recover(void *ctx) { (void)ctx; }
+
+static void test_status_says_can_off_when_the_bus_is_not_started(void) {
+  app_can_stop();
+  TEST_ASSERT_EQUAL_INT(0, run("status"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "can: off"));
+}
+
+static void test_status_reports_the_bus_when_started(void) {
+  cfg_t cfg;
+  cfg_defaults(&cfg);
+  cfg.n2k.enabled = true;
+  app_can_stop();
+  TEST_ASSERT_TRUE(app_can_start(&cfg, (n2k_can_ops_t){no_frames, no_send, can_ok, no_recover, NULL}));
+  TEST_ASSERT_EQUAL_INT(0, run("status"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "can: connecting rx=0 values=0 unmapped=0 bus_off=0"));
+  app_can_stop();
+}
+
 static void test_config_show_masks(void) {
   TEST_ASSERT_EQUAL_INT(0, run("config show"));
   TEST_ASSERT_NOT_NULL(strstr(out, "Boatnet"));
@@ -155,6 +178,8 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_help_lists_commands);
   RUN_TEST(test_status_has_all_keys);
+  RUN_TEST(test_status_says_can_off_when_the_bus_is_not_started);
+  RUN_TEST(test_status_reports_the_bus_when_started);
   RUN_TEST(test_config_show_masks);
   RUN_TEST(test_config_set_token_applies_signalk);
   RUN_TEST(test_config_set_invalid_reports);

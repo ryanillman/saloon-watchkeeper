@@ -1,4 +1,5 @@
 // Console commands. The text here is what a person reads at the serial prompt.
+#include "app_can.h"
 #include "app_cmd.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -45,6 +46,15 @@ static int status(app_out_fn out) {
     out("rssi: -");
   }
   outf(out, "signalk: %s", s.signalk);
+  app_can_status_t can;
+  app_can_status(&can);
+  if (!can.started) {
+    out("can: off");
+  } else {
+    const char *st = can.state == BD_SRC_LIVE ? "live" : can.state == BD_SRC_OFFLINE ? "offline" : "connecting";
+    outf(out, "can: %s rx=%u values=%u unmapped=%u bus_off=%u", st, (unsigned)can.rx_frames, (unsigned)can.values,
+         (unsigned)can.unmapped, (unsigned)can.bus_off_events);
+  }
   outf(out, "token: %s", s.token ? "set" : "not set");
   outf(out, "access: %s", s.access);
   outf(out, "ram: internal %u KB, psram %u KB free", s.internal_kb, s.psram_kb);
