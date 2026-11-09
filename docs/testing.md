@@ -233,3 +233,37 @@ Add `{ "role": "navigation" }` to `config.json`. The emergency script is Navigat
 | Restart a display during a MOB | On reconnect it adopts the MOB from the server's notification, with the position from its payload |
 
 Also check on a board, 45 s after boot with the Navigation role: internal free memory with `status` (the script page and SOS add a few KB of LVGL objects while the page is shown) against the figures in `docs/hardware/boards.md`. On the server: write permission for the token (a read-only token shows `NO WRITE ACCESS`). The endpoints and bodies were verified against signalk-server 2.35.1 on 2026-11-06 (`docs/signal-contract.md`); recheck after a server upgrade. The vessel name comes from Signal K's `name` unless `vessel.name` is set.
+
+## CAN bench (NMEA 2000 probe)
+
+What it checks: the `n2k`, `n2k_node` and `n2k_bus` libraries and the `can_twai` driver on real hardware, before any display code uses them. Each board runs a probe image (`CONFIG_BI_DIAG_CAN_PROBE`, in place of the normal app) that claims an address, sends a 28-byte alert (PGN 126983, rolling counter in byte 0) every 5 s, logs every message it hears (at most 20 lines per second), and prints a `can:` status line and a RAM line every 10 s. Two or three boards are enough; each one ACKs the others. A single board alone on a bus gets no ACK (its `failed` count climbs) and proves nothing.
+
+**Build** (`. ~/esp/esp-idf/export.sh` first):
+
+```sh
+for b in square4 lcd7 lcd7b; do idf.py -D BOARD=$b -D BI_EXTRA=diag/can-probe.defaults -B build/$b-canprobe build; done
+```
+
+**Wire** the boards CANH to CANH and CANL to CANL as a daisy chain with a 120 Ω resistor across CANH and CANL at each physical end of the chain (the 7B has a DIP-switch terminator; use it at one end). Boards powered from the same PC over USB already share a ground; otherwise add a GND wire. Pins are in `docs/hardware/boards.md`.
+
+**Flash and watch.** The 7" boards switch the CAN transceiver in through EXIO5, which takes the native USB pair away: from the moment the probe starts, the console is the UART Type-C port (UART switch on UART1; the 7B's is the CH340 on `/dev/ttyACM2`). So flash and monitor those two through the UART port, and flash square4 over its USB:
+
+```sh
+idf.py -B build/square4-canprobe -p /dev/ttyACM0 flash monitor
+idf.py -B build/lcd7b-canprobe   -p /dev/ttyACM2 flash monitor
+idf.py -B build/lcd7-canprobe    -p <the lcd7 CH343 port> flash monitor
+```
+
+`tools/deploy.sh` matches the native-USB serial, so it cannot see lcd7 while the probe is on it. To put a normal image back on lcd7, flash it through the UART port too; if a 7" board is unreachable over native USB, power-cycle it (the CH422G keeps EXIO5 high across a plain reset) or use the UART port.
+
+### Expected
+
+- Within about a second of power-up each board logs `claiming address 0x..`. Addresses differ between boards (the preferred address is `0x40 + (MAC low byte & 0x3F)`); if two boards pick the same one, the lower NAME keeps it and the other moves to 128 or above.
+- `can: state=2` on every board (node states: 0 idle, 1 claiming, 2 ready, 3 cannot claim).
+- Every 5 s each board logs the others' alert: `rx pgn=126983 src=<their address> len=28 b0=<counter>`, with `b0` counting up by one per alert. Claims (`pgn=60928`) appear at start.
+- `rx` and `tx` climb; `refused`, `drop`, `failed` and `bus_off` stay 0. `txerr` and `rxerr` stay near 0.
+- No-ACK behaviour: with only two boards on the bus, unplug one. The survivor's alerts get no ACK, so its `failed` count climbs and `txerr` rises to about 128 (error-passive) and stays there; ACK errors do not push a node on to bus-off. On replug the traffic resumes without a reboot, `failed` stops climbing, and the other board's alerts are heard again. With three boards the bus stays healthy when one is unplugged.
+- Optional, forces the bus-off path: with two or more boards running, briefly short CANH to CANL at the wires (a few seconds; the TJA1051 tolerates a bus short, but only do this on the bench). A transmitting board's `txerr` runs past 255 and `bus_off` becomes 1; after the short is removed the board recovers by itself, `state` returns to 2 after a new claim (about 250 ms), `node_dropped` shows what was queued, and alerts resume. This matters because the controller must come back without a reboot.
+- The `RAM:` line is recorded per board (internal free, lowest, largest block). The normal app is not running, so this is the cost of the CAN stack plus the board bring-up only; the real memory gate (`docs/hardware/boards.md`, Internal RAM) is rechecked when the display uses it.
+
+Record results in `docs/hardware/boards.md` under each board's CAN row.
