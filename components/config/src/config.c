@@ -186,6 +186,29 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   COPY(c->sk.token, cJSON_GetObjectItem(sk, "token"));
   COPY(c->sk.request, cJSON_GetObjectItem(sk, "request"));
 
+  const cJSON *n2k = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "sources"), "nmea2000");
+  if (n2k) {
+    const cJSON *en = cJSON_GetObjectItem(n2k, "enabled");   // `config set` writes a new key as text
+    c->n2k.enabled = cJSON_IsTrue(en) || (cJSON_IsString(en) && !strcmp(en->valuestring, "true"));
+    const cJSON *mode = cJSON_GetObjectItem(n2k, "mode");
+    if (mode) {
+      if (cJSON_IsString(mode) && !strcmp(mode->valuestring, "only")) c->n2k.only = true;
+      else if (!cJSON_IsString(mode) || strcmp(mode->valuestring, "fallback"))
+        issue(rep, "sources.nmea2000.mode", 0, "unknown mode; using fallback. Valid: fallback only");
+    }
+    const cJSON *it;
+    cJSON_ArrayForEach(it, cJSON_GetObjectItem(n2k, "ids")) {
+      if (!cJSON_IsString(it) || !it->string) continue;
+      if (c->n2k.id_count >= CFG_MAX_N2K_IDS) {
+        issue(rep, "sources.nmea2000.ids", 0, "too many ids; the first 16 are used");
+        break;
+      }
+      cfg_n2k_id_t *e = &c->n2k.ids[c->n2k.id_count++];
+      snprintf(e->key, sizeof e->key, "%s", it->string);
+      snprintf(e->id, sizeof e->id, "%s", it->valuestring);
+    }
+  }
+
   const cJSON *u = cJSON_GetObjectItem(root, "units");
   unit(u, "temperature", c->units.temperature, sizeof c->units.temperature, (const char *[]){"C", "F", NULL}, rep);
   unit(u, "pressure", c->units.pressure, sizeof c->units.pressure, (const char *[]){"bar", "psi", "kPa", NULL}, rep);
@@ -471,6 +494,19 @@ static bool save_locked(const char *dir, const cfg_t *c) {
   set_str(sk, "token", c->sk.token);
   if (c->sk.request[0]) set_str(sk, "request", c->sk.request);
   else cJSON_DeleteItemFromObject(sk, "request");
+  cJSON *srcs = object(tree, "sources");
+  cJSON *n2k = cJSON_GetObjectItem(srcs, "nmea2000");
+  if (n2k || c->n2k.enabled || c->n2k.only || c->n2k.id_count) {   // a file that never mentions it stays that way
+    n2k = object(srcs, "nmea2000");
+    cJSON_DeleteItemFromObject(n2k, "enabled");
+    cJSON_AddBoolToObject(n2k, "enabled", c->n2k.enabled);
+    set_str(n2k, "mode", c->n2k.only ? "only" : "fallback");
+    cJSON_DeleteItemFromObject(n2k, "ids");
+    if (c->n2k.id_count) {
+      cJSON *ids = cJSON_AddObjectToObject(n2k, "ids");
+      for (uint8_t i = 0; i < c->n2k.id_count; i++) cJSON_AddStringToObject(ids, c->n2k.ids[i].key, c->n2k.ids[i].id);
+    }
+  }
   cJSON *u = object(tree, "units");
   set_str(u, "temperature", c->units.temperature);
   set_str(u, "pressure", c->units.pressure);
