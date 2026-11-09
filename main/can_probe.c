@@ -22,7 +22,7 @@ static const char *TAG = "can_probe";
 
 static n2k_bus_t bus;
 static n2k_node_t node;
-static n2k_qent_t queue[16];
+static n2k_qent_t queue[32];
 static n2k_fp_slot_t slots[8];
 static SemaphoreHandle_t mutex;
 
@@ -78,6 +78,31 @@ static void send_sensors(uint32_t step) {
   memset(d, 0xFF, sizeof d);                                     // fuel 0 at 35 % of 300 L
   d[0] = 0; le16(d + 1, 8750); le32(d + 3, 3000);
   n2k_node_send(&node, 127505, N2K_BROADCAST, 3, d, 8);
+
+  uint8_t e[26];                                                 // engine dynamic 127489 (fast-packet)
+  memset(e, 0xFF, sizeof e);
+  e[0] = 0; le16(e + 1, 3200); le16(e + 3, 3532); le16(e + 5, 35000); le16(e + 7, 1380); le16(e + 9, 125);
+  le32(e + 11, 3600 + step);                                     // oil 3.2 bar, 353.2 K, coolant 350.0 K, 13.8 V, 12.5 L/h
+  n2k_node_send(&node, 127489, N2K_BROADCAST, 3, e, sizeof e);
+  uint8_t c[11];                                                 // DC detailed status 127506 (fast-packet)
+  memset(c, 0xFF, sizeof c);
+  c[0] = 1; c[1] = 1; c[2] = 0; c[3] = 82; c[4] = 100; le16(c + 5, 600);   // battery 1: SOC 82 %, 600 min left
+  n2k_node_send(&node, 127506, N2K_BROADCAST, 3, c, sizeof c);
+  memset(d, 0xFF, sizeof d);                                     // heading 127250: true 1.5708 rad, variation 0.05
+  d[0] = 1; le16(d + 1, 15708); le16(d + 3, 0x7FFF); le16(d + 5, 500); d[7] = 0;
+  n2k_node_send(&node, 127250, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // COG/SOG 129026: 3.1416 rad true, 5.14 m/s
+  d[0] = 1; d[1] = 0; le16(d + 2, 31416); le16(d + 4, 514);
+  n2k_node_send(&node, 129026, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // speed through water 128259: 4.9 m/s
+  d[0] = 1; le16(d + 1, 490);
+  n2k_node_send(&node, 128259, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // position 129025: 41.5402833, -70.25
+  le32(d, (uint32_t)(int32_t)415402833); le32(d + 4, (uint32_t)(int32_t)-702500000);
+  n2k_node_send(&node, 129025, N2K_BROADCAST, 3, d, 8);
+  memset(d, 0xFF, sizeof d);                                     // system time 126992: day 20000 plus 12:00:00 and counting
+  d[0] = 1; d[1] = 0; le16(d + 2, 20000); le32(d + 4, (43200 + step % 3600) * 10000u);
+  n2k_node_send(&node, 126992, N2K_BROADCAST, 3, d, 8);
 }
 #endif
 
@@ -106,7 +131,7 @@ void can_probe_run(void) {
 
   mutex = xSemaphoreCreateMutex();
   n2k_node_ops_t nops = {n2k_bus_tx_frame, now_ms, lock, unlock, &bus};
-  n2k_node_init(&node, &cfg, &nops, queue, 16);
+  n2k_node_init(&node, &cfg, &nops, queue, 32);
   n2k_can_ops_t can = can_twai_ops();
   n2k_bus_init(&bus, &can, &node, slots, 8, on_msg, NULL, now_ms, NULL);
   n2k_node_start(&node);

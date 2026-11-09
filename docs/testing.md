@@ -305,3 +305,16 @@ build/sim/sim --board sim800 --config <dir with a config.json whose signalk port
 ```
 
 The config must keep the simulator off the local Signal K test server (for example `"signalk": { "host": "127.0.0.1", "port": 3999 }`): Signal K is rank 2 and wins wherever it has a fresh value, so with it running the screen shows its data, not the bus's. Result on the bench: Glance shows Engine 2400 RPM, Power 12.6 V and -8.5 A, Tanks W 62 % and F 35 %, Navigation 16 kn apparent, Depth 40.4 ft. Engine and Power still say NO DATA because this slice carries no coolant, oil or state of charge.
+
+### The display on the bus (hardware)
+
+Needs two boards on the bus: one runs the sensors probe (`idf.py -D BOARD=<b> -D "BI_EXTRA=diag/can-probe.defaults;diag/can-probe-sensors.defaults" -B build/<b>-canprobe-sensors build`), the other the normal firmware with the bus enabled. Enable it over the display board's console (the 7" boards: the UART port; `tools/deploy.sh` flashes the normal image):
+
+```
+config set sources.nmea2000.enabled true
+config set sources.nmea2000.mode only
+reboot
+status
+```
+
+`status` must show `can: live rx=<climbing> values=<climbing> unmapped=0 bus_off=0` and, in `only` mode, `signalk: offline` (the client is not started). Mode `fallback` keeps Signal K first and fills only paths it has, so with a server up most instance values count as `unmapped` until `sources.nmea2000.ids` maps them. The `ids` map has dots in its keys (`engine.0`), so `config set` cannot write it: edit `config.json` on the SD card (see `docs/config.example.json`). Enabling or disabling the bus needs a reboot. On the 7" boards the bus takes native USB away.
