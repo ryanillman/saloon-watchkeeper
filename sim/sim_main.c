@@ -14,6 +14,7 @@
 #include "nav_state.h"
 #include "anchor_watch.h"
 #include "app.h"
+#include "app_can.h"
 #include "app_cmd.h"
 #include "boatdata.h"
 #include "can_socketcan.h"
@@ -21,9 +22,7 @@
 #include "lvgl.h"
 #include "platform.h"
 #include "sim_boards.h"
-#include "n2k_bus.h"
 #include "sk_parse.h"
-#include "source_can.h"
 #include "history.h"
 #include "snapshot.h"
 #include "ui_alerts.h"
@@ -653,35 +652,21 @@ static palette_t parse_palette(const char *s) {
   return PALETTE_DAY;
 }
 
-// ---- NMEA 2000 bus (--can): listen-only, no node, so the simulator never transmits ----
+// ---- NMEA 2000 bus (--can <ifname>): sources.nmea2000 from the config, read from a SocketCAN interface ----
+// Listen-only: no node, so the simulator never transmits. The same app_can glue the firmware runs.
 static can_socketcan_t *can_sock;
-static n2k_bus_t can_bus;
-static source_can_t can_src;
-static n2k_fp_slot_t can_slots[8];
-static uint32_t can_now(void *ctx) {
-  (void)ctx;
-  return (uint32_t)platform_millis();
-}
-static bool can_start(const char *ifname, bool create_paths) {
+static bool can_start(const cfg_t *cfg, const char *ifname) {
   can_sock = can_socketcan_open(ifname);
   if (!can_sock) {
     fprintf(stderr, "can: cannot open %s: %s (bring it up first: sudo ip link set %s up type can bitrate 250000)\n",
             ifname, strerror(errno), ifname);
     return false;
   }
-  static const source_can_cfg_t cfg_existing = {false, NULL, 0}, cfg_create = {true, NULL, 0};
-  source_can_init(&can_src, create_paths ? &cfg_create : &cfg_existing);
-  n2k_can_ops_t ops = can_socketcan_ops(can_sock);
-  n2k_bus_init(&can_bus, &ops, NULL, can_slots, sizeof can_slots / sizeof can_slots[0], source_can_on_msg, &can_src,
-               can_now, NULL);
-  fprintf(stderr, "can: %s listening (%s)\n", ifname,
-          create_paths ? "CAN only: creates its own paths" : "fills paths that already exist");
+  app_can_start(cfg, can_socketcan_ops(can_sock));
+  fprintf(stderr, "can: %s listening (%s, %u mapped ids)\n", ifname,
+          cfg->n2k.only ? "only: the bus creates its own paths and there is no Signal K" : "fallback: Signal K first",
+          cfg->n2k.id_count);
   return true;
-}
-static void can_poll(void) {
-  if (!can_sock) return;
-  n2k_bus_step(&can_bus, 256);
-  source_can_tick(&can_src);
 }
 
 int main(int argc, char **argv) {
@@ -707,7 +692,8 @@ int main(int argc, char **argv) {
                       "           [--config <dir with config.json>] [--snapshot <dir>]\n"
                       "           [--capture <png> [--after <seconds>] [--page <n>]]   live, headless\n"
                       "           [--console]   serial commands on this terminal\n"
-                      "           [--can <ifname> [--can-only]]   read NMEA 2000 from a SocketCAN interface (listen-only)\n");
+                      "           [--can <ifname> [--can-only]]   read NMEA 2000 from a SocketCAN interface (listen-only); sources.nmea2000\n"
+                      "                                           in the config gives the mode and ids, --can-only forces mode only\n");
       return 2;
     }
   }
@@ -731,7 +717,13 @@ int main(int argc, char **argv) {
   if (palette) snprintf(cfg->palette, sizeof cfg->palette, "%s", palette_names[parse_palette(palette)]);
   app_set_info(board_id, "sim");
   app_bind();
-  if (can_if && !can_start(can_if, can_only)) return 2;
+  bool use_can = can_if != NULL;
+  if (use_can) {   // --can names the interface; the mode and ids come from sources.nmea2000
+    cfg->n2k.enabled = true;
+    if (can_only) cfg->n2k.only = true;
+    if (!can_start(cfg, can_if)) return 2;
+  }
+  bool want_network = !use_can || app_network_wanted(cfg);
 
   if (capture) {   // live data, no window: run for a while, then save the screen
     size_t px = (size_t)b->width * b->height;
@@ -742,12 +734,12 @@ int main(int argc, char **argv) {
     lv_display_set_buffers(disp, malloc(px * 2), NULL, px * 2, LV_DISPLAY_RENDER_MODE_FULL);
     app_start_ui(disp, b->size_class);
     for (int p = 0; p < page; p++) ui_shell_move(NAV_UP);
-    app_start_network();
+    if (want_network) app_start_network();
     if (console) platform_task(console_loop, NULL, "console", 0);
     int64_t end = platform_millis() + (int64_t)after_s * 1000;
     while (platform_millis() < end) {
       app_tick();
-      can_poll();
+      app_can_poll();
       lv_timer_handler();
       usleep(100 * 1000);
     }
@@ -761,12 +753,12 @@ int main(int argc, char **argv) {
   lv_group_set_default(lv_group_create());
   lv_indev_set_group(lv_sdl_keyboard_create(), lv_group_get_default());
   app_start_ui(disp, b->size_class);
-  app_start_network();
+  if (want_network) app_start_network();
   if (console) platform_task(console_loop, NULL, "console", 0);
   lv_timer_create(tick_cb, 100, NULL);
 
   for (;;) {
-    can_poll();
+    app_can_poll();
     uint32_t wait = lv_timer_handler();
     usleep((wait > 50 ? 50 : wait) * 1000);
   }

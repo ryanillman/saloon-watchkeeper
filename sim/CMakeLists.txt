@@ -69,7 +69,7 @@ endif()
 
 find_package(PNG REQUIRED)
 add_executable(sim sim_main.c snapshot.c)
-target_link_libraries(sim PRIVATE app ui sim_boards platform lvgl source_sk boatdata source_can can_socketcan n2k_bus n2k PNG::PNG)
+target_link_libraries(sim PRIVATE app ui sim_boards platform lvgl source_sk boatdata can_socketcan PNG::PNG)
 
 add_executable(sk_probe sk_probe.c)
 target_link_libraries(sk_probe PRIVATE source_sk boatdata platform config)
