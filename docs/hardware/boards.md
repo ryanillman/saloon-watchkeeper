@@ -25,7 +25,7 @@ From Waveshare's wiki for this board (the pin table is flattened, so the groupin
 | ST7701 3-wire SPI | SDA GPIO1, SCL GPIO2, CS GPIO42. Reset on expander |
 | Touch | GT911 0x5D, INT GPIO16, reset on expander |
 | SD | GPIO1/2/4 (shared with the ST7701 init lines), CS on expander. The wiki shows SPI and SDMMC naming; **confirm** which bus |
-| CAN | RX GPIO0, TX GPIO6 (TJA1051) |
+| CAN | RX GPIO0, TX GPIO6 (TJA1051). Probe: `docs/testing.md` "CAN bench". Bench result: pending |
 | RS485 | RX GPIO43, TX GPIO44 |
 | PCLK | 21 MHz in Waveshare's LVGL benchmark |
 
@@ -48,7 +48,7 @@ The wiki's expander pin list (EXIO0 TP_RST, EXIO1 BL_EN, EXIO2 LCD_RST, EXIO3 SD
 | SD | SPI. MOSI GPIO11, SCK GPIO12, MISO GPIO13. CS on EXIO4 |
 | Backlight | On/off through EXIO2. **confirm** whether brightness can be dimmed |
 | Buzzer, RTC, IMU | None |
-| CAN | TX GPIO20, RX GPIO19. Shares the native USB pair. EXIO5 high selects CAN and disables native USB |
+| CAN | TX GPIO20, RX GPIO19. Shares the native USB pair. EXIO5 high selects CAN and disables native USB; the probe image moves the console to the UART port. Probe: `docs/testing.md` "CAN bench". Bench result: pending |
 | RS485 | TX GPIO15, RX GPIO16 |
 | UART | Separate CH343 Type-C port. The UART switch must be on UART1 for it to pass bytes |
 | Benchmark PCLK | 21 MHz (Waveshare LVGL demo) |
@@ -73,7 +73,7 @@ The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`,
 | SD | SPI. MOSI GPIO11, SCK GPIO12, MISO GPIO13. CS on EXIO4 |
 | Backlight | Enable on EXIO2 through a boost chip. Waveshare says brightness is adjustable. **confirm** the mechanism |
 | Memory | 16 MB flash, 8 MB octal PSRAM |
-| CAN | TX GPIO20, RX GPIO19, TJA1051, DIP-switch termination. Shares USB through EXIO5 |
+| CAN | TX GPIO20, RX GPIO19, TJA1051, DIP-switch termination. Shares USB through EXIO5. Probe: `docs/testing.md` "CAN bench". Bench result: pending |
 | RS485 | TX GPIO15, RX GPIO16 |
 | Buzzer, RTC, IMU | Not listed |
 | Battery | PH2.0 Li-ion socket with charger. **confirm** the ADC pin for battery voltage |
