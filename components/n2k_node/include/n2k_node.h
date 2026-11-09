@@ -78,3 +78,14 @@ n2k_node_state_t n2k_node_state(const n2k_node_t *n);
 uint8_t n2k_node_address(const n2k_node_t *n);  // 254 when CANNOT_CLAIM
 // Drops the queue and restarts the claim: the bus may have changed while it was down.
 void n2k_node_bus_reset(n2k_node_t *n);
+
+typedef enum { N2K_SEND_OK = 0, N2K_SEND_NOT_READY, N2K_SEND_QUEUE_FULL, N2K_SEND_BAD_LENGTH } n2k_send_t;
+
+// Queues one message; never blocks and never touches the bus (n2k_node_tick sends).
+// BAD_LENGTH: len 0, over N2K_FP_MAX, or over 8 on a PGN that is not fast-packet.
+// NOT_READY: the node is not READY (still claiming, lost its address, or never started).
+n2k_send_t n2k_node_send(n2k_node_t *n, uint32_t pgn, uint8_t dst, uint8_t prio,
+                         const uint8_t *data, uint16_t len);
+
+// Messages dropped by n2k_node_bus_reset, an address loss mid-send, or 5 ticks of bus refusal.
+uint32_t n2k_node_dropped(const n2k_node_t *n);
