@@ -83,7 +83,7 @@ static void test_offline_text_when_source_down(void) {
   TEST_ASSERT_EQUAL_STRING("", ui_alerts_offline_text());
   alerts_source_up(false);
   tick(0);
-  TEST_ASSERT_EQUAL_STRING("SK ALERTS OFFLINE", ui_alerts_offline_text());
+  TEST_ASSERT_EQUAL_STRING("ALARMS DISABLED", ui_alerts_offline_text());
   TEST_ASSERT_FALSE(ui_alerts_banner_visible());
 }
 
@@ -328,7 +328,7 @@ static void test_square_offline_clear_of_page_dots(void) {
   s.source_up = false;
   ui_alerts_update(&s, 0);
   lv_refr_now(NULL);
-  TEST_ASSERT_EQUAL_STRING("SK ALERTS OFFLINE", ui_alerts_offline_text());
+  TEST_ASSERT_EQUAL_STRING("ALARMS DISABLED", ui_alerts_offline_text());
   TEST_ASSERT_FALSE(areas_meet(ui_alerts_part(UI_ALERTS_OFFLINE), ui_shell_dots()));
   TEST_ASSERT_FALSE(areas_meet(ui_alerts_part(UI_ALERTS_MARKER), ui_shell_dots()));
   // the app's status comes back when the source does

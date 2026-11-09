@@ -9,8 +9,10 @@ static struct {
   palette_t pal;
   void (*strip_tap)(void);
   void (*sos_cb)(void);
-  lv_obj_t *screen, *strip, *tap, *home_btn, *home_icon, *sos, *name, *dots, *clock, *src, *status, *content;
-  ui_src_t src_state;
+  lv_obj_t *screen, *strip, *tap, *home_btn, *home_icon, *sos, *name, *dots, *clock, *src, *can_dot, *status, *content;
+  ui_source_t sk, can;   // the two data sources and what they are doing
+  uint32_t sources_gen;
+  bool text_hidden;   // the source text gave way to a crowded strip
   char status_text[24], over_text[24];   // the app's status, and a temporary replacement
   lv_color_t status_color, over_color;
   bool over;
@@ -21,30 +23,73 @@ static struct {
 
 static void show_status(void);
 
-// Filled = live, hollow ring = connecting, ring with a cross = offline; the text comes with the last two.
-static void draw_source(void) {
+// Filled = live, hollow ring = connecting, ring with a cross = offline. Signal K is a circle, the bus a rounded square,
+// so the two are told apart by shape, not colour (the night palette has one red).
+static void draw_dot(lv_obj_t *dot, ui_source_t src, bool square) {
+  if (!src.shown) {
+    lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_remove_flag(dot, LV_OBJ_FLAG_HIDDEN);
   const ui_colors_t *c = ui_theme_colors(s.pal);
-  bool live = s.src_state == UI_SRC_LIVE;
-  lv_color_t col = live ? c->fg : s.src_state == UI_SRC_CONNECTING ? c->warn : c->alarm;
-  lv_obj_clean(s.src);
-  lv_obj_set_style_bg_color(s.src, col, 0);
-  lv_obj_set_style_bg_opa(s.src, live ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_color(s.src, col, 0);
-  lv_obj_set_style_border_width(s.src, live ? 0 : 2, 0);
-  if (s.src_state == UI_SRC_OFFLINE) {
+  bool live = src.state == UI_SRC_LIVE;
+  lv_color_t col = live ? c->fg : src.state == UI_SRC_CONNECTING ? c->warn : c->alarm;
+  lv_obj_clean(dot);
+  lv_obj_set_style_radius(dot, square ? 4 : LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(dot, col, 0);
+  lv_obj_set_style_bg_opa(dot, live ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_color(dot, col, 0);
+  lv_obj_set_style_border_width(dot, live ? 0 : 2, 0);
+  if (src.state == UI_SRC_OFFLINE) {
     static const lv_point_precise_t slash[] = {{2, 2}, {9, 9}}, back[] = {{9, 2}, {2, 9}};
     const lv_point_precise_t *strokes[] = {slash, back};
     for (int i = 0; i < 2; i++) {
-      lv_obj_t *l = lv_line_create(s.src);
+      lv_obj_t *l = lv_line_create(dot);
       lv_line_set_points(l, strokes[i], 2);
       lv_obj_set_style_line_width(l, 2, 0);
       lv_obj_set_style_line_color(l, col, 0);
       lv_obj_set_pos(l, 0, 0);
     }
   }
-  snprintf(s.status_text, sizeof s.status_text, "%s",
-           live ? "" : s.src_state == UI_SRC_CONNECTING ? "SK CONNECTING" : "SK OFFLINE");
-  s.status_color = col;
+}
+
+// The dots sit at the strip's right edge (Signal K outermost); the status text is left of the leftmost one.
+static void place_sources(void) {
+  int shown = (s.sk.shown ? 1 : 0) + (s.can.shown ? 1 : 0);
+  lv_obj_align(s.src, LV_ALIGN_RIGHT_MID, 0, 0);
+  if (s.can.shown) {
+    if (s.sk.shown) lv_obj_align_to(s.can_dot, s.src, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+    else lv_obj_align(s.can_dot, LV_ALIGN_RIGHT_MID, 0, 0);
+  }
+  lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, -(shown ? shown * SRC_DOT + (shown - 1) * 8 + 8 : 0), 0);
+}
+
+// Names the sources that are in the worst state present (offline before connecting), e.g. "SK + CAN OFFLINE".
+static void source_status(char *out, size_t n, lv_color_t *col) {
+  const ui_colors_t *c = ui_theme_colors(s.pal);
+  ui_src_t worst = UI_SRC_LIVE;
+  const ui_source_t *all[2] = {&s.sk, &s.can};
+  for (int i = 0; i < 2; i++) {
+    if (!all[i]->shown || all[i]->state == UI_SRC_LIVE) continue;
+    if (all[i]->state == UI_SRC_OFFLINE || worst == UI_SRC_LIVE) worst = all[i]->state;
+  }
+  out[0] = 0;
+  *col = c->fg;
+  if (worst == UI_SRC_LIVE) return;
+  const char *names[2] = {"SK", "CAN"};
+  size_t len = 0;
+  for (int i = 0; i < 2; i++)
+    if (all[i]->shown && all[i]->state == worst) len += (size_t)snprintf(out + len, n - len, "%s%s", len ? " + " : "", names[i]);
+  snprintf(out + len, n - len, " %s", worst == UI_SRC_CONNECTING ? "CONNECTING" : "OFFLINE");
+  *col = worst == UI_SRC_CONNECTING ? c->warn : c->alarm;
+}
+
+static void draw_source(void) {
+  draw_dot(s.src, s.sk, false);
+  draw_dot(s.can_dot, s.can, true);
+  source_status(s.status_text, sizeof s.status_text, &s.status_color);
+  place_sources();
+  s.sources_gen++;
   show_status();
 }
 
@@ -83,7 +128,8 @@ static void draw_dots(void) {
   if (s.nav.role_count == 0) return;
   uint8_t pages = s.nav.page_count[s.nav.role];
   if (pages <= 1) return;
-  int32_t d = s.sc == SIZE_WIDE ? 10 : 8;
+  int32_t d = s.sc == SIZE_WIDE ? 10 : pages > 4 ? 6 : 8;   // a role with many pages (Power) gets smaller dots on the square board
+  lv_obj_set_style_pad_column(s.dots, s.sc != SIZE_WIDE && pages > 4 ? 5 : 8, 0);
   for (uint8_t i = 0; i < pages; i++) {
     lv_obj_t *dot = lv_obj_create(s.dots);
     lv_obj_remove_style_all(dot);
@@ -191,7 +237,7 @@ static void on_strip_tap(lv_event_t *e) {
 // forget them so a late caller (the alert markers align to the status label) never touches freed memory.
 static void on_strip_delete(lv_event_t *e) {
   (void)e;
-  s.strip = s.tap = s.home_btn = s.home_icon = s.sos = s.name = s.dots = s.clock = s.src = s.status = s.content = NULL;
+  s.strip = s.tap = s.home_btn = s.home_icon = s.sos = s.name = s.dots = s.clock = s.src = s.can_dot = s.status = s.content = NULL;
 }
 
 static void on_home(lv_event_t *e) {
@@ -269,13 +315,20 @@ void ui_shell_create(lv_display_t *disp, size_class_t sc, palette_t pal,
   lv_obj_remove_flag(s.src, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(s.src, LV_ALIGN_RIGHT_MID, 0, 0);
 
+  s.can_dot = lv_obj_create(s.strip);
+  lv_obj_remove_style_all(s.can_dot);
+  lv_obj_set_size(s.can_dot, SRC_DOT, SRC_DOT);
+  lv_obj_remove_flag(s.can_dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(s.can_dot, LV_OBJ_FLAG_HIDDEN);   // until the bus is in use
+
   // The status text sits left of the dot. The alert markers align to its left edge.
   s.status = lv_label_create(s.strip);
   lv_obj_set_style_text_font(s.status, &lv_font_montserrat_14, 0);
   lv_label_set_text(s.status, "");
   s.over = false;
   lv_obj_align(s.status, LV_ALIGN_RIGHT_MID, -(SRC_DOT + 8), 0);
-  s.src_state = UI_SRC_OFFLINE;   // no source heard from yet
+  s.sk = (ui_source_t){true, UI_SRC_OFFLINE};   // no source heard from yet
+  s.can = (ui_source_t){false, UI_SRC_OFFLINE};
 
   // An invisible tap target over the strip's left part (role name side), created after the labels, which are not clickable.
   s.tap = lv_obj_create(s.strip);
@@ -348,16 +401,26 @@ void ui_shell_refresh(void) {
 }
 
 static void show_status(void) {
-  const char *text = s.over ? s.over_text : s.status_text;
+  const char *text = s.over ? s.over_text : s.text_hidden ? "" : s.status_text;
   if (strcmp(lv_label_get_text(s.status), text) != 0) lv_label_set_text(s.status, text);
   lv_obj_set_style_text_color(s.status, s.over ? s.over_color : s.status_color, 0);
 }
 
-void ui_shell_set_source(ui_src_t st) {
-  if (!s.src || st == s.src_state) return;   // the app calls this every tick
-  s.src_state = st;
+void ui_shell_set_sources(ui_source_t sk, ui_source_t can) {
+  if (!s.src || (sk.shown == s.sk.shown && sk.state == s.sk.state && can.shown == s.can.shown && can.state == s.can.state))
+    return;   // the app calls this every tick
+  s.sk = sk;
+  s.can = can;
   draw_source();
 }
+void ui_shell_set_source(ui_src_t st) { ui_shell_set_sources((ui_source_t){true, st}, s.can); }
+uint32_t ui_shell_sources_gen(void) { return s.sources_gen; }
+void ui_shell_set_source_text_hidden(bool hidden) {
+  if (!s.status || hidden == s.text_hidden) return;
+  s.text_hidden = hidden;
+  show_status();
+}
+bool ui_shell_source_text_shown(void) { return s.status && !s.over && !s.text_hidden && s.status_text[0]; }
 
 void ui_shell_set_clock(const char *hhmm) {   // the app calls this every tick: touch nothing that has not changed
   if (!s.clock) return;
@@ -417,4 +480,5 @@ lv_obj_t *ui_shell_dots(void) { return s.dots; }
 lv_obj_t *ui_shell_name(void) { return s.name; }
 lv_obj_t *ui_shell_clock(void) { return s.clock; }
 lv_obj_t *ui_shell_source_dot(void) { return s.src; }
+lv_obj_t *ui_shell_can_dot(void) { return s.can_dot; }
 lv_obj_t *ui_shell_home_button(void) { return s.home_btn; }
