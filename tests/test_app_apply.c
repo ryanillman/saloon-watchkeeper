@@ -9,6 +9,7 @@
 #include "platform.h"
 #include "ui_alerts.h"
 #include "ui_shell.h"
+#include "app_can.h"
 #include "unity.h"
 
 static uint8_t buf[800 * 48 * 2];
@@ -132,6 +133,45 @@ static void test_history_tracks_the_trend_paths_and_samples_each_tick(void) {
   TEST_ASSERT_EQUAL_FLOAT(0.8f, v[0]);
 }
 
+static void test_a_path_made_by_any_source_gets_its_instance_bound(void) {
+  // The NMEA 2000 bus creates paths with no Signal K discovery behind them; the roles must still pick them up.
+  bd_id_t soc = bd_intern("electrical.batteries.1.capacity.stateOfCharge");
+  app_tick();   // no app_bind call and no network: the tick has to notice the new path
+  bd_id_t ids[HIST_MAX_PATHS];
+  size_t n = hist_tracked(ids, HIST_MAX_PATHS);
+  bool found = false;
+  for (size_t i = 0; i < n; i++) found = found || ids[i] == soc;
+  TEST_ASSERT_TRUE(found);
+}
+
+static bool dot_shown(lv_obj_t *dot) { return !lv_obj_has_flag(dot, LV_OBJ_FLAG_HIDDEN); }
+
+static void test_strip_shows_signal_k_alone_until_the_bus_is_enabled(void) {
+  app_tick();
+  TEST_ASSERT_TRUE(dot_shown(ui_shell_source_dot()));
+  TEST_ASSERT_FALSE(dot_shown(ui_shell_can_dot()));
+}
+
+static void test_strip_shows_both_sources_in_fallback_mode(void) {
+  next.n2k.enabled = true;
+  next.n2k.only = false;
+  app_apply_config(&next);
+  app_tick();
+  TEST_ASSERT_TRUE(dot_shown(ui_shell_source_dot()));
+  TEST_ASSERT_TRUE(dot_shown(ui_shell_can_dot()));
+}
+
+static void test_strip_hides_signal_k_when_the_bus_is_the_only_source(void) {
+  next.n2k.enabled = true;
+  next.n2k.only = true;
+  app_apply_config(&next);
+  app_tick();
+  TEST_ASSERT_FALSE(dot_shown(ui_shell_source_dot()));
+  TEST_ASSERT_TRUE(dot_shown(ui_shell_can_dot()));
+  // The bus has not been started in this test: the dot says offline, with the text that names it.
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k OFFLINE", lv_label_get_text(ui_shell_status()));
+}
+
 static bool clock_hidden(void) { return lv_obj_has_flag(ui_shell_clock(), LV_OBJ_FLAG_HIDDEN); }
 
 static void test_clock_hidden_until_a_time_arrives(void) {
@@ -230,6 +270,10 @@ int main(void) {
   RUN_TEST(test_glance_is_the_first_page_with_a_tile_per_role_that_has_one);
   RUN_TEST(test_tapping_a_glance_tile_opens_that_role);
   RUN_TEST(test_history_tracks_the_trend_paths_and_samples_each_tick);
+  RUN_TEST(test_a_path_made_by_any_source_gets_its_instance_bound);
+  RUN_TEST(test_strip_shows_signal_k_alone_until_the_bus_is_enabled);
+  RUN_TEST(test_strip_shows_both_sources_in_fallback_mode);
+  RUN_TEST(test_strip_hides_signal_k_when_the_bus_is_the_only_source);
   RUN_TEST(test_clock_hidden_until_a_time_arrives);
   RUN_TEST(test_clock_shows_signalk_time_in_the_configured_zone);
   RUN_TEST(test_clock_hides_a_single_stale_value);

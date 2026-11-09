@@ -662,6 +662,99 @@ static void test_navigation_role_known_wind_and_nav_not(void) {
   TEST_ASSERT_EQUAL_UINT8(1, c.role_count);
 }
 
+
+// ---- sources.nmea2000 ----
+static void test_nmea2000_defaults_off(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_FALSE(c.n2k.enabled);
+  TEST_ASSERT_FALSE(c.n2k.only);
+  TEST_ASSERT_EQUAL_UINT8(0, c.n2k.id_count);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+}
+
+static void test_nmea2000_parsed(void) {
+  write_file("config.json",
+    "{ \"sources\": { \"nmea2000\": { \"enabled\": true, \"mode\": \"only\",\n"
+    "    \"ids\": { \"engine.0\": \"port\", \"battery.1\": \"279\" } } },\n"
+    "  \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_TRUE(c.n2k.enabled);
+  TEST_ASSERT_TRUE(c.n2k.only);
+  TEST_ASSERT_EQUAL_UINT8(2, c.n2k.id_count);
+  TEST_ASSERT_EQUAL_STRING("engine.0", c.n2k.ids[0].key);
+  TEST_ASSERT_EQUAL_STRING("port", c.n2k.ids[0].id);
+  TEST_ASSERT_EQUAL_STRING("battery.1", c.n2k.ids[1].key);
+  TEST_ASSERT_EQUAL_STRING("279", c.n2k.ids[1].id);
+}
+
+static void test_nmea2000_bad_mode_reports_and_stays_fallback(void) {
+  write_file("config.json", "{ \"sources\": { \"nmea2000\": { \"enabled\": true, \"mode\": \"both\" } } }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(c.n2k.enabled);
+  TEST_ASSERT_FALSE(c.n2k.only);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_NOT_NULL(strstr(r.issues[0].key_path, "nmea2000.mode"));
+  TEST_ASSERT_NOT_NULL(strstr(r.issues[0].message, "fallback"));
+}
+
+static void test_nmea2000_too_many_ids_reports(void) {
+  char text[2048] = "{ \"sources\": { \"nmea2000\": { \"enabled\": true, \"ids\": {";
+  for (int i = 0; i < 18; i++) {
+    char one[48];
+    snprintf(one, sizeof one, "%s\"engine.%d\": \"e%d\"", i ? "," : "", i, i);
+    strcat(text, one);
+  }
+  strcat(text, "} } } }");
+  write_file("config.json", text);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(16, c.n2k.id_count);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT8(1, r.count);
+}
+
+static void test_nmea2000_survives_a_save(void) {
+  write_file("config.json",
+    "{ \"sources\": { \"nmea2000\": { \"enabled\": true, \"mode\": \"only\", \"ids\": { \"engine.0\": \"port\" } } },\n"
+    "  \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  strcpy(c.wifi.ssid, "X");
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  cfg_t again;
+  cfg_load(dir, &again, &r);
+  TEST_ASSERT_TRUE(again.n2k.enabled);
+  TEST_ASSERT_TRUE(again.n2k.only);
+  TEST_ASSERT_EQUAL_UINT8(1, again.n2k.id_count);
+  TEST_ASSERT_EQUAL_STRING("port", again.n2k.ids[0].id);
+}
+
+static void test_nmea2000_not_added_to_a_file_without_it(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NULL(strstr(read_file("config.json"), "nmea2000"));
+}
+
+static void test_cfg_set_enables_nmea2000(void) {
+  write_file("config.json", MINIMAL);
+  cfg_t c;
+  cfg_report_t r;
+  TEST_ASSERT_TRUE(cfg_set(dir, "sources.nmea2000.enabled", "true", &c, &r));
+  TEST_ASSERT_TRUE(c.n2k.enabled);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_utc_offset_default_is_zero);
@@ -711,5 +804,12 @@ int main(void) {
   RUN_TEST(test_anchor_plugin_unknown_reports_issue);
   RUN_TEST(test_cfg_set_anchor_plugin_rejects_unknown);
   RUN_TEST(test_navigation_role_known_wind_and_nav_not);
+  RUN_TEST(test_nmea2000_defaults_off);
+  RUN_TEST(test_nmea2000_parsed);
+  RUN_TEST(test_nmea2000_bad_mode_reports_and_stays_fallback);
+  RUN_TEST(test_nmea2000_too_many_ids_reports);
+  RUN_TEST(test_nmea2000_survives_a_save);
+  RUN_TEST(test_nmea2000_not_added_to_a_file_without_it);
+  RUN_TEST(test_cfg_set_enables_nmea2000);
   return UNITY_END();
 }

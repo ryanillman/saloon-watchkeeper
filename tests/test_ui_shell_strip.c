@@ -18,15 +18,16 @@ static const ui_role_view_t views[] = {{.name = "GLANCE", .page_count = 1}, {.na
 
 static lv_display_t *disp, *old_disp;
 
-static void open_shell(int32_t w, int32_t h, size_class_t sc, palette_t pal) {
+static void open_shell_with(const ui_role_view_t *v, uint8_t count, int32_t w, int32_t h, size_class_t sc, palette_t pal) {
   old_disp = lv_display_get_default();
   disp = lv_display_create(w, h);
   lv_display_set_flush_cb(disp, flush);
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_default(disp);
-  ui_shell_create(disp, sc, pal, views, 2, 0);
+  ui_shell_create(disp, sc, pal, v, count, 0);
   ui_alerts_attach(lv_display_get_screen_active(disp), ui_shell_strip(), sc, role_of, NULL);
 }
+static void open_shell(int32_t w, int32_t h, size_class_t sc, palette_t pal) { open_shell_with(views, 2, w, h, sc, pal); }
 static void close_shell(void) {
   lv_display_set_default(old_disp);
   lv_display_delete(disp);
@@ -72,19 +73,23 @@ static bool meet(lv_obj_t *a, lv_obj_t *b) {
 
 // Every part of the strip that is showing, none overlapping another.
 static void check_no_overlap(void) {
-  lv_obj_t *p[] = {ui_shell_home_button(), ui_shell_name(), ui_shell_dots(), ui_shell_clock(), ui_shell_source_dot(), ui_shell_status(),
+  lv_obj_t *p[] = {ui_shell_home_button(), ui_shell_name(), ui_shell_dots(), ui_shell_clock(), ui_shell_source_dot(), ui_shell_can_dot(), ui_shell_status(),
                    ui_alerts_part(UI_ALERTS_MARKER), ui_alerts_part(UI_ALERTS_ACKED_MARKER), ui_alerts_part(UI_ALERTS_OFFLINE), ui_shell_sos()};
-  const char *n[] = {"home", "name", "dots", "clock", "source dot", "status", "marker", "acked marker", "offline", "sos"};
+  const char *n[] = {"home", "name", "dots", "clock", "source dot", "bus dot", "status", "marker", "acked marker", "offline", "sos"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     for (size_t j = i + 1; j < sizeof p / sizeof p[0]; j++) {
       if (p[i] == p[j] || !shown(p[i]) || !shown(p[j])) continue;   // square: the offline text is the status label
-      char msg[64];
-      snprintf(msg, sizeof msg, "%s overlaps %s", n[i], n[j]);
+      if (lv_obj_get_width(p[i]) == 0 || lv_obj_get_width(p[j]) == 0) continue;   // an empty page-dot box has no pixels
+      lv_area_t ai, aj;
+      lv_obj_get_coords(p[i], &ai);
+      lv_obj_get_coords(p[j], &aj);
+      char msg[96];
+      snprintf(msg, sizeof msg, "%s [%d..%d] overlaps %s [%d..%d]", n[i], (int)ai.x1, (int)ai.x2, n[j], (int)aj.x1, (int)aj.x2);
       TEST_ASSERT_FALSE_MESSAGE(meet(p[i], p[j]), msg);
     }
 }
 
-// Signal K down: the status text and "SK ALERTS OFFLINE" show, the alert list is empty.
+// Signal K down: the status text and "ALARMS DISABLED" show, the alert list is empty.
 static void offline_strip(int32_t w, int32_t h, size_class_t sc) {
   open_shell(w, h, sc, PALETTE_DAY);
   ui_shell_set_clock("02:14");
@@ -231,8 +236,8 @@ static void test_dot_shape_differs_by_state_not_only_colour(void) {
 static void test_override_text_replaces_status_text_and_keeps_the_dot(void) {
   open_shell(480, 480, SIZE_SQUARE, PALETTE_DAY);
   ui_shell_set_source(UI_SRC_OFFLINE);
-  ui_shell_set_status_override("SK ALERTS OFFLINE", ui_theme()->alarm);
-  TEST_ASSERT_EQUAL_STRING("SK ALERTS OFFLINE", lv_label_get_text(ui_shell_status()));
+  ui_shell_set_status_override("ALARMS DISABLED", ui_theme()->alarm);
+  TEST_ASSERT_EQUAL_STRING("ALARMS DISABLED", lv_label_get_text(ui_shell_status()));
   TEST_ASSERT_TRUE(shown(ui_shell_source_dot()));
   ui_shell_set_status_override(NULL, ui_theme()->alarm);
   TEST_ASSERT_EQUAL_STRING("SK OFFLINE", lv_label_get_text(ui_shell_status()));
@@ -261,6 +266,185 @@ static void test_home_button_returns_to_the_start_roles_first_page(void) {
   close_shell();
 }
 
+
+// Every role name the app has, with as many pages as a role gets: the clock and the page dots must clear the name on
+// every page (the Navigation title ran into the clock on the square board).
+static const ui_role_view_t all_roles[] = {
+  {.name = "GLANCE", .page_count = 1}, {.name = "ENGINE", .page_count = 4}, {.name = "POWER", .page_count = 6},
+  {.name = "TANKS", .page_count = 1},  {.name = "ANCHOR", .page_count = 2}, {.name = "NAVIGATION", .page_count = 3},
+  {.name = "DEPTH", .page_count = 2},  {.name = "NAVIGATION", .page_count = 6},
+};
+#define ALL_ROLES (sizeof all_roles / sizeof all_roles[0])
+
+static void every_role_clears_the_clock(int32_t w, int32_t h, size_class_t sc) {
+  open_shell_with(all_roles, ALL_ROLES, w, h, sc, PALETTE_DAY);
+  ui_shell_set_clock("23:39");
+  ui_shell_set_source(UI_SRC_LIVE);
+  for (uint8_t r = 0; r < ALL_ROLES; r++)
+    for (uint8_t pg = 0; pg < all_roles[r].page_count; pg++) {
+      ui_shell_goto(r, pg);
+      update(true);
+      char msg[48];
+      snprintf(msg, sizeof msg, "%s page %u", all_roles[r].name, (unsigned)pg);
+      TEST_ASSERT_TRUE_MESSAGE(shown(ui_shell_clock()), msg);
+      TEST_ASSERT_FALSE_MESSAGE(meet(ui_shell_name(), ui_shell_clock()), msg);
+      check_no_overlap();
+    }
+  close_shell();
+}
+static void test_every_role_clears_the_clock_on_square(void) { every_role_clears_the_clock(480, 480, SIZE_SQUARE); }
+static void test_every_role_clears_the_clock_on_800(void) { every_role_clears_the_clock(800, 480, SIZE_WIDE); }
+static void test_every_role_clears_the_clock_on_1024(void) { every_role_clears_the_clock(1024, 600, SIZE_WIDE); }
+
+
+// ---- the bus dot and the status text that names what is not live ----
+static void sources(bool sk_shown, ui_src_t sk, bool can_shown, ui_src_t can) {
+  ui_shell_set_sources((ui_source_t){sk_shown, sk}, (ui_source_t){can_shown, can});
+  update(sk == UI_SRC_LIVE);
+}
+
+static void test_bus_dot_is_hidden_until_the_bus_is_in_use(void) {
+  open_shell(480, 480, SIZE_SQUARE, PALETTE_DAY);
+  TEST_ASSERT_NOT_NULL(ui_shell_can_dot());
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_shell_can_dot(), LV_OBJ_FLAG_HIDDEN));
+  sources(true, UI_SRC_LIVE, true, UI_SRC_LIVE);
+  TEST_ASSERT_FALSE(lv_obj_has_flag(ui_shell_can_dot(), LV_OBJ_FLAG_HIDDEN));
+  sources(true, UI_SRC_LIVE, false, UI_SRC_LIVE);
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_shell_can_dot(), LV_OBJ_FLAG_HIDDEN));
+  close_shell();
+}
+
+static void test_bus_dot_is_a_rounded_square_and_signal_k_a_circle(void) {
+  open_shell(480, 480, SIZE_SQUARE, PALETTE_DAY);
+  sources(true, UI_SRC_LIVE, true, UI_SRC_LIVE);
+  TEST_ASSERT_EQUAL_INT32(LV_RADIUS_CIRCLE, lv_obj_get_style_radius(ui_shell_source_dot(), 0));
+  TEST_ASSERT_NOT_EQUAL_INT32(LV_RADIUS_CIRCLE, lv_obj_get_style_radius(ui_shell_can_dot(), 0));
+  close_shell();
+}
+
+static void test_bus_dot_shape_differs_by_state(void) {
+  open_shell(480, 480, SIZE_SQUARE, PALETTE_DAY);
+  sources(true, UI_SRC_LIVE, true, UI_SRC_LIVE);
+  TEST_ASSERT_EQUAL_UINT32(0, lv_obj_get_child_count(ui_shell_can_dot()));                  // filled
+  TEST_ASSERT_EQUAL_INT32(LV_OPA_COVER, lv_obj_get_style_bg_opa(ui_shell_can_dot(), 0));
+  sources(true, UI_SRC_LIVE, true, UI_SRC_CONNECTING);
+  TEST_ASSERT_EQUAL_UINT32(0, lv_obj_get_child_count(ui_shell_can_dot()));                  // hollow ring
+  TEST_ASSERT_EQUAL_INT32(LV_OPA_TRANSP, lv_obj_get_style_bg_opa(ui_shell_can_dot(), 0));
+  sources(true, UI_SRC_LIVE, true, UI_SRC_OFFLINE);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, lv_obj_get_child_count(ui_shell_can_dot()));           // ring with a cross
+  close_shell();
+}
+
+static void test_status_text_names_what_is_not_live(void) {
+  open_shell(800, 480, SIZE_WIDE, PALETTE_DAY);
+  struct { bool sk_shown; ui_src_t sk; bool can_shown; ui_src_t can; const char *want; } t[] = {
+    {true, UI_SRC_LIVE, false, UI_SRC_LIVE, ""},
+    {true, UI_SRC_OFFLINE, false, UI_SRC_OFFLINE, "SK OFFLINE"},
+    {true, UI_SRC_CONNECTING, false, UI_SRC_OFFLINE, "SK CONNECTING"},
+    {true, UI_SRC_LIVE, true, UI_SRC_LIVE, ""},
+    {true, UI_SRC_LIVE, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},
+    {true, UI_SRC_LIVE, true, UI_SRC_CONNECTING, "NMEA 2k CONNECTING"},
+    {true, UI_SRC_OFFLINE, true, UI_SRC_LIVE, "SK OFFLINE"},
+    {true, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "SK + NMEA 2k OFFLINE"},
+    {true, UI_SRC_CONNECTING, true, UI_SRC_CONNECTING, "SK + NMEA 2k CONNECTING"},
+    {true, UI_SRC_OFFLINE, true, UI_SRC_CONNECTING, "SK OFFLINE"},      // the worse state is named; the shapes show the rest
+    {true, UI_SRC_CONNECTING, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},
+    {false, UI_SRC_OFFLINE, true, UI_SRC_OFFLINE, "NMEA 2k OFFLINE"},       // bus only: Signal K is not in use and never named
+    {false, UI_SRC_OFFLINE, true, UI_SRC_LIVE, ""},
+  };
+  for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) {
+    sources(t[i].sk_shown, t[i].sk, t[i].can_shown, t[i].can);
+    char msg[48];
+    snprintf(msg, sizeof msg, "case %u", (unsigned)i);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(t[i].want, lv_label_get_text(ui_shell_status()), msg);
+  }
+  close_shell();
+}
+
+static void test_bus_only_hides_the_signal_k_dot_and_the_bus_dot_takes_its_place(void) {
+  open_shell(480, 480, SIZE_SQUARE, PALETTE_DAY);
+  sources(true, UI_SRC_LIVE, false, UI_SRC_LIVE);
+  lv_area_t where;
+  lv_obj_get_coords(ui_shell_source_dot(), &where);
+  sources(false, UI_SRC_OFFLINE, true, UI_SRC_LIVE);
+  TEST_ASSERT_TRUE(lv_obj_has_flag(ui_shell_source_dot(), LV_OBJ_FLAG_HIDDEN));
+  lv_area_t now;
+  lv_obj_get_coords(ui_shell_can_dot(), &now);
+  TEST_ASSERT_EQUAL_INT32(where.x2, now.x2);   // at the strip's right edge, where the Signal K dot was
+  close_shell();
+}
+
+// The roles as they really are (Navigation has 2 pages, Power starts at 3 and grows with the batteries; 6 is generous):
+// the strip's widest real combination. The stress list above (a six-page Navigation) is for the clock alone.
+static const ui_role_view_t real_roles[] = {
+  {.name = "GLANCE", .page_count = 1}, {.name = "ENGINE", .page_count = 2}, {.name = "POWER", .page_count = 6},
+  {.name = "TANKS", .page_count = 1},  {.name = "ANCHOR", .page_count = 1}, {.name = "NAVIGATION", .page_count = 2},
+  {.name = "DEPTH", .page_count = 1},
+};
+#define REAL_ROLES (sizeof real_roles / sizeof real_roles[0])
+
+// Both dots, every status text and the alert markers together: nothing in the strip overlaps, on every size.
+static void both_sources_strip(int32_t w, int32_t h, size_class_t sc) {
+  static const struct { ui_src_t sk, can; } combos[] = {
+    {UI_SRC_LIVE, UI_SRC_LIVE}, {UI_SRC_OFFLINE, UI_SRC_OFFLINE}, {UI_SRC_CONNECTING, UI_SRC_CONNECTING},
+    {UI_SRC_OFFLINE, UI_SRC_LIVE}, {UI_SRC_LIVE, UI_SRC_OFFLINE},
+  };
+  for (size_t i = 0; i < sizeof combos / sizeof combos[0]; i++) {
+    for (int marked = 0; marked < 2; marked++) {
+      open_shell_with(real_roles, REAL_ROLES, w, h, sc, PALETTE_DAY);
+      ui_shell_set_clock("23:39");
+      alerts_init();
+      alerts_source_up(combos[i].sk == UI_SRC_LIVE);
+      if (marked && combos[i].sk == UI_SRC_LIVE) {
+        raise("a.warn", AL_WARN, false);
+        raise("a.alarm", AL_ALARM, true);
+      }
+      for (uint8_t r = 0; r < REAL_ROLES; r++) {
+        ui_shell_goto(r, 0);
+        ui_shell_set_sources((ui_source_t){true, combos[i].sk}, (ui_source_t){true, combos[i].can});
+        update(combos[i].sk == UI_SRC_LIVE);
+        char msg[64];
+        snprintf(msg, sizeof msg, "%s sk=%d can=%d marked=%d", real_roles[r].name, combos[i].sk, combos[i].can, marked);
+        check_no_overlap();
+        TEST_ASSERT_FALSE_MESSAGE(meet(ui_shell_name(), ui_shell_clock()), msg);
+      }
+      close_shell();
+    }
+  }
+}
+static void test_both_sources_strip_clear_on_square(void) { both_sources_strip(480, 480, SIZE_SQUARE); }
+static void test_both_sources_strip_clear_on_800(void) { both_sources_strip(800, 480, SIZE_WIDE); }
+static void test_both_sources_strip_clear_on_1024(void) { both_sources_strip(1024, 600, SIZE_WIDE); }
+
+
+// The status text is an error message; the clock is the least important thing in the strip. When there is not room for both,
+// the clock gives way first, then (only if still too full) the text.
+static void test_the_clock_gives_way_before_the_error_text(void) {
+  open_shell_with(real_roles, REAL_ROLES, 480, 480, SIZE_SQUARE, PALETTE_DAY);
+  ui_shell_set_clock("23:39");
+  ui_shell_goto(5, 0);   // NAVIGATION, two page dots: the widest real title
+  sources(true, UI_SRC_LIVE, true, UI_SRC_CONNECTING);   // "NMEA 2k CONNECTING": too long to sit beside the clock
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k CONNECTING", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_FALSE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_OFFLINE);   // the shorter "NMEA 2k OFFLINE" still fits beside it: nothing gives way
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k OFFLINE", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_CONNECTING);
+  ui_shell_goto(0, 0);   // GLANCE: a short title and no dots: room for both
+  update(true);
+  TEST_ASSERT_EQUAL_STRING("NMEA 2k CONNECTING", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  check_no_overlap();
+  sources(true, UI_SRC_LIVE, true, UI_SRC_LIVE);   // the bus is live: no text, and the clock is back on the busy title too
+  ui_shell_goto(5, 0);
+  update(true);
+  TEST_ASSERT_EQUAL_STRING("", lv_label_get_text(ui_shell_status()));
+  TEST_ASSERT_TRUE(shown(ui_shell_clock()));
+  close_shell();
+}
+
 int main(void) {
   lv_init();
   lv_display_t *d0 = lv_display_create(800, 480);
@@ -273,6 +457,18 @@ int main(void) {
   RUN_TEST(test_marked_strip_clear_on_square);
   RUN_TEST(test_marked_strip_clear_on_800);
   RUN_TEST(test_marked_strip_clear_on_1024);
+  RUN_TEST(test_every_role_clears_the_clock_on_square);
+  RUN_TEST(test_every_role_clears_the_clock_on_800);
+  RUN_TEST(test_every_role_clears_the_clock_on_1024);
+  RUN_TEST(test_bus_dot_is_hidden_until_the_bus_is_in_use);
+  RUN_TEST(test_bus_dot_is_a_rounded_square_and_signal_k_a_circle);
+  RUN_TEST(test_bus_dot_shape_differs_by_state);
+  RUN_TEST(test_status_text_names_what_is_not_live);
+  RUN_TEST(test_bus_only_hides_the_signal_k_dot_and_the_bus_dot_takes_its_place);
+  RUN_TEST(test_both_sources_strip_clear_on_square);
+  RUN_TEST(test_both_sources_strip_clear_on_800);
+  RUN_TEST(test_both_sources_strip_clear_on_1024);
+  RUN_TEST(test_the_clock_gives_way_before_the_error_text);
   RUN_TEST(test_clock_shows_text_and_hides_on_null);
   RUN_TEST(test_setting_the_same_clock_and_source_again_redraws_nothing);
   RUN_TEST(test_live_is_a_bare_dot_and_trouble_adds_text);

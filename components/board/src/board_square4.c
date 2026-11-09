@@ -173,4 +173,12 @@ static const board_t square4 = {
 };
 
 const board_t *board_get(void) { return &square4; }
+
+esp_err_t board_can_pins(int *tx_gpio, int *rx_gpio) {
+  *tx_gpio = 6;
+  *rx_gpio = 0;
+  return ESP_OK;
+}
+
+esp_err_t board_can_enable(void) { return ESP_OK; }  // the transceiver is always connected
 #endif

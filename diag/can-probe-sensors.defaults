@@ -1,0 +1,2 @@
+# Add to diag/can-probe.defaults: this probe also acts as a sensor on the bus.
+CONFIG_BI_DIAG_CAN_PROBE_SENSORS=y

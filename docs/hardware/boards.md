@@ -25,7 +25,7 @@ From Waveshare's wiki for this board (the pin table is flattened, so the groupin
 | ST7701 3-wire SPI | SDA GPIO1, SCL GPIO2, CS GPIO42. Reset on expander |
 | Touch | GT911 0x5D, INT GPIO16, reset on expander |
 | SD | GPIO1/2/4 (shared with the ST7701 init lines), CS on expander. The wiki shows SPI and SDMMC naming; **confirm** which bus |
-| CAN | RX GPIO0, TX GPIO6 (TJA1051) |
+| CAN | RX GPIO0, TX GPIO6 (TJA1051). Probe: `docs/testing.md` "CAN bench". Bench result: see below |
 | RS485 | RX GPIO43, TX GPIO44 |
 | PCLK | 21 MHz in Waveshare's LVGL benchmark |
 
@@ -48,7 +48,7 @@ The wiki's expander pin list (EXIO0 TP_RST, EXIO1 BL_EN, EXIO2 LCD_RST, EXIO3 SD
 | SD | SPI. MOSI GPIO11, SCK GPIO12, MISO GPIO13. CS on EXIO4 |
 | Backlight | On/off through EXIO2. **confirm** whether brightness can be dimmed |
 | Buzzer, RTC, IMU | None |
-| CAN | TX GPIO20, RX GPIO19. Shares the native USB pair. EXIO5 high selects CAN and disables native USB |
+| CAN | TX GPIO20, RX GPIO19. Shares the native USB pair. EXIO5 high selects CAN and disables native USB; the probe image moves the console to the UART port. Probe: `docs/testing.md` "CAN bench". Bench result: see below |
 | RS485 | TX GPIO15, RX GPIO16 |
 | UART | Separate CH343 Type-C port. The UART switch must be on UART1 for it to pass bytes |
 | Benchmark PCLK | 21 MHz (Waveshare LVGL demo) |
@@ -73,7 +73,7 @@ The bench unit was probed with `esptool.py flash_id`: flash manufacturer `0x46`,
 | SD | SPI. MOSI GPIO11, SCK GPIO12, MISO GPIO13. CS on EXIO4 |
 | Backlight | Enable on EXIO2 through a boost chip. Waveshare says brightness is adjustable. **confirm** the mechanism |
 | Memory | 16 MB flash, 8 MB octal PSRAM |
-| CAN | TX GPIO20, RX GPIO19, TJA1051, DIP-switch termination. Shares USB through EXIO5 |
+| CAN | TX GPIO20, RX GPIO19, TJA1051, DIP-switch termination. Shares USB through EXIO5. Probe: `docs/testing.md` "CAN bench". Bench result: see below |
 | RS485 | TX GPIO15, RX GPIO16 |
 | Buzzer, RTC, IMU | Not listed |
 | Battery | PH2.0 Li-ion socket with charger. **confirm** the ADC pin for battery voltage |
@@ -102,3 +102,18 @@ Waveshare 7B wiki: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7B. Schemat
 Internal RAM is the scarce resource on these boards, not PSRAM. The RGB panel's two 20-line bounce buffers must be DMA-capable internal RAM: about 80 KB on the 7B (1024 × 20 px × 2 bytes × 2), less on the others. Wi-Fi and every task stack also come from internal RAM. On 2026-11-03 the 7B ran out at boot, and the Signal K task was never created, so the display never connected. Large static buffers now go to PSRAM: tag a zero-initialised static with `PLATFORM_EXT_BSS` (from `platform.h`) unless an ISR or a DMA engine touches it. Check the boot log line `RAM after start: internal free …, largest block …; PSRAM free …` after a change that adds memory. A task that cannot be created logs its name, stack size, and the internal free and largest block. The `status` serial command reports internal and PSRAM free; read it after a fresh boot has been connected for about 45 s. Measured 2026-11-04 (settled, connected to Signal K): square4 74 KB internal free, lcd7 38 KB (`main` before the Glance page: 44 KB; the Glance page's LVGL objects come from malloc, so internal RAM). The history backfill logs `signalk: history <path>: <rows> rows (internal heap free …, lowest since boot …)` per path; lcd7's lowest since boot was about 30 KB. Signal K response bodies are allocated in PSRAM (`transport_esp.c`), because a 12 hour history reply is about 25 KB and its buffer doubles as it grows, which in internal RAM would take about 24 KB at once on lcd7. That peak has not been measured with a full-size reply: the bench server returned empty history. With the Anchor role (measured 2026-11-05, same conditions, 45 s after boot, no anchor set): square4 71 KB internal free, lcd7 36 KB (lowest since boot 28 KB), lcd7b 31 KB (lowest 24 KB). That is 2 to 3 KB less than before the role, which is its LVGL objects, the 720-point track and the command queue. The Signal K task's least free stack was about 4.4 KB on all three before any command was sent; send a drop from each board and read `status` again, since a command send runs an HTTP request on that task.
 
 `PLATFORM_EXT_BSS` needs `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`, which is in `sdkconfig.defaults`. Defaults only apply when the sdkconfig is generated, so a build directory created before 2026-11-03 keeps the option off and would boot into the same failure. `platform.h` stops such a build with an `#error`; run `idf.py -B build/<board> fullclean`, then build again with `-D BOARD=<board>`.
+
+## CAN bench results
+
+Bench result (2026-11-08, probe images, 4" and 7B plus a gs_usb adapter on a breadboard bus, no GND wire): both boards claim addresses (0x78, 0x50) and reach READY; alerts (PGN 126983, 28 bytes, 5 frames) and 134-byte product-info replies (20 frames) pass in both directions every time; two minutes quiet show no errors, no refused or dropped frames and TEC/REC 0; internal RAM free with the probe: 4" 220 KB, 7B 168 KB. Not explained, accepted as a breadboard/adapter limit: the gs_usb adapter's own transmissions cost it 20 to 60 TEC each (sometimes a duplicated or lost request; bus-off after a handful of requests, and it cannot auto-restart). Measured 50 ohm across CANH/CANL at first (three terminators: the adapter has a built-in one); after removing one, 6 requests ran without bus-off but still with errors. Common ground made it better, not worse. The boards never showed errors.
+
+lcd7 has not been on the bus yet.
+
+**Display on the bus (2026-11-08, `feature/n2k-core`):** the normal firmware with `sources.nmea2000.enabled` (listen-only, a 4 KB `can` task, a 64-frame driver queue, 8 reassembly slots in PSRAM), the other board running the sensors probe (`diag/can-probe-sensors.defaults`: depth, wind, battery, engine dynamics and state of charge, heading, COG/SOG, speed, position, time and two tanks, once a second).
+- 4" (square4), mode `only`: `can: live rx=361 values=540 unmapped=0 bus_off=0` after boot; internal RAM 79 KB free, lowest since boot 77 KB (no Signal K client in this mode).
+- 7B (lcd7b), mode `only`: `can: live rx=451 values=675 unmapped=0`; internal 36 KB free, lowest 33 KB.
+- 7B, mode `fallback` with Signal K live (the tightest case): `can: live rx=1207 values=997 unmapped=812`; internal 20 KB free, largest block 20 KB, lowest since boot 17 KB. The floor is 15 KB, so the margin is about 2 KB. Before the bus (2026-11-05, Signal K only) the same board showed 31 KB free and 24 KB lowest, so the CAN source costs about 11 KB free and 7 KB at the low point. If a later feature needs the room: the `can` task stack (4 KB, headroom not yet measured), the driver queue (64 frames) and the GT911/LVGL buffers are the places to look.
+- `unmapped` counts engine, battery and tank values whose instance has no entry in `sources.nmea2000.ids` while Signal K is in charge of naming them (here the sensors send instance 0 and 1, the server calls them port and starboard). They are dropped on purpose; map them to show them.
+
+**Instance cache (2026-11-08):** `instances.json` on the SD card (a `.bak.json` is kept) holds the CAN-writable leaf paths Signal K had delivered. On the 7B in `fallback` mode with Signal K live it learned 22 paths; after pointing Signal K at an unused port and rebooting, the boot log said `can: restored 22 instance paths from the cache` and the bus went live on those paths. Restored placeholders show as FAIL until something writes them; the bus only fills one when its instance maps to the cached id (`sources.nmea2000.ids`), because the probe sends instance 0 and the server calls the engine `port`.
+- **A memory catch:** the first build kept the cache's 4 KB scan buffer (and ~1 KB of id-map storage) in internal RAM, and the 7B's lowest-since-boot fell to 9.7 KB during the Signal K history backfill, under the 15 KB floor. Moving both to PSRAM (`PLATFORM_EXT_BSS`) restored it: 17 KB lowest during the backfill, 20 KB free and 16 KB lowest in steady state with Signal K and the bus both live. That is about 1 KB above the floor, so the next feature that wants internal RAM on lcd7b has to find some first.
