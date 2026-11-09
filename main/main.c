@@ -9,7 +9,9 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "app_can.h"
 #include "can_probe.h"
+#include "can_twai.h"
 #include "console.h"
 #include "esp_app_desc.h"
 #include "net.h"
@@ -62,6 +64,36 @@ static void sd_selftest(void) {
 }
 #endif
 
+// NMEA 2000: sources.nmea2000.enabled. Listen-only, so the display never disturbs the boat's bus. A failure here
+// is logged and the display carries on without the bus.
+static void can_task(void *arg) {
+  (void)arg;
+  for (;;) {
+    app_can_poll();
+    vTaskDelay(1);   // one tick (10 ms); the driver queue holds 64 frames and each pass takes up to 256
+  }
+}
+
+static void can_setup(const cfg_t *cfg) {
+  if (!cfg->n2k.enabled) return;
+  int tx, rx;
+  if (board_can_pins(&tx, &rx) != ESP_OK) {
+    ESP_LOGW(TAG, "can: this board has no CAN transceiver; sources.nmea2000 ignored");
+    return;
+  }
+  if (!strcmp(board->id, "lcd7") || !strcmp(board->id, "lcd7b"))
+    ESP_LOGW(TAG, "can: enabling the bus switches off native USB on this board (logs and flashing use the UART port)");
+  esp_err_t err = board_can_enable();
+  if (err == ESP_OK) err = can_twai_open(&(can_twai_cfg_t){.tx_gpio = tx, .rx_gpio = rx, .listen_only = true, .rx_queue_len = 64});
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "can: bus not started: %s", esp_err_to_name(err));
+    return;
+  }
+  app_can_start(cfg, can_twai_ops());
+  if (xTaskCreate(can_task, "can", 4096, NULL, 5, NULL) != pdPASS) ESP_LOGE(TAG, "can: task not created");
+  else ESP_LOGI(TAG, "can: listening (%s, %u mapped ids)", cfg->n2k.only ? "only" : "fallback", cfg->n2k.id_count);
+}
+
 static void set_backlight(uint8_t percent) { board->backlight(percent); }
 
 static void tick_cb(lv_timer_t *t) {
@@ -86,7 +118,7 @@ static void ui_task(void *arg) {
   app_set_info(board->id, esp_app_get_description()->version);
   app_bind();
   app_start_ui(d, board->size_class);
-  app_start_network();
+  if (app_network_wanted(cfg)) app_start_network();
   console_start();
   // Early warning: tasks, Wi-Fi and the RGB bounce buffers all need internal RAM.
   ESP_LOGI(TAG, "RAM after start: internal free %u, largest block %u; PSRAM free %u",
@@ -121,6 +153,7 @@ void app_main(void) {
   const cfg_t *cfg = app_init("/sdcard", &rep);
   for (uint8_t i = 0; i < rep.count; i++)
     ESP_LOGW(TAG, "config: %s (line %d): %s", rep.issues[i].key_path, rep.issues[i].line, rep.issues[i].message);
+  can_setup(cfg);
   net_wifi_start(&cfg->wifi);
   xTaskCreatePinnedToCore(ui_task, "ui", 16 * 1024, (void *)cfg, 5, NULL, 1);
 }
