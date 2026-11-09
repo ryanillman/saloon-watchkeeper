@@ -1,5 +1,9 @@
 // app_can: the bus source as the app starts it from config.
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include "app.h"
 #include "app_can.h"
 #include "boatdata.h"
 #include "config.h"
@@ -118,6 +122,45 @@ static void test_network_wanted(void) {
   TEST_ASSERT_TRUE(app_network_wanted(&cfg));    // only means nothing while the bus is off
 }
 
+
+// ---- the instance cache at boot ----
+static void write_file(const char *dir, const char *name, const char *text) {
+  char p[160];
+  snprintf(p, sizeof p, "%s/%s", dir, name);
+  FILE *f = fopen(p, "w");
+  fputs(text, f);
+  fclose(f);
+}
+static void boot_with(const char *nmea2000_json) {
+  char dir[64] = "/tmp/bi_appcan_XXXXXX";
+  TEST_ASSERT_NOT_NULL(mkdtemp(dir));
+  char cfgtext[256];
+  snprintf(cfgtext, sizeof cfgtext, "{ \"sources\": { \"nmea2000\": %s }, \"roles\": [ {\"role\": \"engine\"} ] }", nmea2000_json);
+  write_file(dir, "config.json", cfgtext);
+  write_file(dir, "instances.json", "{ \"paths\": [ \"propulsion.port.revolutions\" ] }");
+  cfg_report_t rep;
+  app_init(dir, &rep);
+  char cmd[96];
+  snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+  system(cmd);
+}
+
+static void test_boot_restores_the_cache_in_fallback_mode(void) {
+  boot_with("{ \"enabled\": true, \"mode\": \"fallback\" }");
+  bd_id_t id = bd_find("propulsion.port.revolutions");
+  TEST_ASSERT_NOT_EQUAL(BD_NONE, id);
+  bd_sample_t s;
+  bd_get(id, &s);
+  TEST_ASSERT_FALSE(s.valid);   // a placeholder: nothing has written it yet
+}
+
+static void test_boot_does_not_restore_when_the_bus_is_off_or_only(void) {
+  boot_with("{ \"enabled\": false }");
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("propulsion.port.revolutions"));
+  boot_with("{ \"enabled\": true, \"mode\": \"only\" }");
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("propulsion.port.revolutions"));   // the bus makes its own paths in this mode
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_start_and_poll_writes_boatdata);
@@ -127,5 +170,7 @@ int main(void) {
   RUN_TEST(test_second_start_refused);
   RUN_TEST(test_poll_before_start_is_harmless);
   RUN_TEST(test_network_wanted);
+  RUN_TEST(test_boot_restores_the_cache_in_fallback_mode);
+  RUN_TEST(test_boot_does_not_restore_when_the_bus_is_off_or_only);
   return UNITY_END();
 }
