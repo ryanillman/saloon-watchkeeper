@@ -295,3 +295,13 @@ Real bus: bring the adapter up first (`sudo ip link set can0 up type can bitrate
 The `basic` scenario shows depth 12.3 m (surface offset 0.4 m), apparent wind 8 m/s at 40° to starboard, battery 1 at 12.6 V and -8.5 A, engine 0 at 2400 rpm, fresh water 1 at 62 % and fuel 0 at 35 %. Which pages show them depends on the config's roles and ids: the engine appears under the id `0`, the battery under `1` and the tanks under their instances unless the config names them (the instance map is a later step). Stop the injector and the source goes OFFLINE after 5 s and its values turn to FAIL.
 
 `tests/test_can_socketcan` loops a frame through `vcan0` when it exists and skips itself when it does not.
+
+### Live check on the bench bus (2026-11-08)
+
+A board can act as the sensor so the real bus carries instrument data without Signal K: build the probe with the sensors added (`idf.py -D BOARD=square4 -D "BI_EXTRA=diag/can-probe.defaults;diag/can-probe-sensors.defaults" -B build/square4-canprobe-sensors build`) and flash it. It sends the `basic` scenario once a second (depth wandering 12.3 to 13.2 m so updates are visible). Then, with the adapter up:
+
+```sh
+build/sim/sim --board sim800 --config <dir with a config.json whose signalk port is unused> --can can0 --can-only --capture out.png --after 7
+```
+
+The config must keep the simulator off the local Signal K test server (for example `"signalk": { "host": "127.0.0.1", "port": 3999 }`): Signal K is rank 2 and wins wherever it has a fresh value, so with it running the screen shows its data, not the bus's. Result on the bench: Glance shows Engine 2400 RPM, Power 12.6 V and -8.5 A, Tanks W 62 % and F 35 %, Navigation 16 kn apparent, Depth 40.4 ft. Engine and Power still say NO DATA because this slice carries no coolant, oil or state of charge.
