@@ -21,7 +21,8 @@ typedef struct {
 } source_can_id_t;
 
 typedef struct {
-  bool create_paths;  // true (CAN only): create paths; false (SK + CAN): write only to paths that already exist
+  bool create_paths;  // true (CAN only): create every path. false (SK + CAN): create a path only when it has no instance
+                      // (depth, wind, navigation) or its instance is mapped in ids; otherwise write only to paths that exist
   const source_can_id_t *ids;
   size_t nids;
 } source_can_cfg_t;
@@ -48,6 +49,11 @@ void source_can_tick(source_can_t *s);
 
 // The Signal K path for a value (false when it has none, e.g. an unknown fluid type).
 bool source_can_path(const n2k_value_t *v, const source_can_cfg_t *cfg, char *out, size_t n);
+
+// Engine, battery and tank values belong to an instance whose id may collide with one Signal K names differently.
+bool source_can_is_instance(const n2k_value_t *v);
+// True when cfg->ids has an entry for the value's instance (so the bus may create its path in fallback mode).
+bool source_can_is_mapped(const n2k_value_t *v, const source_can_cfg_t *cfg);
 
 #ifdef __cplusplus
 }

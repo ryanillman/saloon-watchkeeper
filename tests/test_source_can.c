@@ -28,7 +28,7 @@ static const uint8_t depth_msg[8] = {1, 0xD2, 0x04, 0, 0, 0xF4, 0x01, 10};  // 1
 
 static void test_paths(void) {
   char p[96];
-  n2k_value_t v = {N2K_F_DEPTH_BELOW_TRANSDUCER, 0, 0, 1};
+  n2k_value_t v = {N2K_F_DEPTH_BELOW_TRANSDUCER, 0, 0, 1, 0};
   TEST_ASSERT_TRUE(source_can_path(&v, &cfg_create, p, sizeof p));
   TEST_ASSERT_EQUAL_STRING("environment.depth.belowTransducer", p);
   v.field = N2K_F_DEPTH_SURFACE_TO_TRANSDUCER;
@@ -43,7 +43,7 @@ static void test_paths(void) {
   v.field = N2K_F_WIND_ANGLE_APPARENT;
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("environment.wind.angleApparent", p);
-  v = (n2k_value_t){N2K_F_BATT_VOLTAGE, 3, 0, 1};
+  v = (n2k_value_t){N2K_F_BATT_VOLTAGE, 3, 0, 1, 0};
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("electrical.batteries.3.voltage", p);
   v.field = N2K_F_BATT_CURRENT;
@@ -52,7 +52,7 @@ static void test_paths(void) {
   v.field = N2K_F_BATT_TEMPERATURE;
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("electrical.batteries.3.temperature", p);
-  v = (n2k_value_t){N2K_F_ENGINE_REVOLUTIONS, 0, 0, 1};
+  v = (n2k_value_t){N2K_F_ENGINE_REVOLUTIONS, 0, 0, 1, 0};
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("propulsion.port.revolutions", p);   // mapped
   v.instance = 2;
@@ -61,7 +61,7 @@ static void test_paths(void) {
   v.field = N2K_F_ENGINE_BOOST;
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("propulsion.2.boostPressure", p);
-  v = (n2k_value_t){N2K_F_TANK_LEVEL, 1, 1, 1};
+  v = (n2k_value_t){N2K_F_TANK_LEVEL, 1, 1, 1, 0};
   source_can_path(&v, &cfg_create, p, sizeof p);
   TEST_ASSERT_EQUAL_STRING("tanks.freshWater.1.currentLevel", p);
   v.field = N2K_F_TANK_CAPACITY;
@@ -110,16 +110,17 @@ static void test_tanks_distinct_by_instance_and_fluid(void) {
 
 static void test_existing_only_creates_nothing(void) {
   source_can_init(&sc, &cfg_existing);
-  feed(128267, depth_msg, 8);
-  TEST_ASSERT_EQUAL(BD_NONE, bd_find("environment.depth.belowTransducer"));
+  const uint8_t b[8] = {1, 0xE2, 0x04, 0x67, 0xFF, 0x77, 0x74, 0xFF};   // battery 1: unmapped instance
+  feed(127508, b, 8);
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.batteries.1.voltage"));
   TEST_ASSERT_EQUAL_UINT32(0, sc.values);
-  TEST_ASSERT_EQUAL_UINT32(2, sc.unmapped);  // below transducer and surface offset
-  bd_intern("environment.depth.belowTransducer");
-  feed(128267, depth_msg, 8);
+  TEST_ASSERT_EQUAL_UINT32(3, sc.unmapped);
+  bd_intern("electrical.batteries.1.voltage");   // Signal K knows this battery: the bus fills it in
+  feed(127508, b, 8);
   bd_sample_t s;
-  TEST_ASSERT_TRUE(get("environment.depth.belowTransducer", &s));
+  TEST_ASSERT_TRUE(get("electrical.batteries.1.voltage", &s));
   TEST_ASSERT_EQUAL_UINT32(1, sc.values);
-  TEST_ASSERT_EQUAL(BD_NONE, bd_find("environment.depth.surfaceToTransducer"));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.batteries.1.current"));
 }
 
 static void test_signal_k_wins_while_fresh(void) {
@@ -158,6 +159,83 @@ static void test_undecoded_pgn_does_not_make_it_live(void) {
   TEST_ASSERT_EQUAL(BD_SRC_CONNECTING, bd_source_state(BD_SRC_N2K));
 }
 
+
+static void le(uint8_t *d, int off, uint64_t v, int n) {
+  for (int i = 0; i < n; i++) d[off + i] = (uint8_t)(v >> (8 * i));
+}
+
+static void test_new_paths(void) {
+  char p[96];
+  struct { n2k_field_t f; uint8_t inst; const char *path; } t[] = {
+    {N2K_F_ENGINE_COOLANT_TEMPERATURE, 0, "propulsion.port.temperature"},
+    {N2K_F_ENGINE_OIL_PRESSURE, 0, "propulsion.port.oilPressure"},
+    {N2K_F_ENGINE_OIL_TEMPERATURE, 0, "propulsion.port.oilTemperature"},
+    {N2K_F_ENGINE_ALTERNATOR_VOLTAGE, 0, "propulsion.port.alternatorVoltage"},
+    {N2K_F_ENGINE_FUEL_RATE, 0, "propulsion.port.fuel.rate"},
+    {N2K_F_ENGINE_HOURS, 0, "propulsion.port.runTime"},
+    {N2K_F_BATT_SOC, 1, "electrical.batteries.1.capacity.stateOfCharge"},
+    {N2K_F_BATT_TIME_REMAINING, 1, "electrical.batteries.1.capacity.timeRemaining"},
+    {N2K_F_HEADING_TRUE, 0, "navigation.headingTrue"},
+    {N2K_F_HEADING_MAGNETIC, 0, "navigation.headingMagnetic"},
+    {N2K_F_MAG_VARIATION, 0, "navigation.magneticVariation"},
+    {N2K_F_COG_TRUE, 0, "navigation.courseOverGroundTrue"},
+    {N2K_F_COG_MAGNETIC, 0, "navigation.courseOverGroundMagnetic"},
+    {N2K_F_SOG, 0, "navigation.speedOverGround"},
+    {N2K_F_STW, 0, "navigation.speedThroughWater"},
+    {N2K_F_POSITION, 0, "navigation.position"},
+    {N2K_F_TIME_EPOCH, 0, "navigation.datetime"},
+  };
+  for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) {
+    n2k_value_t v = {t[i].f, t[i].inst, 0, 1, 0};
+    TEST_ASSERT_TRUE_MESSAGE(source_can_path(&v, &cfg_create, p, sizeof p), t[i].path);
+    TEST_ASSERT_EQUAL_STRING(t[i].path, p);
+  }
+  TEST_ASSERT_TRUE(source_can_is_instance(&(n2k_value_t){N2K_F_ENGINE_HOURS, 0, 0, 0, 0}));
+  TEST_ASSERT_FALSE(source_can_is_instance(&(n2k_value_t){N2K_F_POSITION, 0, 0, 0, 0}));
+  TEST_ASSERT_TRUE(source_can_is_mapped(&(n2k_value_t){N2K_F_ENGINE_HOURS, 1, 0, 0, 0}, &cfg_create));
+  TEST_ASSERT_FALSE(source_can_is_mapped(&(n2k_value_t){N2K_F_ENGINE_HOURS, 5, 0, 0, 0}, &cfg_create));
+}
+
+static void test_position_and_time_written(void) {
+  uint8_t d[8];
+  le(d, 0, (uint32_t)(int32_t)415402833, 4);
+  le(d, 4, (uint32_t)(int32_t)-702500000, 4);
+  feed(129025, d, 8);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("navigation.position", &s));
+  TEST_ASSERT_EQUAL(BD_POSITION, s.kind);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-6, 41.5402833, s.pos.lat);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-6, -70.25, s.pos.lon);
+  uint8_t t[8] = {1, 0};
+  le(t, 2, 19000, 2);        // 2022-01-08
+  le(t, 4, 432000000, 4);    // 12:00:00
+  feed(126992, t, 8);
+  TEST_ASSERT_TRUE(get("navigation.datetime", &s));
+  TEST_ASSERT_EQUAL(BD_TEXT, s.kind);
+  TEST_ASSERT_EQUAL_STRING("2022-01-08T12:00:00.000Z", s.text);
+}
+
+static void test_fallback_mode_creates_only_mapped_instances(void) {
+  source_can_init(&sc, &cfg_existing);   // create_paths false, engine.0 -> port, engine.1 -> starboard
+  const uint8_t e0[8] = {0, 0xE0, 0x2E, 0xFF, 0xFF, 0, 0xFF, 0xFF};
+  const uint8_t e5[8] = {5, 0xE0, 0x2E, 0xFF, 0xFF, 0, 0xFF, 0xFF};
+  feed(127488, e0, 8);
+  feed(127488, e5, 8);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("propulsion.port.revolutions", &s));   // mapped: created although Signal K has not made it
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("propulsion.5.revolutions"));
+  TEST_ASSERT_EQUAL_UINT32(1, sc.unmapped);
+  feed(128267, depth_msg, 8);                                 // not an instance value: always created
+  TEST_ASSERT_TRUE(get("environment.depth.belowTransducer", &s));
+}
+
+static void test_only_mode_creates_everything(void) {
+  const uint8_t b[8] = {7, 0xE2, 0x04, 0x67, 0xFF, 0x77, 0x74, 0xFF};
+  feed(127508, b, 8);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("electrical.batteries.7.voltage", &s));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_paths);
@@ -168,5 +246,9 @@ int main(void) {
   RUN_TEST(test_signal_k_wins_while_fresh);
   RUN_TEST(test_state_follows_traffic);
   RUN_TEST(test_undecoded_pgn_does_not_make_it_live);
+  RUN_TEST(test_new_paths);
+  RUN_TEST(test_position_and_time_written);
+  RUN_TEST(test_fallback_mode_creates_only_mapped_instances);
+  RUN_TEST(test_only_mode_creates_everything);
   return UNITY_END();
 }
