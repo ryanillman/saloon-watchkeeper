@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "can_probe.h"
 #include "console.h"
 #include "esp_app_desc.h"
 #include "net.h"
@@ -100,6 +101,9 @@ static void ui_task(void *arg) {
 }
 
 void app_main(void) {
+#if CONFIG_BI_DIAG_CAN_PROBE
+  can_probe_run();  // never returns
+#endif
 #if CONFIG_BI_DIAG_PROBE
   for (;;) {
     board_probe_run();

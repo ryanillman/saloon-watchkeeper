@@ -14,6 +14,10 @@ menu "Boat instruments board"
     bool "Boot into the hardware probe (I2C scan, memory report) instead of the UI"
     default n
 
+  config BI_DIAG_CAN_PROBE
+    bool "Boot into the CAN bench probe (claim an address, send test alerts, log traffic) instead of the UI"
+    default n
+
   config BI_DIAG_COLORBARS
     bool "Show color bars for 5 s before the UI"
     default n
