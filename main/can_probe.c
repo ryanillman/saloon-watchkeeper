@@ -94,6 +94,11 @@ void can_probe_run(void) {
       n2k_send_t r = n2k_node_send(&node, PGN_ALERT, N2K_BROADCAST, 2, alert, sizeof alert);
       if (r != N2K_SEND_OK) ESP_LOGW(TAG, "send alert %u: result %d (node state %d)", alert[0], (int)r, (int)n2k_node_state(&node));
     }
+    if (sec % 20 == 14) {  // ask everyone for product information; the replies are logged by on_msg
+      const uint8_t req[3] = {0x14, 0xF0, 0x01};  // PGN 126996, little-endian
+      n2k_send_t r = n2k_node_send(&node, 59904, N2K_BROADCAST, 6, req, sizeof req);
+      ESP_LOGI(TAG, "sent ISO request for product info: result %d", (int)r);
+    }
     if (sec % 10 == 9) {
       const n2k_bus_stats_t *s = n2k_bus_stats(&bus);
       can_twai_stats_t d;

@@ -236,7 +236,7 @@ Also check on a board, 45 s after boot with the Navigation role: internal free m
 
 ## CAN bench (NMEA 2000 probe)
 
-What it checks: the `n2k`, `n2k_node` and `n2k_bus` libraries and the `can_twai` driver on real hardware, before any display code uses them. Each board runs a probe image (`CONFIG_BI_DIAG_CAN_PROBE`, in place of the normal app) that claims an address, sends a 28-byte alert (PGN 126983, rolling counter in byte 0) every 5 s, logs every message it hears (at most 20 lines per second), and prints a `can:` status line and a RAM line every 10 s. Two or three boards are enough; each one ACKs the others. A single board alone on a bus gets no ACK (its `failed` count climbs) and proves nothing.
+What it checks: the `n2k`, `n2k_node` and `n2k_bus` libraries and the `can_twai` driver on real hardware, before any display code uses them. Each board runs a probe image (`CONFIG_BI_DIAG_CAN_PROBE`, in place of the normal app) that claims an address, sends a 28-byte alert (PGN 126983, rolling counter in byte 0) every 5 s, logs every message it hears (at most 20 lines per second), and sends an ISO Request for product information to the whole bus every 20 s (logged as `sent ISO request ...`, with each reply as `rx pgn=126996 ... len=134`), and prints a `can:` status line and a RAM line every 10 s. Two or three boards are enough; each one ACKs the others. A single board alone on a bus gets no ACK (its `failed` count climbs) and proves nothing.
 
 **Build** (`. ~/esp/esp-idf/export.sh` first):
 
@@ -267,3 +267,10 @@ idf.py -B build/lcd7-canprobe    -p <the lcd7 CH343 port> flash monitor
 - The `RAM:` line is recorded per board (internal free, lowest, largest block). The normal app is not running, so this is the cost of the CAN stack plus the board bring-up only; the real memory gate (`docs/hardware/boards.md`, Internal RAM) is rechecked when the display uses it.
 
 Record results in `docs/hardware/boards.md` under each board's CAN row.
+
+### Bench notes (2026-11-08)
+
+- A SocketCAN adapter such as the gs_usb ("Geschwister Schneider") one shows up as `can0`, not a device file. Bring it up with `sudo ip link set can0 up type can bitrate 250000` in a real terminal (the `!` prefix has no tty for the sudo password). This adapter does not support `restart-ms`, so after a bus-off, `down` then `up` is the only reset. `candump` comes from the `can-utils` package; `-e` (error frames) cannot be combined with `-L`.
+- Terminate only the two physical ends of the chain (120 Ω each); leave the boards' own DIP terminators off.
+- Judge the adapter by its state (`ip -d link show can0`), not the berr-counter value, which the driver leaves stale.
+- Let the boards talk to each other for the node tests (the probe's own request sender); the adapter is for listening, and a few single requests (`cansend can0 18EA78F0#14F001` asks the node at 0x78 for product info).
