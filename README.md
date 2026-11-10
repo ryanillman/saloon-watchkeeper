@@ -34,6 +34,10 @@ These are renders from the desktop simulator with fixture data, not photos of a 
   <img src="docs/images/depth.png" width="49%" alt="Depth page: depth below the keel with a chart that continues into the tide forecast">
 </p>
 <p align="center">
+  <img src="docs/images/engine-alarm.png" width="49%" alt="Engine page with a port coolant alarm: red banner with ACK, SILENCE and GO, and the coolant gauge in its red zone at 104 degrees">
+  <img src="docs/images/anchor-dragging.png" width="49%" alt="Anchor page dragging: the boat outside the limit circle, the circle and the word DRAGGING in red">
+</p>
+<p align="center">
   <img src="docs/images/engine-fail.png" width="49%" alt="Engine page with the port coolant and fuel senders failed: red cross and a FAIL label on those fields only">
   <img src="docs/images/glance-night.png" width="49%" alt="Glance page in the night palette, red on black">
 </p>
@@ -42,7 +46,7 @@ These are renders from the desktop simulator with fixture data, not photos of a 
   <img src="docs/images/anchor-4in.png" width="32%" alt="Anchor page on the 4 inch square display">
 </p>
 
-The fourth row shows what failure looks like: only the failed fields lose their value, and the rest stay live. The night palette is red on black.
+The fourth row shows alarms: a Signal K coolant alarm raises a banner you can acknowledge, silence or jump from, and the anchor goes red when the boat leaves its circle. The fifth shows a failed sensor, where only the failed fields lose their value and the rest stay live, and the night palette, which is red on black.
 
 ## Supported hardware
 
