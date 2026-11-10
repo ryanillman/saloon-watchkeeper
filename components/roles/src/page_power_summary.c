@@ -209,7 +209,7 @@ void power_summary_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
     lv_obj_set_style_text_align(v.nav_strip, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(v.nav_strip, v.W);
     lv_obj_set_pos(v.nav_strip, 0, v.H + 2);
-    lv_label_set_text(v.nav_strip, "NAV");
+    ui_label_set(v.nav_strip, "NAV");
   }
   relayout(1u << N_ANY);
 }
@@ -368,7 +368,7 @@ void power_summary_refresh(role_binding_t *b, int64_t now) {
       if (bv.nav_soc_ok) snprintf(soc_t, sizeof soc_t, "%.0f %%", units_from_si(Q_RATIO, bv.nav_soc, b->units));
       if (nl->ok) snprintf(load_t, sizeof load_t, "%.0f %s", units_from_si(Q_POWER, nl->w, b->units), v.unit);
       snprintf(t, sizeof t, "NAV  %s  %s", soc_t, load_t);
-      lv_label_set_text(v.nav_strip, t);
+      ui_label_set(v.nav_strip, t);
       lv_obj_set_style_text_color(v.nav_strip, bv.nav_soc_ok && nl->ok ? ui_theme()->dim : ui_theme()->fault_label, 0);
     }
   }

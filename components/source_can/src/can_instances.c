@@ -62,6 +62,7 @@ static bool has(const can_instances_t *c, const char *path) {
 
 static bool add(can_instances_t *c, const char *path) {
   if (c->count >= CI_MAX_PATHS || has(c, path)) return false;
+  c->missed[c->count] = 0;
   snprintf(c->path[c->count++], CI_PATH_LEN, "%s", path);
   return true;
 }
@@ -83,13 +84,16 @@ void can_instances_scan(can_instances_t *out) {
 bool can_instances_update(can_instances_t *cache, const can_instances_t *live, bool settled) {
   bool changed = false;
   for (uint16_t i = 0; i < live->count; i++) changed |= add(cache, live->path[i]);
+  for (uint16_t i = 0; i < cache->count; i++)
+    if (has(live, cache->path[i])) cache->missed[i] = 0;
   if (settled) {
     for (uint16_t i = 0; i < cache->count;) {
-      if (has(live, cache->path[i])) {
+      if (has(live, cache->path[i]) || ++cache->missed[i] < CI_FORGET_SCANS) {
         i++;
         continue;
       }
       memmove(cache->path[i], cache->path[i + 1], (size_t)(cache->count - i - 1) * CI_PATH_LEN);
+      memmove(&cache->missed[i], &cache->missed[i + 1], (size_t)(cache->count - i - 1));
       cache->count--;
       changed = true;
     }
@@ -159,10 +163,8 @@ bool can_instances_save(const char *dir, const can_instances_t *in) {
     remove(tmp);
     return false;
   }
-  remove(bak);   // FAT will not rename over an existing file
-  if (rename(main_, bak) != 0 && errno != ENOENT) fprintf(stderr, "instances: rename %s: %s\n", main_, strerror(errno));
-  if (rename(tmp, main_) != 0) {
-    fprintf(stderr, "instances: save failed: rename %s: %s (the old cache is in %s)\n", tmp, strerror(errno), bak);
+  if (!platform_replace_file(tmp, main_, bak)) {
+    fprintf(stderr, "instances: save failed: could not replace %s (the previous cache stays in place)\n", main_);
     return false;
   }
   return true;
@@ -174,6 +176,9 @@ size_t can_instances_restore(const can_instances_t *in) {
     if (path_ok(in->path[i]) && bd_intern(in->path[i]) != BD_NONE) n++;
   return n;
 }
+
+static bool (*saver)(const char *dir, const can_instances_t *in);
+void can_instances_set_saver(bool (*fn)(const char *dir, const can_instances_t *in)) { saver = fn; }
 
 size_t can_instances_init(can_instances_state_t *s, const char *dir) {
   memset(s, 0, sizeof *s);
@@ -195,5 +200,5 @@ bool can_instances_tick(can_instances_state_t *s, bool signalk_live, int64_t now
   can_instances_scan(&live);
   bool settled = now_ms - s->live_since_ms >= CI_SETTLE_MS;
   if (!can_instances_update(&s->cache, &live, settled)) return false;
-  return can_instances_save(dir, &s->cache);
+  return (saver ? saver : can_instances_save)(dir, &s->cache);
 }

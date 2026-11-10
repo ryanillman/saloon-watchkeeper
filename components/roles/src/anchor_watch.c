@@ -21,11 +21,14 @@ void anchor_watch_init(anchor_watch_t *w, const char *dir, int64_t boot_ms, int3
 
 bool anchor_watch_restoring(const anchor_watch_t *w) { return w->restoring; }
 
+static bool (*saver)(const char *dir, const anchor_record_t *r);
+void anchor_watch_set_saver(bool (*fn)(const char *dir, const anchor_record_t *r)) { saver = fn; }
+
 static void save(anchor_watch_t *w, const char *dir, bool armed, double limit_m) {
   w->rec.armed = armed;
   if (limit_m > 0) w->rec.limit_m = limit_m;
   if (!w->have_sd || !dir || !dir[0]) return;
-  if (anchor_record_save(dir, &w->rec)) w->writes++;
+  if ((saver ? saver : anchor_record_save)(dir, &w->rec)) w->writes++;
   else w->have_sd = false;   // do not retry every tick; the page shows NO SD
 }
 

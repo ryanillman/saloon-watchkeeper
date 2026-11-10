@@ -124,7 +124,7 @@ static lv_obj_t *readout(lv_obj_t *area, const role_binding_t *b, uint8_t g, uin
 lv_obj_t *power_text(lv_obj_t *area, const char *txt, const lv_font_t *f, lv_color_t col, int32_t x, int32_t y,
                      int32_t w, lv_text_align_t al) {
   lv_obj_t *l = lv_label_create(area);
-  lv_label_set_text(l, txt);
+  ui_label_set(l, txt);
   lv_obj_set_style_text_font(l, f, 0);
   lv_obj_set_style_text_color(l, col, 0);
   lv_obj_set_style_text_align(l, al, 0);
@@ -136,7 +136,7 @@ lv_obj_t *power_text(lv_obj_t *area, const char *txt, const lv_font_t *f, lv_col
 
 static void caption(lv_obj_t *area, const char *txt, int32_t x, int32_t y, int32_t w, const lv_font_t *f) {
   lv_obj_t *l = lv_label_create(area);
-  lv_label_set_text(l, txt);
+  ui_label_set(l, txt);
   lv_obj_set_style_text_font(l, f, 0);
   lv_obj_set_style_text_color(l, ui_theme()->accent, 0);
   lv_obj_set_width(l, w);
@@ -296,7 +296,7 @@ static void batteries_refresh(role_binding_t *b, int64_t now) {
     if (bat.src[j]) {
       char txt[96];
       power_bank_sources(b, &bat.topo, bat.kind[j], now, bat.wide ? "\n" : "   ", txt, sizeof txt);
-      lv_label_set_text(bat.src[j], txt);
+      ui_label_set(bat.src[j], txt);
     }
   }
 }
@@ -315,7 +315,7 @@ static void charging_build(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
   chg.n = first >= total ? 0 : (uint8_t)(total - first < per ? total - first : per);
   if (!total) {
     lv_obj_t *l = lv_label_create(area);
-    lv_label_set_text(l, "NO CHARGING SOURCES");
+    ui_label_set(l, "NO CHARGING SOURCES");
     lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(l, ui_theme()->dim, 0);
     lv_obj_center(l);

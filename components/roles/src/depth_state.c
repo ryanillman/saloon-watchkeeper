@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "platform.h"
 
 depth_ref_t depth_pick(const bd_sample_t *const s[3], int64_t now_ms) {
   for (int i = 0; i < 3; i++)
@@ -18,29 +19,10 @@ const char *depth_ref_label(depth_ref_t r) {
   }
 }
 
-// Days from 1970-01-01 to a civil date (proleptic Gregorian).
-static int64_t days_from_civil(int64_t y, unsigned m, unsigned d) {
-  y -= m <= 2;
-  int64_t era = (y >= 0 ? y : y - 399) / 400;
-  unsigned yoe = (unsigned)(y - era * 400);
-  unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  return era * 146097 + (int64_t)doe - 719468;
-}
-
 bool depth_parse_time(const char *iso, int64_t *epoch_s) {
-  if (!iso) return false;
-  int y, mo, d, h, mi, s, n = 0;
-  if (sscanf(iso, "%4d-%2d-%2dT%2d:%2d:%2d%n", &y, &mo, &d, &h, &mi, &s, &n) != 6 || n != 19) return false;
-  const char *rest = iso + n;
-  if (*rest == '.') {   // fractional seconds
-    rest++;
-    if (*rest < '0' || *rest > '9') return false;
-    while (*rest >= '0' && *rest <= '9') rest++;
-  }
-  if (rest[0] != 'Z' || rest[1] != '\0') return false;
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60 || y < 1970) return false;
-  *epoch_s = days_from_civil(y, (unsigned)mo, (unsigned)d) * 86400 + h * 3600 + mi * 60 + s;
+  int64_t t;
+  if (!platform_parse_iso8601(iso, &t) || t < 0) return false;   // zone offsets are honoured, as for the strip clock
+  *epoch_s = t;
   return true;
 }
 

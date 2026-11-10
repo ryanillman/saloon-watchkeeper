@@ -1,5 +1,6 @@
 #include "anchor_record.h"
 #include <errno.h>
+#include "platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,10 +56,8 @@ bool anchor_record_save(const char *dir, const anchor_record_t *r) {
     remove(tmp);
     return false;
   }
-  remove(bak);   // FAT will not rename over an existing file
-  if (rename(main_, bak) != 0 && errno != ENOENT) fprintf(stderr, "anchor: rename %s: %s\n", main_, strerror(errno));
-  if (rename(tmp, main_) != 0) {
-    fprintf(stderr, "anchor: save failed: rename %s: %s (the old record is in %s)\n", tmp, strerror(errno), bak);
+  if (!platform_replace_file(tmp, main_, bak)) {
+    fprintf(stderr, "anchor: save failed: could not replace %s (the previous record stays in place)\n", main_);
     return false;
   }
   return true;

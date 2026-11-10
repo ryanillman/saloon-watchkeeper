@@ -25,6 +25,10 @@ typedef struct {
   uint32_t writes;            // record writes so far
 } anchor_watch_t;
 
+// Replaces how the record is written (default: anchor_record_save on the calling task). The app queues it to its
+// writer task so the card is never touched on the UI task. NULL restores the default.
+void anchor_watch_set_saver(bool (*saver)(const char *dir, const anchor_record_t *r));
+
 // dir: the config directory ("" or NULL: no card, so no record and no boot check). Reads the record.
 void anchor_watch_init(anchor_watch_t *w, const char *dir, int64_t boot_ms, int32_t lost_after_ms);
 
