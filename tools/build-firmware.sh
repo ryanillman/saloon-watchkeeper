@@ -32,10 +32,16 @@ if ! command -v esptool.py >/dev/null 2>&1; then
   exit 1
 fi
 
+# The About page shows this. ESP-IDF would run `git describe` itself, but only when CMake reconfigures, so a rebuild
+# after a commit or tag kept the old string. A build from tag v1.2.0 shows "v1.2.0"; later ones "v1.2.0-3-gabc1234"
+# (plus "-dirty" for uncommitted changes). The app description field holds 31 characters.
+version=$(git describe --tags --always --dirty 2>/dev/null | cut -c1-31 || true)
+[ -n "$version" ] || version=unknown
+
 mkdir -p out
 for b in "$@"; do
   echo "building $b"
-  idf.py -D BOARD="$b" -B "build/$b" build
+  idf.py -D BOARD="$b" -D PROJECT_VER="$version" -B "build/$b" build
   (cd "build/$b" && esptool.py --chip esp32s3 merge_bin -o "../../out/$b.bin" @flash_args)
   echo "out/$b.bin"
 done
