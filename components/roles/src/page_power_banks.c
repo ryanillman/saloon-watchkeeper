@@ -153,7 +153,7 @@ void power_banks_refresh(role_binding_t *b, int64_t now) {
       role_field_alert(bk.volts[k], b->g[G_BATTERY].ids[i][B_VOLTS]);
     }
     power_bank_sources(b, &bk.topo, k, now, bk.sc == SIZE_WIDE ? "\n" : "   ", txt, sizeof txt);
-    lv_label_set_text(bk.src[k], txt);
+    ui_label_set(bk.src[k], txt);
   }
   double ref = 1, ww[TOPO_MAX_LINKS];
   bool ok[TOPO_MAX_LINKS];

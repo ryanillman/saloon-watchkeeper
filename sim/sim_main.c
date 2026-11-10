@@ -331,6 +331,8 @@ static void anchor_state(const char *state) {
   bd_set_number(bd_intern(paths[1]), 45, SK_SOURCE_ID, now);
   bd_set_number(dist, !strcmp(state, "dragging") ? 52 : 31, SK_SOURCE_ID, now);
   bd_set_source_time(dist, set_s + 150 * 60);
+  bd_set_number(dist, !strcmp(state, "dragging") ? 52 : 31, SK_SOURCE_ID, now + 2000);   // a clock step this size needs a later update to agree
+  bd_set_source_time(dist, set_s + 150 * 60);
   bd_set_number(bd_intern(paths[3]), 2.4, SK_SOURCE_ID, now);
   bd_set_number(bd_intern(paths[4]), 12, SK_SOURCE_ID, now);
   if (!strcmp(state, "warn")) alert_raise("navigation.anchor", AL_WARN, "Anchor near its limit");

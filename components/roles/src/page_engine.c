@@ -69,11 +69,32 @@ static void fuel_name(const char *path, char *out, size_t n) {
 
 // The tank scale in the open bottom of the RPM dial: tank level, not fuel rate. One pointer per tank, two at
 // most, in path order (port before starboard, 0 before 1). Bands are the first tank's meta.zones.
-static void fuel_scale(lv_obj_t *dial) {
-  bd_id_t ids[4];
-  size_t c = bd_match("tanks.fuel.*.currentLevel", ids, 4);
-  if (c > 2) c = 2;
-  qsort(ids, c, sizeof ids[0], cmp_fuel);
+static void fuel_setup(lv_obj_t *dial, const bd_id_t *ids, size_t c);
+static lv_obj_t *seen_dial;   // the dial fuel_scale last set up; cleared when a page build makes a new one (the address can be reused)
+
+// The match, sort, names and bands are redone only when the path table grew, the dial is a new one, or 5 s have passed
+// (a zone can arrive for a path that already exists); every call still sets the levels.
+static void fuel_scale(lv_obj_t *dial, int64_t now) {
+  static bd_id_t ids[4];
+  static size_t c, seen_count;
+  static int64_t setup_ms;
+  if (dial != seen_dial || bd_count() != seen_count || now - setup_ms >= 5000) {
+    seen_dial = dial;
+    seen_count = bd_count();
+    setup_ms = now;
+    c = bd_match("tanks.fuel.*.currentLevel", ids, 4);
+    if (c > 2) c = 2;
+    qsort(ids, c, sizeof ids[0], cmp_fuel);
+    fuel_setup(dial, ids, c);
+  }
+  for (size_t i = 0; i < c; i++) {
+    bd_sample_t s;
+    bool ok = bd_get(ids[i], &s) && s.kind == BD_NUMBER && s.valid;
+    ui_dial_fuel_set(dial, (uint8_t)i, ok ? s.num : 0, ok);
+  }
+}
+
+static void fuel_setup(lv_obj_t *dial, const bd_id_t *ids, size_t c) {
   char names[2][12] = {"", ""};
   const char *labels[2] = {names[0], names[1]};
   for (size_t i = 0; i < c && c > 1; i++) fuel_name(bd_path(ids[i]), names[i], sizeof names[i]);
@@ -88,11 +109,6 @@ static void fuel_scale(lv_obj_t *dial) {
     }
   }
   ui_dial_fuel_setup(dial, (uint8_t)c, labels, bands, nb);
-  for (size_t i = 0; i < c; i++) {
-    bd_sample_t s;
-    bool ok = bd_get(ids[i], &s) && s.kind == BD_NUMBER && s.valid;
-    ui_dial_fuel_set(dial, (uint8_t)i, ok ? s.num : 0, ok);
-  }
 }
 
 static void overview_wide(lv_obj_t *area, role_binding_t *b, uint8_t n, uint8_t needles) {
@@ -105,6 +121,7 @@ static void overview_wide(lv_obj_t *area, role_binding_t *b, uint8_t n, uint8_t 
   int32_t sh = (H - sy - pad - 2 * pad) / 3;
   for (uint8_t i = 0; n > 1 && i < n; i++) column_header(area, b->g[0].inst_label[i], sx + i * (sw + pad), sy - hdr, sw);
   v.dial = ui_dial_create(area, spec_for(b, 0, S_RPM), needles, v.needle_label);
+  seen_dial = NULL;
   place(v.dial, pad, (H - dial) / 2, dial, dial);
   for (uint8_t i = 0; i < n; i++)
     for (uint8_t r = 0; r < 3; r++)
@@ -124,6 +141,7 @@ static void overview_square(lv_obj_t *area, role_binding_t *b, uint8_t n, uint8_
   for (uint8_t i = 0; n > 1 && i < n; i++)
     column_header(area, b->g[0].inst_label[i], sx + i * (sw + pad), sy - hdr, sw);
   v.dial = ui_dial_create(area, spec_for(b, 0, S_RPM), needles, v.needle_label);
+  seen_dial = NULL;
   place(v.dial, (W - dial) / 2, 0, dial, dial);
   for (uint8_t i = 0; i < n; i++)
     for (uint8_t r = 0; r < 2; r++)
@@ -191,7 +209,7 @@ static engine_status_t assess(const role_binding_t *b, uint8_t i, int64_t now) {
 }
 
 void engine_refresh(role_binding_t *b, int64_t now) {
-  if (v.dial) fuel_scale(v.dial);   // stays live when an engine is off: a tank level does not depend on it
+  if (v.dial) fuel_scale(v.dial, now);   // stays live when an engine is off: a tank level does not depend on it
   for (uint8_t i = 0; i < b->g[0].inst_count; i++) {
     engine_status_t es = assess(b, i, now);
     for (uint8_t k = 0; k < b->def->groups[0].slot_count; k++) {
