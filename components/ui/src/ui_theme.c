@@ -45,3 +45,7 @@ lv_color_t ui_zone_line_color(uint8_t zone_state, lv_color_t normal) {
   const ui_colors_t *c = ui_theme();
   return lv_color_lighten(zone_state >= 3 ? c->alarm : c->warn, LV_OPA_40);
 }
+
+void ui_label_set(lv_obj_t *label, const char *txt) {
+  if (strcmp(lv_label_get_text(label), txt) != 0) lv_label_set_text(label, txt);
+}

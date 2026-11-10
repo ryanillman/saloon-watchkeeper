@@ -55,6 +55,8 @@ static void test_parse_signalk_timestamp(void) {
   TEST_ASSERT_EQUAL_INT64(1793802720, t);
   TEST_ASSERT_TRUE(depth_parse_time("2026-11-04T14:32:00Z", &t));
   TEST_ASSERT_EQUAL_INT64(1793802720, t);
+  TEST_ASSERT_TRUE(depth_parse_time("2026-11-04T15:32:00.000+01:00", &t));   // an offset is the same instant
+  TEST_ASSERT_EQUAL_INT64(1793802720, t);
 }
 
 static void test_parse_rejects_what_is_not_a_utc_timestamp(void) {

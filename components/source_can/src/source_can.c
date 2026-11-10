@@ -119,6 +119,7 @@ bool source_can_path(const n2k_value_t *v, const source_can_cfg_t *cfg, char *ou
 void source_can_init(source_can_t *s, const source_can_cfg_t *cfg) {
   memset(s, 0, sizeof *s);
   s->cfg = *cfg;
+  s->init_ms = platform_millis();
   s->state = BD_SRC_CONNECTING;
   bd_source_register(BD_SRC_N2K, "nmea2000", 1);
   bd_source_set_state(BD_SRC_N2K, BD_SRC_CONNECTING);
@@ -164,6 +165,11 @@ void source_can_on_msg(const n2k_msg_t *m, void *ctx) {
 }
 
 void source_can_tick(source_can_t *s) {
+  if (s->state == BD_SRC_CONNECTING && platform_millis() - s->init_ms > SOURCE_CAN_SILENCE_MS) {
+    s->state = BD_SRC_OFFLINE;
+    bd_source_set_state(BD_SRC_N2K, BD_SRC_OFFLINE);
+    return;
+  }
   if (s->state == BD_SRC_LIVE && platform_millis() - s->last_msg_ms > SOURCE_CAN_SILENCE_MS) {
     s->state = BD_SRC_OFFLINE;
     bd_source_set_state(BD_SRC_N2K, BD_SRC_OFFLINE);

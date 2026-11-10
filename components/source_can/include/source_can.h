@@ -30,6 +30,7 @@ typedef struct {
 typedef struct {
   source_can_cfg_t cfg;
   int64_t last_msg_ms;   // last message of a PGN this decodes
+  int64_t init_ms;       // when init ran: a bus silent from the start goes OFFLINE this long after
   bd_src_state_t state;
   uint32_t values;       // values written
   uint32_t unmapped;     // values dropped because their path does not exist (create_paths false)
@@ -44,7 +45,7 @@ void source_can_init(source_can_t *s, const source_can_cfg_t *cfg);
 void source_can_on_msg(const n2k_msg_t *m, void *ctx);
 
 // LIVE while decoded messages arrive; after SOURCE_CAN_SILENCE_MS of silence OFFLINE, once invalidating
-// everything this source wrote.
+// everything this source wrote. A bus that never delivers a message goes CONNECTING to OFFLINE the same way.
 void source_can_tick(source_can_t *s);
 
 // The Signal K path for a value (false when it has none, e.g. an unknown fluid type).

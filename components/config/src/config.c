@@ -182,7 +182,10 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *sk = cJSON_GetObjectItem(cJSON_GetObjectItem(root, "sources"), "signalk");
   COPY(c->sk.host, cJSON_GetObjectItem(sk, "host"));
   const cJSON *port = cJSON_GetObjectItem(sk, "port");
-  if (cJSON_IsNumber(port) && port->valueint > 0 && port->valueint < 65536) c->sk.port = (uint16_t)port->valueint;
+  if (cJSON_IsNumber(port)) {
+    if (port->valuedouble >= 1 && port->valuedouble <= 65535) c->sk.port = (uint16_t)port->valueint;
+    else issue(rep, "sources.signalk.port", 0, "out of range; using the default. Valid: 1-65535");
+  }
   COPY(c->sk.token, cJSON_GetObjectItem(sk, "token"));
   COPY(c->sk.request, cJSON_GetObjectItem(sk, "request"));
 
@@ -224,7 +227,10 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
   const cJSON *d = cJSON_GetObjectItem(root, "display");
   COPY(c->palette, cJSON_GetObjectItem(d, "palette"));
   const cJSON *br = cJSON_GetObjectItem(d, "brightness");
-  if (cJSON_IsNumber(br)) c->brightness = br->valueint < 0 ? 0 : br->valueint > 100 ? 100 : (uint8_t)br->valueint;
+  if (cJSON_IsNumber(br)) {
+    if (br->valuedouble < 0 || br->valuedouble > 100) issue(rep, "display.brightness", 0, "out of range; clamped. Valid: 0-100");
+    c->brightness = br->valuedouble < 0 ? 0 : br->valuedouble > 100 ? 100 : (uint8_t)br->valueint;
+  }
   const cJSON *tz = cJSON_GetObjectItem(d, "utc_offset_min");
   double minutes = 0;
   bool have_tz = false;
@@ -325,7 +331,7 @@ static bool try_load(const char *path, const char *name, cfg_t *out, cfg_report_
   if (!text) return false;
   cJSON *root = cJSON_ParseWithOpts(text, NULL, true);
   if (!root || !cJSON_IsObject(root)) {
-    const char *err = cJSON_GetErrorPtr();
+    const char *err = root ? NULL : cJSON_GetErrorPtr();   // a parsed non-object has no error position
     issue(rep, name, err ? line_at(text, err) : 0, "not valid JSON");
     cJSON_Delete(root);
     free(text);
@@ -551,13 +557,8 @@ static bool save_locked(const char *dir, const cfg_t *c) {
     remove(tmp);
     return false;
   }
-  // FAT will not rename over an existing file, so clear the old backup first.
-  // A power cut after this point leaves config.bak.json for cfg_load to find.
-  remove(bak);
-  if (rename(main_, bak) != 0 && errno != ENOENT)
-    fprintf(stderr, "config: rename %s -> %s: %s\n", main_, bak, strerror(errno));
-  if (rename(tmp, main_) != 0) {
-    fprintf(stderr, "config: save failed: rename %s -> %s: %s (the old config is in %s)\n", tmp, main_, strerror(errno), bak);
+  if (!platform_replace_file(tmp, main_, bak)) {
+    fprintf(stderr, "config: save failed: could not replace %s (the previous config stays in place)\n", main_);
     return false;
   }
   fprintf(stderr, "config: saved %s (%u bytes)\n", main_, (unsigned)text_len);
@@ -584,7 +585,12 @@ static bool set_path(cJSON *root, const char *path, const char *text, cfg_report
   while ((dot = strchr(seg, '.')) != NULL) {
     *dot = 0;
     if (!*seg) break;
-    o = object(o, seg);
+    cJSON *next = cJSON_GetObjectItem(o, seg);
+    if (next && !cJSON_IsObject(next)) {   // never replace an array or value with an empty object
+      issue(err, path, 0, "not a key path");
+      return false;
+    }
+    o = next ? next : object(o, seg);
     seg = dot + 1;
   }
   if (!*seg) {
@@ -629,11 +635,15 @@ bool cfg_set(const char *dir, const char *path, const char *text, cfg_t *out, cf
     cfg_defaults(out);
     parse(edit, out, &rep);
     size_t pl = strlen(path);
-    for (uint8_t i = 0; i < rep.count; i++)   // only issues about the key being set count
-      if (!strncmp(rep.issues[i].key_path, path, pl)) {
+    for (uint8_t i = 0; i < rep.count; i++) {   // only issues about the key being set, or a parent of it, count
+      const char *k = rep.issues[i].key_path;
+      size_t kl = strlen(k);
+      bool match = !strncmp(k, path, pl) || (kl < pl && !strncmp(k, path, kl) && path[kl] == '.');
+      if (match) {
         err->issues[err->count++] = rep.issues[i];
         ok = false;
       }
+    }
   }
   if (ok) {
     cJSON_Delete(tree);

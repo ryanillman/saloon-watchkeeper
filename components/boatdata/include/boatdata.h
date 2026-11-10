@@ -59,6 +59,7 @@ void bd_invalidate_source(uint8_t source);
 // all rank equal, which is last writer wins. Ranks and states are cleared by bd_init.
 typedef enum { BD_SRC_NOT_CONFIGURED, BD_SRC_OFFLINE, BD_SRC_CONNECTING, BD_SRC_LIVE } bd_src_state_t;
 #define BD_HOLD_MS_DEFAULT 30000   // slow Signal K paths (tank levels, SOC) can be quiet for a while
+#define BD_CLOCK_STEP_S 30         // a source timestamp further ahead of the newest (plus elapsed time) waits for a second to agree
 #define BD_REPLAY_S 10             // a source timestamp this far behind the newest one is a replay, not a reading
 
 void bd_source_register(uint8_t source, const char *name, uint8_t rank);   // higher rank wins; marks it configured (OFFLINE)

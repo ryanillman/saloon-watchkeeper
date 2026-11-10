@@ -25,7 +25,7 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *f, lv_color_t col
   lv_obj_set_style_text_align(l, align, 0);
   lv_obj_set_width(l, width);
   lv_obj_set_pos(l, x, y);
-  lv_label_set_text(l, "");
+  ui_label_set(l, "");
   return l;
 }
 
@@ -45,7 +45,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text, const lv_font_t
   lv_obj_t *l = lv_label_create(b);
   lv_obj_set_style_text_font(l, f, 0);
   lv_obj_set_style_text_color(l, c->fg, 0);
-  lv_label_set_text(l, text);
+  ui_label_set(l, text);
   lv_obj_center(l);
   if (label_out) *label_out = l;
   return b;
@@ -104,16 +104,16 @@ static void build_fail(lv_obj_t *area, const lv_font_t *title, const lv_font_t *
   w.fail_title = lv_label_create(w.fail);
   lv_obj_set_style_text_font(w.fail_title, title, 0);
   lv_obj_set_style_text_color(w.fail_title, c->fault_label, 0);
-  lv_label_set_text(w.fail_title, "ANCHOR FAIL");
+  ui_label_set(w.fail_title, "ANCHOR FAIL");
   w.fail_armed = lv_label_create(w.fail);
   lv_obj_set_style_text_font(w.fail_armed, line, 0);
   lv_obj_set_style_text_color(w.fail_armed, c->fg, 0);
   lv_obj_set_style_text_align(w.fail_armed, LV_TEXT_ALIGN_CENTER, 0);
-  lv_label_set_text(w.fail_armed, "");
+  ui_label_set(w.fail_armed, "");
   w.fail_cause = lv_label_create(w.fail);
   lv_obj_set_style_text_font(w.fail_cause, line, 0);
   lv_obj_set_style_text_color(w.fail_cause, c->dim, 0);
-  lv_label_set_text(w.fail_cause, "");
+  ui_label_set(w.fail_cause, "");
   lv_obj_add_event_cb(w.fail, draw_fail_cross, LV_EVENT_DRAW_MAIN_END, NULL);
   lv_obj_add_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
 }
@@ -145,8 +145,8 @@ void anchor_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
   w.bear_val = make_label(area, big, c->fg, LV_TEXT_ALIGN_RIGHT, W - pad - colw, pad, colw);
   w.bear_cap = make_label(area, small, c->dim, LV_TEXT_ALIGN_RIGHT, W - pad - colw,
                           pad + lv_font_get_line_height(big) + 2, colw);
-  lv_label_set_text(w.dist_cap, "FROM ANCHOR");
-  lv_label_set_text(w.bear_cap, "TO ANCHOR");
+  ui_label_set(w.dist_cap, "FROM ANCHOR");
+  ui_label_set(w.bear_cap, "TO ANCHOR");
 
   int32_t main_w = w.wide ? colw : (W - 3 * pad) * 11 / 20;
   int32_t row_y = H - pad - bh;
@@ -233,9 +233,9 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
 
   if (w.fail) {   // Signal K is down: the page is FAIL and nothing under it is current
     if (s->fail) {
-      lv_label_set_text(w.fail_armed, s->armed ? "AN ANCHOR WAS SET" : "NO ANCHOR KNOWN TO BE SET");
+      ui_label_set(w.fail_armed, s->armed ? "AN ANCHOR WAS SET" : "NO ANCHOR KNOWN TO BE SET");
       lv_obj_set_style_text_color(w.fail_armed, s->armed ? ui_theme()->warn : ui_theme()->fg, 0);
-      lv_label_set_text(w.fail_cause, s->cause);
+      ui_label_set(w.fail_cause, s->cause);
       lv_obj_remove_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_add_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
@@ -249,11 +249,11 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
   ui_swing_set(w.plot, &d);
 
   anchor_format_distance(t, sizeof t, v->distance_m, u, true);
-  lv_label_set_text(w.dist_val, t);
+  ui_label_set(w.dist_val, t);
   if (isnan(v->bearing_rad)) snprintf(t, sizeof t, "--");
   else snprintf(t, sizeof t, "%.0f\xC2\xB0 T", fmod(v->bearing_rad * 180.0 / M_PI + 360.0, 360.0));
-  lv_label_set_text(w.bear_val, t);
-  lv_label_set_text(w.mode, mode_word(v->mode));
+  ui_label_set(w.bear_val, t);
+  ui_label_set(w.mode, mode_word(v->mode));
   lv_obj_set_style_text_color(w.mode, swing_color(st), 0);
 
   if (!v->circle && v->mode != AM_NO_DATA) {
@@ -266,13 +266,13 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
     anchor_format_distance(lim, sizeof lim, s->shown_limit_m, u, true);
     snprintf(t, sizeof t, w.wide ? "LIMIT %s" : "%s", lim);
   }
-  lv_label_set_text(w.limit, t);
+  ui_label_set(w.limit, t);
   lv_obj_set_style_text_color(w.limit, s->limit_staged ? ui_theme()->warn : ui_theme()->fg, 0);
   set_enabled(w.minus, s->radius_enabled);
   set_enabled(w.plus, s->radius_enabled);
 
   const char *label = s->message[0] ? s->message : s->button == ANCHOR_BTN_DROP ? "DROP" : s->button == ANCHOR_BTN_RAISE ? "RAISE" : "--";
-  lv_label_set_text(w.main_lbl, label);
+  ui_label_set(w.main_lbl, label);
   set_enabled(w.main, s->main_enabled);
   if (s->hold_pct > 0) {
     lv_obj_remove_flag(w.bar, LV_OBJ_FLAG_HIDDEN);
@@ -291,9 +291,9 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
     }
     if (!isnan(v->rode_m)) { anchor_format_distance(a, sizeof a, v->rode_m, u, true); snprintf(r, sizeof r, "CHAIN %s", a); }
     snprintf(info, sizeof info, "%s\n%s\n%s", m, set, r);
-    lv_label_set_text(w.info, info);
+    ui_label_set(w.info, info);
   }
-  lv_label_set_text(w.nosd, s->no_sd ? "NO SD" : "");
+  ui_label_set(w.nosd, s->no_sd ? "NO SD" : "");
 }
 
 const char *anchor_page_button_text(void) { return w.main_lbl ? lv_label_get_text(w.main_lbl) : NULL; }

@@ -503,6 +503,35 @@ static void test_cfg_set_rejects_bad_number(void) {
   TEST_ASSERT_EQUAL_STRING(before, read_file("config.json"));
 }
 
+static void test_cfg_set_refuses_a_path_through_a_non_object(void) {
+  write_file("config.json",
+             "{ \"units\": {\"temperature\": \"F\"}, \"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  char before[1024];
+  snprintf(before, sizeof before, "%s", read_file("config.json"));
+  TEST_ASSERT_FALSE(cfg_set(dir, "roles.foo", "x", &out, &r));
+  TEST_ASSERT_FALSE(cfg_set(dir, "units.temperature.foo", "x", &out, &r));
+  TEST_ASSERT_EQUAL_STRING(before, read_file("config.json"));
+  cfg_t back;
+  cfg_load(dir, &back, &r);
+  TEST_ASSERT_EQUAL_STRING("engine", back.roles[0].role);
+  TEST_ASSERT_EQUAL_STRING("F", back.units.temperature);
+}
+
+static void test_cfg_set_reports_out_of_range_numbers(void) {
+  write_file("config.json",
+             "{ \"sources\": {\"signalk\": {\"port\": 3000}}, \"display\": {\"brightness\": 80}, "
+             "\"roles\": [ {\"role\": \"engine\"} ] }");
+  cfg_t c, out;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_FALSE(cfg_set(dir, "sources.signalk.port", "70000", &out, &r));
+  TEST_ASSERT_FALSE(cfg_set(dir, "display.brightness", "500", &out, &r));
+  TEST_ASSERT_TRUE(cfg_set(dir, "display.brightness", "50", &out, &r));
+}
+
 static void test_cfg_set_rejects_invalid_value(void) {
   write_file("config.json", MINIMAL);
   cfg_t c, out;
@@ -783,6 +812,8 @@ int main(void) {
   RUN_TEST(test_cfg_vessel_name_roundtrips);
   RUN_TEST(test_cfg_set_rejects_bad_number);
   RUN_TEST(test_cfg_set_rejects_invalid_value);
+  RUN_TEST(test_cfg_set_refuses_a_path_through_a_non_object);
+  RUN_TEST(test_cfg_set_reports_out_of_range_numbers);
   RUN_TEST(test_cfg_set_creates_missing_string_key);
   RUN_TEST(test_cfg_set_utc_offset_on_a_file_that_lacks_the_key);
   RUN_TEST(test_cfg_set_rejects_a_utc_offset_that_is_not_a_number);

@@ -68,7 +68,9 @@ static void test_update_adds_at_once_and_removes_only_when_settled(void) {
   TEST_ASSERT_EQUAL_UINT16(3, cache.count);
   TEST_ASSERT_TRUE(has(&cache, "propulsion.starboard.revolutions"));
   TEST_ASSERT_TRUE(has(&cache, "electrical.batteries.1.voltage"));
-  TEST_ASSERT_TRUE(can_instances_update(&cache, &live, true));    // settled: starboard is gone
+  for (int i = 0; i < CI_FORGET_SCANS - 1; i++) TEST_ASSERT_FALSE(can_instances_update(&cache, &live, true));   // missing, not yet gone
+  TEST_ASSERT_EQUAL_UINT16(3, cache.count);
+  TEST_ASSERT_TRUE(can_instances_update(&cache, &live, true));    // settled and absent long enough: starboard is gone
   TEST_ASSERT_EQUAL_UINT16(2, cache.count);
   TEST_ASSERT_FALSE(has(&cache, "propulsion.starboard.revolutions"));
   TEST_ASSERT_FALSE(can_instances_update(&cache, &live, true));   // nothing more to do
@@ -141,6 +143,22 @@ static void test_tick_saves_on_live_data_and_waits_between_scans(void) {
   TEST_ASSERT_EQUAL_UINT16(2, c.count);
 }
 
+static void test_a_flapping_path_is_not_forgotten(void) {
+  can_instances_t cache, live;
+  memset(&cache, 0, sizeof cache);
+  memset(&live, 0, sizeof live);
+  strcpy(cache.path[0], "propulsion.port.revolutions");
+  cache.count = 1;
+  for (int i = 0; i < 20; i++) {   // absent for a few scans, back, absent...
+    for (int k = 0; k < CI_FORGET_SCANS - 1; k++) TEST_ASSERT_FALSE(can_instances_update(&cache, &live, true));
+    strcpy(live.path[0], "propulsion.port.revolutions");
+    live.count = 1;
+    TEST_ASSERT_FALSE(can_instances_update(&cache, &live, true));
+    live.count = 0;
+  }
+  TEST_ASSERT_EQUAL_UINT16(1, cache.count);
+}
+
 static void test_tick_removes_a_gone_path_only_after_a_minute_live(void) {
   can_instances_state_t st;
   can_instances_init(&st, dir);
@@ -152,7 +170,9 @@ static void test_tick_removes_a_gone_path_only_after_a_minute_live(void) {
   can_instances_t c;
   can_instances_load(dir, &c);
   TEST_ASSERT_EQUAL_UINT16(2, c.count);
-  TEST_ASSERT_TRUE(can_instances_tick(&st, true, 62000, dir));     // over a minute: it is gone
+  TEST_ASSERT_FALSE(can_instances_tick(&st, true, 62000, dir));    // over a minute, but one absent scan is not enough
+  for (int t = 67000; t < 62000 + 5000 * (CI_FORGET_SCANS - 1); t += 5000) can_instances_tick(&st, true, t, dir);
+  TEST_ASSERT_TRUE(can_instances_tick(&st, true, 62000 + 5000 * (CI_FORGET_SCANS - 1), dir));   // absent scan after scan: gone
   can_instances_load(dir, &c);
   TEST_ASSERT_EQUAL_UINT16(1, c.count);
   can_instances_tick(&st, false, 70000, dir);                      // a disconnect restarts the settling clock
@@ -189,6 +209,7 @@ int main(void) {
   RUN_TEST(test_a_cache_with_a_foreign_path_is_ignored_for_that_entry);
   RUN_TEST(test_tick_saves_on_live_data_and_waits_between_scans);
   RUN_TEST(test_tick_removes_a_gone_path_only_after_a_minute_live);
+  RUN_TEST(test_a_flapping_path_is_not_forgotten);
   RUN_TEST(test_init_restores_from_the_file);
   RUN_TEST(test_no_directory_is_harmless);
   return UNITY_END();

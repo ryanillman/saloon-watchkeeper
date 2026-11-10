@@ -150,6 +150,27 @@ static void test_engine_dynamic(void) {
   TEST_ASSERT_NULL(find(N2K_F_ENGINE_ALTERNATOR_VOLTAGE));
 }
 
+static void test_out_of_range_percent_is_dropped(void) {
+  const uint8_t over[8] = {0x11, 0x88, 0x61, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};   // 25000 * 0.004 = 100.0 %: kept
+  ngot = 0;
+  decode(127505, over, 8);
+  TEST_ASSERT_NOT_NULL(find(N2K_F_TANK_LEVEL));
+  const uint8_t full_plus[8] = {0x11, 0x00, 0x7D, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};   // 32000 * 0.004 = 128 %
+  ngot = 0;
+  decode(127505, full_plus, 8);
+  TEST_ASSERT_NULL(find(N2K_F_TANK_LEVEL));
+  const uint8_t neg[8] = {0x11, 0x00, 0xF0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  ngot = 0;
+  decode(127505, neg, 8);
+  TEST_ASSERT_NULL(find(N2K_F_TANK_LEVEL));
+  uint8_t d[11];
+  memset(d, 0xFF, sizeof d);
+  d[0] = 1; d[1] = 1; d[2] = 0; d[3] = 253;   // 253 % is not a state of charge
+  ngot = 0;
+  decode(127506, d, 11);
+  TEST_ASSERT_NULL(find(N2K_F_BATT_SOC));
+}
+
 static void test_battery_soc(void) {
   uint8_t d[11];
   memset(d, 0xFF, sizeof d);
@@ -264,6 +285,7 @@ int main(void) {
   RUN_TEST(test_battery_current_not_available);
   RUN_TEST(test_engine_rapid);
   RUN_TEST(test_tank);
+  RUN_TEST(test_out_of_range_percent_is_dropped);
   RUN_TEST(test_unknown_pgn_and_short_messages);
   RUN_TEST(test_fluid_names);
   RUN_TEST(test_engine_dynamic);

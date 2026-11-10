@@ -246,8 +246,35 @@ static void test_replayed_value_with_an_old_server_timestamp_is_stale(void) {
   num(ids.bearing_true, 1.0, T0, S);
   bd_set_source_time(bd_intern("navigation.datetime"), S + 30);    // its clock is only 30 s ahead: fine
   TEST_ASSERT_EQUAL(AM_HOLDING, view_at(false, true, T0).mode);
-  bd_set_source_time(bd_intern("navigation.datetime"), S + 200);   // ...but now it has moved on 200 s
+  bd_id_t clk = bd_intern("navigation.datetime");
+  bd_set_text(clk, "t", 1, T0 + 1000);
+  bd_set_source_time(clk, S + 200);   // ...but now it has moved on 200 s
+  bd_set_text(clk, "t", 1, T0 + 5000);
+  bd_set_source_time(clk, S + 204);   // (a step that size needs a later update to agree)
   TEST_ASSERT_EQUAL(AM_NO_DATA, view_at(false, true, T0).mode);
+}
+
+static void test_one_delta_from_the_future_with_two_values_does_not_confirm_itself(void) {
+  int64_t S = 1793844000;
+  full(T0);
+  num(ids.current_radius, 30, T0, S);
+  num(ids.bearing_true, 1.0, T0, S);
+  bd_id_t a = bd_intern("navigation.datetime"), b = bd_intern("navigation.speedOverGround");
+  bd_set_text(a, "t", 1, T0);
+  bd_set_number(b, 1, 1, T0);
+  bd_set_source_time(a, S + 86400);   // one delta, two values, the same stamp and receive time
+  bd_set_source_time(b, S + 86400);
+  TEST_ASSERT_EQUAL_INT64(S, bd_newest_source_time());
+}
+
+static void test_one_stamp_from_the_future_does_not_make_fresh_data_stale(void) {
+  int64_t S = 1793844000;
+  full(T0);
+  num(ids.current_radius, 30, T0, S);
+  num(ids.bearing_true, 1.0, T0, S);
+  bd_set_source_time(bd_intern("navigation.datetime"), S + 86400);   // a server with a bad clock, once
+  TEST_ASSERT_EQUAL(AM_HOLDING, view_at(false, true, T0).mode);
+  TEST_ASSERT_EQUAL_INT64(S, bd_newest_source_time());
 }
 
 int main(void) {
@@ -269,5 +296,7 @@ int main(void) {
   RUN_TEST(test_reconnect_with_no_data_yet_is_no_data_not_not_set);
   RUN_TEST(test_reconnect_while_restoring_is_not_a_server_none);
   RUN_TEST(test_replayed_value_with_an_old_server_timestamp_is_stale);
+  RUN_TEST(test_one_stamp_from_the_future_does_not_make_fresh_data_stale);
+  RUN_TEST(test_one_delta_from_the_future_with_two_values_does_not_confirm_itself);
   return UNITY_END();
 }

@@ -44,21 +44,28 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
       esp_http_client_get_status_code(h) == 200) {
     size_t cap = 8192, n = 0;
     char *buf = body_alloc(cap);
-    int r;
+    int r = 0;
+    bool complete = true;   // a read error or a failed grow means the body is cut short: not a success
     while (buf && (r = esp_http_client_read(h, buf + n, (int)(cap - n - 1))) > 0) {
       n += (size_t)r;
       if (cap - n < 1024) {
         char *next = body_grow(buf, cap * 2);
-        if (!next) break;
+        if (!next) {
+          complete = false;
+          break;
+        }
         buf = next;
         cap *= 2;
       }
     }
-    if (buf) {
+    if (buf && r < 0) complete = false;   // 0 is the end of the body; negative is an error
+    if (buf && complete) {
       buf[n] = 0;
       *body = buf;
       *len = n;
       ok = true;
+    } else {
+      free(buf);
     }
   }
   esp_http_client_close(h);
@@ -100,9 +107,9 @@ bool sk_http_request(const char *method, const char *url, const char *token, con
   if (ok) ok = esp_http_client_fetch_headers(h) >= 0;
   if (ok) {
     *status = esp_http_client_get_status_code(h);
-    size_t cap = 1024, n = 0;   // access-request replies are small
+    size_t cap = 4096, n = 0;   // access-request replies are small, but a token reply should have room to spare
     char *buf = malloc(cap);
-    int r;
+    int r = 0;
     while (buf && n < cap - 1 && (r = esp_http_client_read(h, buf + n, (int)(cap - n - 1))) > 0) n += (size_t)r;
     if (buf) {
       buf[n] = 0;
@@ -130,7 +137,8 @@ static struct {
   sk_msg_cb cb;
   void *ctx;
   char *frag;   // text message being reassembled
-  size_t frag_len;
+  size_t frag_len, frag_cap, frame_base;   // bytes so far; allocation; where the current frame starts in frag
+  bool discard;   // out of memory partway through a message
   volatile bool closed;
   atomic_uint dropped;   // messages dropped since the last sk_ws_take_overflow
   char *auth;
@@ -149,27 +157,54 @@ static void on_ws(void *arg, esp_event_base_t base, int32_t id, void *data) {
     return;
   }
   if (id != WEBSOCKET_EVENT_DATA || (e->op_code != 0x1 && e->op_code != 0x0)) return;
-  // A frame may arrive in pieces: payload_offset/payload_len describe the whole frame.
-  if (e->payload_offset == 0) {
+  // One event carries part of one frame: payload_offset/payload_len describe that frame, not the message. A message
+  // split by the server arrives as a text frame (0x1) then continuation frames (0x0), each starting at offset 0, and ends
+  // with the frame that has fin set. Only a text frame at offset 0 begins a new message.
+  size_t need;
+  if (e->op_code == 0x1 && e->payload_offset == 0) {
     free(ws.frag);
-    ws.frag = msg_alloc((size_t)e->payload_len + 1);
-    ws.frag_len = 0;
+    ws.frag = NULL;
+    ws.frag_len = ws.frag_cap = 0;
+    ws.frame_base = 0;
+    ws.discard = false;
+  } else if (e->op_code == 0x0 && !ws.frag && !ws.discard) {
+    return;   // a continuation with no message in progress has nothing to join
+  } else if (e->op_code == 0x0 && e->payload_offset == 0) {
+    ws.frame_base = ws.frag_len;   // this frame appends to what the earlier ones delivered
   }
-  if (!ws.frag) {
-    if (e->payload_offset + e->data_len >= e->payload_len) atomic_fetch_add(&ws.dropped, 1);   // lost to OOM
+  need = ws.frame_base + (size_t)e->payload_len + 1;
+  if (!ws.discard && need > ws.frag_cap) {
+    char *p = ws.frag ? heap_caps_realloc(ws.frag, need, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : msg_alloc(need);
+    if (!p && ws.frag) p = realloc(ws.frag, need);
+    if (p) {
+      ws.frag = p;
+      ws.frag_cap = need;
+    } else {
+      free(ws.frag);
+      ws.frag = NULL;
+      ws.frag_len = ws.frag_cap = 0;
+      ws.discard = true;   // lost to OOM: the rest of this message is skipped and counted once
+    }
+  }
+  bool frame_done = e->payload_offset + e->data_len >= e->payload_len;
+  if (!ws.discard && ws.frag) {
+    memcpy(ws.frag + ws.frame_base + e->payload_offset, e->data_ptr, (size_t)e->data_len);
+    if (frame_done) ws.frag_len = ws.frame_base + (size_t)e->payload_len;
+  }
+  if (!frame_done || !e->fin) return;
+  if (ws.discard || !ws.frag) {
+    atomic_fetch_add(&ws.dropped, 1);
+    ws.discard = false;
     return;
   }
-  memcpy(ws.frag + e->payload_offset, e->data_ptr, (size_t)e->data_len);
-  ws.frag_len = (size_t)(e->payload_offset + e->data_len);
-  if (ws.frag_len >= (size_t)e->payload_len) {
-    ws.frag[ws.frag_len] = 0;
-    msg_t m = {ws.frag, ws.frag_len};
-    if (xQueueSend(ws.q, &m, 0) != pdTRUE) {
-      free(ws.frag);
-      atomic_fetch_add(&ws.dropped, 1);
-    }
-    ws.frag = NULL;
+  ws.frag[ws.frag_len] = 0;
+  msg_t m = {ws.frag, ws.frag_len};
+  if (xQueueSend(ws.q, &m, 0) != pdTRUE) {
+    free(ws.frag);
+    atomic_fetch_add(&ws.dropped, 1);
   }
+  ws.frag = NULL;
+  ws.frag_len = ws.frag_cap = 0;
 }
 
 bool sk_ws_connect(const char *url, const char *token, sk_msg_cb cb, void *ctx) {

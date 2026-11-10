@@ -13,18 +13,20 @@
 #define CI_PATH_LEN 64
 #define CI_SCAN_MS 5000     // how often live data is compared with the cache
 #define CI_SETTLE_MS 60000  // Signal K must have been live this long before a vanished path is forgotten
+#define CI_FORGET_SCANS 6   // ...and the path must then be missing from this many scans in a row (a flapping sender is not forgotten)
 
 typedef struct {
   char path[CI_MAX_PATHS][CI_PATH_LEN];
   uint16_t count;
+  uint8_t missed[CI_MAX_PATHS];   // consecutive settled scans each path was absent from (cache only)
 } can_instances_t;
 
 // The cache paths Signal K has delivered a valid value for right now. Placeholders and values written by the bus
 // do not count.
 void can_instances_scan(can_instances_t *out);
 
-// Brings `cache` towards `live`: paths in live are added; when `settled`, paths not in live are removed. True when
-// the cache changed.
+// Brings `cache` towards `live`: paths in live are added; when `settled`, paths absent from CI_FORGET_SCANS scans in a
+// row are removed. True when the cache changed.
 bool can_instances_update(can_instances_t *cache, const can_instances_t *live, bool settled);
 
 // dir/instances.json, else dir/instances.bak.json. False when neither holds a cache.
@@ -42,6 +44,10 @@ typedef struct {
   int64_t live_since_ms;  // when Signal K last became live; -1 while it is not
   int64_t last_scan_ms;   // -1 before the first scan
 } can_instances_state_t;
+
+// Replaces how can_instances_tick writes the cache (default: can_instances_save on the calling task). The app queues it
+// to its writer task so the card is never touched on the UI task. NULL restores the default.
+void can_instances_set_saver(bool (*saver)(const char *dir, const can_instances_t *in));
 
 // Loads the cache from dir (NULL: none) and restores it. Returns how many paths were restored.
 size_t can_instances_init(can_instances_state_t *s, const char *dir);

@@ -67,7 +67,10 @@ static void tank(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 127505  /
   if (m->len < 1) return;
   uint8_t inst = d[0] & 0x0F, type = d[0] >> 4;
   uint8_t fluid = type <= 6 ? type : 255;
-  if (m->len >= 3 && ok_i16(i16(d, 1))) emit(cb, ctx, N2K_F_TANK_LEVEL, inst, fluid, i16(d, 1) * 0.004 / 100.0);
+  if (m->len >= 3 && ok_i16(i16(d, 1))) {
+    double pct = i16(d, 1) * 0.004;   // percent of capacity; a sender can report outside 0-100
+    if (pct >= 0 && pct <= 100) emit(cb, ctx, N2K_F_TANK_LEVEL, inst, fluid, pct / 100.0);
+  }
   if (m->len >= 7 && ok_u32(u32(d, 3))) emit(cb, ctx, N2K_F_TANK_CAPACITY, inst, fluid, u32(d, 3) * 0.1 / 1000.0);
 }
 
@@ -91,7 +94,7 @@ static void dc_status(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 1275
   const uint8_t *d = m->data;
   if (m->len < 4) return;
   uint8_t inst = d[1];
-  if (d[3] < 0xFE) emit(cb, ctx, N2K_F_BATT_SOC, inst, 0, d[3] / 100.0);
+  if (d[3] <= 100) emit(cb, ctx, N2K_F_BATT_SOC, inst, 0, d[3] / 100.0);   // percent, 0-100; above is a fault or not-available
   if (m->len >= 7 && ok_u16(u16(d, 5))) emit(cb, ctx, N2K_F_BATT_TIME_REMAINING, inst, 0, u16(d, 5) * 60.0);
 }
 

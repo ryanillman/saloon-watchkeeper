@@ -164,9 +164,7 @@ static void build_tile(lv_obj_t *area, tile_w_t *w, uint8_t slot, int32_t x, int
   if (t.bar_count) {
     int32_t rows_h = wide ? (th - head_y - 46) / 3 : 26;
     if (rows_h > 46) rows_h = 46;
-    static const lv_color_t none = {0};
-    (void)none;
-    for (uint8_t i = 0; i < 3 && i < 3; i++) {
+    for (uint8_t i = 0; i < 3; i++) {
       int32_t ry = head_y + i * rows_h;
       w->bar_label[i] = label(w->tile, &lv_font_montserrat_14, c->dim, pad, ry + (rows_h - 18) / 2);
       w->bar[i] = lv_bar_create(w->tile);

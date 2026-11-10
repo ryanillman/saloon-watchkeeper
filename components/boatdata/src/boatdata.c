@@ -20,6 +20,9 @@ PLATFORM_EXT_BSS static char path_store[PATH_STORE_BYTES];
 static size_t path_used;
 static uint16_t count;
 static int64_t newest_src_s;   // largest source timestamp set (bd_newest_source_time)
+static int64_t newest_rx_ms;   // when it arrived, so the next stamp can be judged against elapsed time
+static int64_t pending_src_s;  // a stamp far ahead of the clock, held until a second one agrees (0 none)
+static int64_t pending_rx_ms;
 static void *lock;
 
 static struct { char name[12]; uint8_t rank; bd_src_state_t state; } sources[BD_MAX_SOURCES];
@@ -37,6 +40,9 @@ void bd_init(void) {
   count = 0;
   path_used = 0;
   newest_src_s = 0;
+  newest_rx_ms = 0;
+  pending_src_s = 0;
+  pending_rx_ms = 0;
   memset(sources, 0, sizeof sources);
   hold_ms = BD_HOLD_MS_DEFAULT;
   UNLOCK();
@@ -196,8 +202,33 @@ int64_t bd_newest_source_time(void) {
 void bd_set_source_time(bd_id_t id, int64_t epoch_s) {
   LOCK();
   entry_t *e = get(id);
-  if (e) e->sample.src_s = epoch_s;
-  if (e && epoch_s > newest_src_s) newest_src_s = epoch_s;
+  if (e) {
+    e->sample.src_s = epoch_s;
+    int64_t rx = e->sample.rx_ms;
+    // The newest stamp stands for the server's clock, and a single stamp from the future (bad server clock, replayed
+    // log) would otherwise make every later real sample look old until reboot. A stamp more than BD_CLOCK_STEP_S
+    // beyond the clock advanced by elapsed receive time is held back; a second one that agrees with it is a real step.
+    int64_t expect = newest_src_s + (rx > newest_rx_ms ? (rx - newest_rx_ms) / 1000 : 0);
+    if (newest_src_s == 0 || epoch_s <= expect + BD_CLOCK_STEP_S) {
+      if (epoch_s > newest_src_s) {
+        newest_src_s = epoch_s;
+        newest_rx_ms = rx;
+      }
+      pending_src_s = 0;
+    } else {
+      int64_t pexpect = pending_src_s + (rx > pending_rx_ms ? (rx - pending_rx_ms) / 1000 : 0);
+      // Every value of one delta carries the same stamp and receive time, so agreement must come from a later update.
+      bool agrees = pending_src_s != 0 && rx - pending_rx_ms >= 1000 && epoch_s >= pexpect - BD_CLOCK_STEP_S && epoch_s <= pexpect + BD_CLOCK_STEP_S;
+      if (agrees) {
+        newest_src_s = epoch_s;
+        newest_rx_ms = rx;
+        pending_src_s = 0;
+      } else {
+        pending_src_s = epoch_s;
+        pending_rx_ms = rx;
+      }
+    }
+  }
   UNLOCK();
 }
 

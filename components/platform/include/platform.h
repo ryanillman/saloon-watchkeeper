@@ -26,6 +26,11 @@ int64_t platform_millis(void);
 // (including a time with no zone), leaving *epoch_s untouched. Pure.
 bool platform_parse_iso8601(const char *iso, int64_t *epoch_s);
 
+// Replaces `main_` with the finished file `tmp`, keeping the previous one as `bak` (FAT cannot rename over a file).
+// Never removes a backup while main is missing, and puts the previous file back if the final rename fails.
+// False leaves the previous file loadable.
+bool platform_replace_file(const char *tmp, const char *main_, const char *bak);
+
 // A plain mutex. Created once, never destroyed in practice.
 void *platform_lock_create(void);
 void platform_lock(void *lock);

@@ -24,3 +24,6 @@ lv_color_t ui_zone_line_color(uint8_t zone_state, lv_color_t normal);
 // The palette in use; the shell sets it, widgets draw with it.
 void ui_theme_set_current(palette_t p);
 const ui_colors_t *ui_theme(void);
+
+// lv_label_set_text that skips the call (and the redraw) when the label already shows `txt`.
+void ui_label_set(lv_obj_t *label, const char *txt);
