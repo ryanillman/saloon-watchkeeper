@@ -11,6 +11,7 @@ void anchor_watch_init(anchor_watch_t *w, const char *dir, int64_t boot_ms, int3
   w->boot_ms = boot_ms;
   w->lost_after_ms = lost_after_ms > 0 ? lost_after_ms : 60000;
   w->stale_since_ms = -1;
+  w->none_since_ms = -1;
   w->have_sd = dir && dir[0];
   anchor_record_t r;
   if (w->have_sd && anchor_record_load(dir, &r)) {
@@ -53,6 +54,7 @@ void anchor_watch_tick(anchor_watch_t *w, const anchor_view_t *v, bool source_li
   bool set_fresh = restored || v->mode == AM_NO_LIMIT;
   bool none = (v->mode == AM_NOT_SET || v->server_none) && source_live;   // the server, live, says there is no anchor
   bool stale = v->mode == AM_NO_DATA;
+  if (!none) w->none_since_ms = -1;
 
   if (w->restoring) {
     if (!restored) {
@@ -70,6 +72,10 @@ void anchor_watch_tick(anchor_watch_t *w, const anchor_view_t *v, bool source_li
     double limit = isnan(v->limit_m) ? 0 : v->limit_m;
     if (!w->rec.armed || (limit > 0 && fabs(limit - w->rec.limit_m) > 0.5)) save(w, dir, true, limit);
   } else if (none) {   // raised from the plugin's own page, say: nothing to watch, nothing lost
+    // But a server that is shutting down makes the plugin publish the same nulls just before the socket closes, so
+    // believe it only once it has lasted; if the connection drops first, the anchor is still watched.
+    if (w->none_since_ms < 0) w->none_since_ms = now_ms;
+    if (now_ms - w->none_since_ms < ANCHOR_NONE_CONFIRM_MS) return;
     w->was_set = false;
     w->stale_since_ms = -1;
     if (w->alert == ALERT_LOST) clear_alert(w);
@@ -84,6 +90,7 @@ void anchor_watch_user_cleared(anchor_watch_t *w, const char *dir) {
   w->restoring = false;
   w->was_set = false;
   w->stale_since_ms = -1;
+  w->none_since_ms = -1;
   clear_alert(w);
   if (w->rec.armed) save(w, dir, false, 0);
 }

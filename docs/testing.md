@@ -334,6 +334,7 @@ Check in the simulator (`build/sim/sim --board sim480 --config <dir> --can can0 
 Needs a board with `sources.nmea2000.enabled` true in `fallback` mode (see "The display on the bus"), Signal K up and an anchor set, then stop the server.
 
 - **Anchor page:** within a tick it becomes `ANCHOR FAIL` with a red cross, `AN ANCHOR WAS SET` (or `NO ANCHOR KNOWN TO BE SET` if none was seen this session or on the card) and `SIGNAL K OFFLINE`. The old track, limit and times are gone. The Anchor Glance tile reads `FAIL`. A live bus changes none of this: it has no anchor data.
+- **Graceful stop:** stopping Signal K cleanly (Ctrl-C, systemctl stop) makes the Hoeken plugin publish nulls for the anchor paths just before the socket closes. The display believes a live "no anchor" only after 15 s, so this must still end in `AN ANCHOR WAS SET` and, 60 s later, the alarm.
 - **Alarm:** 60 s after the server goes, `ANCHOR WATCH LOST` sounds and is local (ACK stays on the display). Restart the server: the page and the alarm clear once the plugin sends the anchor again.
 - **Depth page:** the digits stay live from the bus and the tide region reads `TIDE FAIL`. With the server up and no tide plugin the page shows no tide region at all, as before.
 - **Simulator:** `sim --snapshot <dir>` writes `-fallback` pages for every role, `anchor-p0-nodata.png` (an anchor was set) and `anchor-p0-nodata-unset.png`.

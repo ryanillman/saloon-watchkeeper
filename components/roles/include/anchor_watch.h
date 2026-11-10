@@ -3,6 +3,8 @@
 //  - Boot restore: the SD record says an anchor was down. If the server then shows none (or nothing fresh arrives
 //    within 120 s of boot), raise ANCHOR WATCH NOT RESTORED. Silenced by ACK; the record is kept until the user
 //    raises or drops (anchor_watch_user_cleared).
+//  - A live server saying "no anchor" is believed only after ANCHOR_NONE_CONFIRM_MS: a Signal K server shutting down
+//    makes its anchor plugin publish nulls just before the connection closes, which must not read as a raise.
 //  - Watch lost: an anchor was set and its data has been stale for lost_after_ms: ANCHOR WATCH LOST.
 // Both are local alerts (alerts_upsert_local), so they outlive the Signal K connection. The record is written only on
 // a change seen on live, fresh data. Pure apart from the SD record file; UI task only.
@@ -13,6 +15,7 @@
 
 #define ANCHOR_WATCH_ALERT_ID "navigation.anchor.watch"   // routes to the Anchor role (see app_alert_role)
 #define ANCHOR_RESTORE_WAIT_MS 120000
+#define ANCHOR_NONE_CONFIRM_MS 15000   // a live server's "no anchor" must last this long before the watch believes the anchor was raised
 
 typedef struct {
   anchor_record_t rec;        // what is on the card (or would be)
@@ -21,6 +24,7 @@ typedef struct {
   bool was_set;               // live, fresh data showed an anchor in this session
   int8_t alert;               // 0 none up, 1 WATCH LOST, 2 NOT RESTORED
   int64_t boot_ms, stale_since_ms;   // stale_since_ms -1: data is fresh
+  int64_t none_since_ms;             // when the live server began saying there is no anchor; -1 while it does not
   int32_t lost_after_ms;
   uint32_t writes;            // record writes so far
 } anchor_watch_t;

@@ -138,7 +138,9 @@ static void test_record_written_only_on_live_fresh_transition(void) {
   tick(AM_NO_DATA, 5000, 0);    // stale or disconnected: never written
   tick(AM_NO_DATA, 9000, 0);
   TEST_ASSERT_EQUAL_UINT32(2, w.writes);
-  tick(AM_NOT_SET, 10000, 0);   // the server says the anchor is up
+  tick(AM_NOT_SET, 10000, 0);   // the server says the anchor is up...
+  TEST_ASSERT_EQUAL_UINT32(2, w.writes);   // ...but a shutting-down server says the same
+  tick(AM_NOT_SET, 10000 + ANCHOR_NONE_CONFIRM_MS, 0);   // it keeps saying it
   TEST_ASSERT_EQUAL_UINT32(3, w.writes);
   TEST_ASSERT_FALSE(on_disk_armed());
 }
@@ -188,9 +190,35 @@ static void test_raised_elsewhere_while_watching_disarms_quietly(void) {
   tick(AM_HOLDING, 1000, 30);
   TEST_ASSERT_TRUE(on_disk_armed());
   tick(AM_NOT_SET, 2000, 0);   // someone raised it from the plugin's own page while we watched
+  TEST_ASSERT_TRUE(on_disk_armed());   // not believed yet: the server could be shutting down
+  tick(AM_NOT_SET, 2000 + ANCHOR_NONE_CONFIRM_MS, 0);
   alert_t a;
   TEST_ASSERT_FALSE(alerts_get(WATCH_ID, &a));
   TEST_ASSERT_FALSE(on_disk_armed());
+}
+
+// A Signal K server shut down cleanly makes the plugin publish nulls (position, radius...) while the socket is still
+// open, then the socket closes. The nulls must not read as the anchor being raised.
+static void test_server_shutdown_nulls_do_not_disarm_the_watch(void) {
+  anchor_watch_init(&w, dir, 0, 60000);
+  tick(AM_HOLDING, 1000, 30);
+  TEST_ASSERT_TRUE(on_disk_armed());
+  tick(AM_NOT_SET, 2000, 0);        // the plugin's stop(): live server, no anchor
+  tick(AM_NO_DATA, 3000, 0);        // the connection closes a moment later
+  for (int64_t t = 4000; t <= 70000; t += 1000) tick(AM_NO_DATA, t, 0);
+  TEST_ASSERT_TRUE(alarm_up("WATCH LOST"));
+  TEST_ASSERT_TRUE(on_disk_armed());
+  TEST_ASSERT_TRUE(w.was_set);
+}
+
+static void test_no_anchor_that_comes_and_goes_restarts_the_confirmation(void) {
+  anchor_watch_init(&w, dir, 0, 60000);
+  tick(AM_HOLDING, 1000, 30);
+  tick(AM_NOT_SET, 2000, 0);
+  tick(AM_HOLDING, 10000, 30);      // the anchor is back: the earlier null was not a raise
+  tick(AM_NOT_SET, 12000, 0);
+  tick(AM_NOT_SET, 12000 + ANCHOR_NONE_CONFIRM_MS - 1000, 0);
+  TEST_ASSERT_TRUE(on_disk_armed());   // only 14 s since the second null began
 }
 
 static void test_write_failure_turns_off_the_sd_flag(void) {
@@ -296,6 +324,8 @@ int main(void) {
   RUN_TEST(test_armed_boot_no_data_for_120s_raises_not_restored);
   RUN_TEST(test_restart_gap_does_not_alarm_while_restoring);
   RUN_TEST(test_restoring_view_with_server_none_alarms_at_once);
+  RUN_TEST(test_server_shutdown_nulls_do_not_disarm_the_watch);
+  RUN_TEST(test_no_anchor_that_comes_and_goes_restarts_the_confirmation);
   RUN_TEST(test_armed_boot_restored_clears_and_keeps_record);
   RUN_TEST(test_ack_leaves_record_armed);
   RUN_TEST(test_user_clear_disarms_and_writes);
