@@ -1,5 +1,7 @@
 # Checks bi_component against IDF's early requirements pass, where
 # idf_component_register is a macro that sets variables and calls return().
+# Script mode starts with the oldest policies, where IN_LIST is not an operator (CI's cmake is older than 4.x).
+cmake_policy(SET CMP0057 NEW)
 set(ESP_PLATFORM 1)
 macro(idf_component_register)
   cmake_parse_arguments(_ "" "" "SRCS;INCLUDE_DIRS;REQUIRES;PRIV_REQUIRES" ${ARGN})

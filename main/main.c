@@ -46,7 +46,7 @@ static void color_bars(lv_display_t *d) {
 
 // Writes, reads back, and removes one file of our own. Touches nothing else on the card.
 static void sd_selftest(void) {
-  const char *path = "/sdcard/.bi_probe", *msg = "boat-instruments sd check";
+  const char *path = "/sdcard/.bi_probe", *msg = "Saloon Watchkeeper sd check";
   FILE *f = fopen(path, "w");
   if (!f) {
     ESP_LOGW(TAG, "SD check: cannot write (no card?)");

@@ -48,7 +48,7 @@ static const char *PENDING =
 
 void setUp(void) {
   sk_access_reset();
-  sk_access_set_identity("c0ffee00-0000-4000-8000-000000000001", "boat-instruments lcd7b 2a:10");
+  sk_access_set_identity("c0ffee00-0000-4000-8000-000000000001", "Saloon Watchkeeper lcd7b 2a:10");
   sk_access_on_token(on_token);
   sk_access_on_href(on_href);
   n_script = calls = href_calls = 0;
@@ -68,7 +68,7 @@ static void test_request_then_approved_saves_token(void) {
   TEST_ASSERT_EQUAL_STRING("POST", last_method);
   TEST_ASSERT_EQUAL_STRING("http://boat:3000/signalk/v1/access/requests", last_url);
   TEST_ASSERT_NOT_NULL(strstr(last_body, "\"permissions\":\"readwrite\""));
-  TEST_ASSERT_NOT_NULL(strstr(last_body, "boat-instruments lcd7b 2a:10"));
+  TEST_ASSERT_NOT_NULL(strstr(last_body, "Saloon Watchkeeper lcd7b 2a:10"));
   TEST_ASSERT_EQUAL(SKA_PENDING, sk_access_state(NULL));
   TEST_ASSERT_EQUAL_STRING("/signalk/v1/requests/r1", href_seen);   // stored, to survive a restart
   sk_access_poll(BASE, 1000);
