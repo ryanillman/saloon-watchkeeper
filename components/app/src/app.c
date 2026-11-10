@@ -70,16 +70,27 @@ static void fill_status_now(app_status_t *s);
 // replaces one the worker has not taken yet.
 static struct {
   void *lock;
+  void *req_lock;   // held by app_config_set from request to applied, so callers never share the set_* buffers
   cfg_t *cfg;     // pending copy, heap (18 KB: PSRAM on the boards, not internal RAM)
   char dir[128];
   bool pending, started;
   // A console `config set`, run here after any queued save so a stale copy can't overwrite it.
-  bool set_pending, set_done, set_ok;
+  bool set_pending, set_running, set_done, set_ok;
   char set_path[96], set_text[256];
   cfg_report_t set_err;
   cfg_t *set_out;   // heap, like the others
+  // Small records the UI task used to write itself: the latest of each replaces one not yet taken.
+  anchor_record_t anchor;
+  char anchor_dir[128];
+  bool anchor_pending;
+  can_instances_t *inst;   // points at inst_pending_buf
+  char inst_dir[128];
+  bool inst_pending;
 } w;
 static cfg_t *w_work;   // the worker's own copy, heap for the same reason
+// 4 KB each, in PSRAM: the internal-RAM margin on the smallest board is about 1 KB.
+PLATFORM_EXT_BSS static can_instances_t inst_pending_buf, inst_work_buf;
+static can_instances_t *w_inst_work = &inst_work_buf;
 
 static void config_writer(void *arg) {
   (void)arg;
@@ -100,6 +111,7 @@ static void config_writer(void *arg) {
     platform_lock(w.lock);
     bool set = w.set_pending;
     w.set_pending = false;
+    w.set_running = set;
     memcpy(dir, w.dir, sizeof dir);
     platform_unlock(w.lock);
     if (set) {
@@ -107,19 +119,61 @@ static void config_writer(void *arg) {
       platform_lock(w.lock);
       w.set_ok = ok;
       w.set_done = true;
+      w.set_running = false;
       platform_unlock(w.lock);
     }
-    platform_sleep_ms(take || set ? 10 : 100);
+    anchor_record_t rec;
+    char adir[128], idir[128];
+    bool do_anchor = false, do_inst = false;
+    platform_lock(w.lock);
+    if (w.anchor_pending) {
+      rec = w.anchor;
+      memcpy(adir, w.anchor_dir, sizeof adir);
+      w.anchor_pending = false;
+      do_anchor = true;
+    }
+    if (w.inst_pending) {
+      *w_inst_work = *w.inst;
+      memcpy(idir, w.inst_dir, sizeof idir);
+      w.inst_pending = false;
+      do_inst = true;
+    }
+    platform_unlock(w.lock);
+    if (do_anchor && !anchor_record_save(adir, &rec)) fprintf(stderr, "anchor: cannot save the record in %s\n", adir);
+    if (do_inst && !can_instances_save(idir, w_inst_work)) fprintf(stderr, "instances: cannot save the cache in %s\n", idir);
+    platform_sleep_ms(take || set || do_anchor || do_inst ? 10 : 100);
   }
+}
+
+// Savers installed once the writer runs: they only copy, so the UI task does no card I/O. A failed write is logged
+// by the writer; the callers' own retry or "no card" handling does not apply to a queued save.
+static bool queue_anchor_record(const char *dir, const anchor_record_t *r) {
+  platform_lock(w.lock);
+  w.anchor = *r;
+  snprintf(w.anchor_dir, sizeof w.anchor_dir, "%s", dir);
+  w.anchor_pending = true;
+  platform_unlock(w.lock);
+  return true;
+}
+
+static bool queue_instances(const char *dir, const can_instances_t *in) {
+  platform_lock(w.lock);
+  *w.inst = *in;
+  snprintf(w.inst_dir, sizeof w.inst_dir, "%s", dir);
+  w.inst_pending = true;
+  platform_unlock(w.lock);
+  return true;
 }
 
 static void start_writer(void) {
   if (w.started) return;
   w.lock = platform_lock_create();
+  w.req_lock = platform_lock_create();
   w.cfg = malloc(sizeof *w.cfg);   // buffers over the 16 KB internal-alloc limit go to PSRAM
   w_work = malloc(sizeof *w_work);
   w.set_out = malloc(sizeof *w.set_out);
-  if (!w.lock || !w.cfg || !w_work || !w.set_out) {
+  w.inst = &inst_pending_buf;
+  if (!w.lock || !w.req_lock || !w.cfg || !w_work || !w.set_out) {
     fprintf(stderr, "config: no memory for the writer; changes will not be saved\n");
     free(w.cfg);
     free(w_work);
@@ -129,6 +183,10 @@ static void start_writer(void) {
   }
   w.started = platform_task(config_writer, NULL, "config", 6144);
   if (!w.started) fprintf(stderr, "config: cannot start the writer task; changes will not be saved\n");
+  else {
+    anchor_watch_set_saver(queue_anchor_record);
+    can_instances_set_saver(queue_instances);
+  }
 }
 
 // ---- Emergency buttons ----
@@ -139,6 +197,7 @@ static void start_writer(void) {
 
 static struct {
   sk_cmd_handle_t notify, waypoint, cancel;
+  em_nature_t sending;   // the nature of the notification in flight, which the NOT SENT alarm must name
   bool primary;   // the notification in flight is for the state on screen (a second nature during a MOB is not)
   em_nature_t seen;   // the nature the last tick saw, so a new declaration is noticed once
 } emc;
@@ -198,6 +257,7 @@ bool app_emergency_press(em_nature_t n) {
     s = cur;
   }
   emc.notify = em_send_raise(&s, n);
+  emc.sending = n;
   emc.waypoint = 0;
   if (emc.notify == 0) {
     if (emc.primary) em_set_send(EM_NOT_SENT);
@@ -263,10 +323,8 @@ static void emergency_tick(int64_t now) {
       alerts_clear(EM_SEND_ALERT_ID);
       emc.notify = 0;
     } else if (r.state == SKC_FAILED) {
-      em_state_t s;
-      em_snapshot(&s);
       if (emc.primary) em_set_send(EM_NOT_SENT);
-      raise_send_alert(em_nature_label(s.nature), r.err, now);
+      raise_send_alert(em_nature_label(emc.sending), r.err, now);
       emc.notify = 0;
     }
   }
@@ -593,7 +651,12 @@ static void scan_deliver(void *arg) {
 static void scan_task(void *arg) {
   (void)arg;
   scan.n = net_wifi_scan(scan.found, 16);
-  app_post(scan_deliver, NULL, 0);
+  // The 8-slot post queue can be full for a moment; retry, and never leave busy set or SCAN stays dead.
+  for (int tries = 0; tries < 50; tries++) {
+    if (app_post(scan_deliver, NULL, 0)) return;
+    platform_sleep_ms(100);
+  }
+  scan.busy = false;
 }
 
 static void setup_wifi_scan(void) {
@@ -773,9 +836,10 @@ static char access_as[64];
 // Signal K task. Saving goes through the config writer; without an SD card the token
 // still takes effect for this session.
 static void session_token(void *arg) {
-  cfg_t next = a.cfg;
-  snprintf(next.sk.token, sizeof next.sk.token, "%s", (const char *)arg);
-  app_apply_config(&next);
+  // Only the token changes. A whole cfg_t (23 KB) does not fit on the UI task's 16 KB stack.
+  if (!strcmp(a.cfg.sk.token, (const char *)arg)) return;
+  snprintf(a.cfg.sk.token, sizeof a.cfg.sk.token, "%s", (const char *)arg);
+  if (a.network) sk_client_reconfigure(&a.cfg.sk);
 }
 
 static void on_access_token(const char *token) {
@@ -1121,13 +1185,27 @@ static void refuse(cfg_report_t *err, const char *key, const char *msg) {
   snprintf(err->issues[0].message, sizeof err->issues[0].message, "%s", msg);
 }
 
+static bool config_set_locked(const char *path, const char *text, cfg_report_t *err, unsigned *applied);
+
 bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsigned *applied) {
   *applied = APPLY_NONE;
   if (!a.dir[0] || !w.started) {
     refuse(err, path, "no SD card: nothing can be saved");
     return false;
   }
+  platform_lock(w.req_lock);
+  bool ok = config_set_locked(path, text, err, applied);
+  platform_unlock(w.req_lock);
+  return ok;
+}
+
+static bool config_set_locked(const char *path, const char *text, cfg_report_t *err, unsigned *applied) {
   platform_lock(w.lock);
+  if (w.set_pending || w.set_running) {   // an earlier request timed out but the writer is still on it
+    platform_unlock(w.lock);
+    refuse(err, path, "another config change is still being written");
+    return false;
+  }
   snprintf(w.set_path, sizeof w.set_path, "%s", path);
   snprintf(w.set_text, sizeof w.set_text, "%s", text);
   memcpy(w.dir, a.dir, sizeof w.dir);   // the writer's directory came only from queued saves

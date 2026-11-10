@@ -6,7 +6,17 @@
 #define RING_FRACTION 0.8
 #define EDGE_MARGIN 1.1
 
-typedef struct { ui_swing_data_t d; } swing_t;
+typedef struct {
+  ui_swing_data_t d;
+  uint32_t sig;   // hash of what was last drawn: d and the track it points at
+  bool has_sig;
+} swing_t;
+
+static uint32_t fnv(uint32_t h, const void *p, size_t n) {
+  const uint8_t *b = p;
+  while (n--) h = (h ^ *b++) * 16777619u;
+  return h;
+}
 
 double ui_swing_scale(double limit_m, double max_dist_m, int32_t plot_px) {
   double avail = plot_px > 0 ? plot_px / 2.0 : 1.0;
@@ -148,6 +158,16 @@ lv_obj_t *ui_swing_create(lv_obj_t *parent) {
 void ui_swing_set(lv_obj_t *sw, const ui_swing_data_t *d) {
   swing_t *s = lv_obj_get_user_data(sw);
   if (!s) return;
-  s->d = *d;
+  uint32_t sig = 2166136261u;   // the callers rebuild the track in place, so a pointer compare would miss changes
+  sig = fnv(sig, &d->track_n, sizeof d->track_n);
+  sig = fnv(sig, &d->limit_m, sizeof d->limit_m);
+  sig = fnv(sig, &d->warn_m, sizeof d->warn_m);
+  sig = fnv(sig, &d->state, sizeof d->state);
+  sig = fnv(sig, &d->show_n, sizeof d->show_n);
+  if (d->track && d->track_n) sig = fnv(sig, d->track, d->track_n * sizeof d->track[0]);
+  s->d = *d;   // always: the pointer must be the caller's current buffer
+  if (s->has_sig && sig == s->sig) return;
+  s->sig = sig;
+  s->has_sig = true;
   lv_obj_invalidate(sw);
 }

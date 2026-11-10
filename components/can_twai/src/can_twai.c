@@ -27,6 +27,7 @@ static tx_slot_t pool[MAX_TX_DEPTH + 1];
 static size_t pool_n;
 static portMUX_TYPE pool_lock = portMUX_INITIALIZER_UNLOCKED;
 static volatile twai_error_state_t node_state = TWAI_ERROR_ACTIVE;
+static volatile bool pool_stale;   // bus-off happened: queued frames may have been discarded without a tx-done
 static volatile uint32_t rx_dropped, tx_failed, bus_errors;
 
 static bool IRAM_ATTR on_rx_done(twai_node_handle_t h, const twai_rx_done_event_data_t *e, void *ctx) {
@@ -58,6 +59,7 @@ static bool IRAM_ATTR on_state_change(twai_node_handle_t h, const twai_state_cha
   (void)h;
   (void)ctx;
   node_state = e->new_sta;
+  if (e->new_sta == TWAI_ERROR_BUS_OFF) pool_stale = true;
   return false;
 }
 
@@ -126,6 +128,12 @@ static bool ops_send(const n2k_frame_t *f, void *ctx) {
   if (!node || f->len > 8) return false;
   tx_slot_t *s = NULL;
   taskENTER_CRITICAL(&pool_lock);
+  if (pool_stale && node_state != TWAI_ERROR_BUS_OFF) {
+    // The controller aborts what it holds on bus-off and may never report those frames done; once it is back on the bus
+    // nothing is in flight from before, so every slot is free again. Without this the pool could stay full for good.
+    for (size_t i = 0; i < pool_n; i++) pool[i].busy = false;
+    pool_stale = false;
+  }
   for (size_t i = 0; i < pool_n; i++)
     if (!pool[i].busy) {
       pool[i].busy = true;
