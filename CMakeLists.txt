@@ -18,4 +18,4 @@ endforeach()
 set(SDKCONFIG ${CMAKE_BINARY_DIR}/sdkconfig)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(boat_instruments)
+project(saloon_watchkeeper)

@@ -36,7 +36,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
    ```sh
    python3 -I tools/sk-inject/inject.py access
    ```
-   Approve **boat-instruments test injector** with read/write in the admin UI (Security → Access Requests). The token goes to `tools/sk-inject/.token`, which is git-ignored.
+   Approve **Saloon Watchkeeper test injector** with read/write in the admin UI (Security → Access Requests). The token goes to `tools/sk-inject/.token`, which is git-ignored.
 2. Start the boat. It runs in the background and sends routine values for every path the displays cover (underway: both engines running, house bank charging, six tanks part full; `up --profile anchor` for engines off, `up --with three-bank` for the three-bank paths, `up --with venus-system` to add the Cerbo's `electrical.venus.dcPower`, which the Summary then uses for LOAD):
    ```sh
    tools/scenario.sh up          # also: down, status, log
@@ -290,7 +290,7 @@ tools/n2k-inject.py vcan0 --rate 1 basic          # one terminal
 build/sim/sim --can vcan0 --can-only               # another
 ```
 
-Real bus: bring the adapter up first (`sudo ip link set can0 up type can bitrate 250000`, see "CAN bench") and run `build/sim/sim --can can0 --can-only`. The simulator logs `can: <if> listening` on stderr; the boat instruments' probe images send only alert PGNs, so with those alone it stays CONNECTING.
+Real bus: bring the adapter up first (`sudo ip link set can0 up type can bitrate 250000`, see "CAN bench") and run `build/sim/sim --can can0 --can-only`. The simulator logs `can: <if> listening` on stderr; the bench probe images send only alert PGNs, so with those alone it stays CONNECTING.
 
 The `basic` scenario shows depth 12.3 m (surface offset 0.4 m), apparent wind 8 m/s at 40° to starboard, battery 1 at 12.6 V and -8.5 A, engine 0 at 2400 rpm, fresh water 1 at 62 % and fuel 0 at 35 %. Which pages show them depends on the config's roles and ids: the engine appears under the id `0`, the battery under `1` and the tanks under their instances unless the config names them (the instance map is a later step). Stop the injector and the source goes OFFLINE after 5 s and its values turn to FAIL.
 

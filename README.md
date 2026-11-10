@@ -1,17 +1,18 @@
 # Saloon Watchkeeper
 
-Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. Engine, Power, Tanks, Anchor, Navigation (an HSI-style compass with the wind, the plotter's course and the autopilot), and Depth (with tide) work today, with a Glance page that shows one tile per role at a glance. It reads a boat's data from a [Signal K](https://signalk.org) server, and from NMEA 2000 directly once that source lands.
+Open-source firmware that turns an inexpensive ESP32-S3 touch display into a purpose-built marine instrument. It has Engine, Power, Tanks, Anchor, Navigation (an HSI-style compass with the wind, the plotter's course and the autopilot), and Depth (with tide) roles, emergency pages (man overboard, fire, flooding), and a Glance page that shows one tile per role. It reads a boat's data from a [Signal K](https://signalk.org) server, from the NMEA 2000 bus directly, or from both, with the bus filling in when the server is down.
 
 It started with a simple annoyance: the display that shows a boat's battery and tank data cost hundreds of dollars and could only show one vendor's data. A general-purpose touch display can do the job for any boat's data.
 
-> **Status: pre-release.** Engine, Power, Tanks, alerts, and the day/dusk/night palettes are working on real hardware. Anchor and Navigation are built and tested in the simulator but not yet checked on a boat; on-device setup and NMEA 2000 are not done yet. Expect rough edges and changing config.
+> **Status: pre-release, not fit for use on a boat.** Everything described here is built and tested in the simulator and on bench boards against a test Signal K server, but none of it has been proven on a boat. The NMEA 2000 message layouts and default ids were written from the published specifications and have not been checked against real devices. Expect rough edges and changing config. Builds published from this repository are marked the same way.
 
 ## What it does
 
 - **Roles, not layouts.** Each instrument role (Engine, Power, Tanks, Anchor, Navigation, Depth) already knows what data it shows and how. You choose which roles a display carries and swipe between them: left and right for role, up and down for page. There is no layout editor and no data path to type.
 - **Finds what your boat has.** It discovers engines, battery banks, solar chargers, and tanks on the network, then shows them. You don't map paths by hand.
 - **Data validity, borrowed from avionics.** A missing or stale value never looks like a reading. Following the Garmin G5, a failed field loses its needle, gets a red cross over the value, and carries a `<FIELD> FAIL` label. Neighbouring fields stay live. A dash or a zero is never used for "no data."
-- **Alerts from your network.** Signal K notifications appear as a banner and in a list, and you can acknowledge or silence them from the display. The display shows alarms. It does not make up its own alarm thresholds when the network provides them.
+- **Alerts from your network.** Signal K notifications appear as a banner and in a list, and you can acknowledge or silence them from the display. The display shows alarms. It does not make up its own alarm thresholds when the network provides them. The one exception is the anchor: Signal K's plugin owns the watch, so the display raises its own alarm when an armed anchor loses it. The NMEA 2000 bus carries no alarms, so with the server down the strip says `ALARMS DISABLED`.
+- **Two sources, one model.** Signal K is preferred. With the bus enabled it fills in the paths a down server would have supplied (engine, battery, tanks, depth, wind, navigation), and anything only Signal K can supply (solar and chargers, tide, anchor) shows FAIL. Two dots in the top strip show each source's state.
 - **Colour bands that match the alarm.** Gauge zones come from Signal K `meta.zones`, so the band on the glass is the threshold that raises the alarm on the network.
 - **Day, dusk, and night palettes.** Night is red on black. Brightness and palette are set from the top strip.
 - **A desktop simulator.** Most development runs in a Linux/SDL build of the same code against a real Signal K server, so you can try it without hardware.
@@ -42,6 +43,12 @@ ctest --test-dir build/sim --output-on-failure
 
 Swipe with the mouse or use the arrow keys. Left and Right change role, Up and Down change page. [docs/testing.md](docs/testing.md) explains how to point the simulator at a Signal K server and play test scenarios.
 
+## Install from your browser
+
+The latest builds can be flashed from a web page, with no tools to install. It needs a desktop Chrome or Edge, a USB cable, and the board that matches your display. It lists two channels: the newest tagged release and a rolling build of the main branch. **Both are pre-release and not fit for use on a boat.** The page is at <https://ryanillman.github.io/saloon-watchkeeper/>.
+
+Settings live on the SD card, so installing a new version keeps them. A board with no SD card starts from the defaults. Enabling the NMEA 2000 bus turns off native USB on the 7" boards: flash those through the UART port.
+
 ## Build and flash firmware
 
 You need [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) v5.5.1.
@@ -59,7 +66,7 @@ idf.py -B build/square4 -p /dev/ttyACM0 flash monitor
 
 Settings live in `/config.json` on the display's SD card: Wi-Fi, the Signal K server (the default `auto` finds it by mDNS), units, palette, the ordered list of roles, and which Signal K anchor-alarm plugin the Anchor page talks to (`anchor.plugin`: `hoekens-anchor-alarm`, the default, or `anchoralarm`). Start from [docs/config.example.json](docs/config.example.json). `tools/config.schema.json` is the JSON Schema.
 
-If your Signal K server requires a token, put it in the `sources.signalk` section of the config. A device access request and on-device setup screens are planned (milestone 5a).
+On the display, Setup (the top strip, then the quick panel) edits Wi-Fi, the Signal K server, the data sources, the roles, discovery results and display options, and can request access from the Signal K server in place of a token in the file. The data sources are Signal K only, Signal K with the NMEA 2000 bus as a fallback, or the bus alone (`sources.nmea2000`: `enabled` and `mode`, `fallback` or `only`). The bus setting is read at boot. `sources.nmea2000.ids` maps a bus instance to the id Signal K uses (`engine.0` to `port`); it is edited in the file because its keys contain dots. On the 7" boards the bus turns native USB off. If your Signal K server requires a token you can still put it in the `sources.signalk` section of the file.
 
 ## How it is built
 

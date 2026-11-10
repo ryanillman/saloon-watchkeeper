@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(boat_instruments_sim C)
+project(saloon_watchkeeper_sim C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
