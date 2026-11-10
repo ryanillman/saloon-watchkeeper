@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "boat-instruments config.json",
+  "title": "Saloon Watchkeeper config.json",
   "description": "Lives at the root of the SD card. Keys not listed here are kept when the device rewrites the file.",
   "type": "object",
   "properties": {

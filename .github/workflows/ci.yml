@@ -34,9 +34,12 @@ jobs:
         board: [square4, lcd7, lcd7b]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, so the firmware version is `git describe`
       - name: Build
         shell: bash
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . $IDF_PATH/export.sh
           tools/build-firmware.sh ${{ matrix.board }}
       - name: Upload image
@@ -44,3 +47,66 @@ jobs:
         with:
           name: firmware-${{ matrix.board }}
           path: out/${{ matrix.board }}.bin
+
+  # Publishes the install page (GitHub Pages, from the gh-pages branch) and, for a v* tag, a GitHub Release. Every
+  # build is marked pre-release. A tag fills the `release` channel and main fills `latest`. Other branches that are
+  # allowed to publish write to gh-pages-test instead, which nothing serves.
+  publish:
+    needs: [sim, firmware]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/release-pipeline')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish   # one at a time: each run rewrites the whole publishing branch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: images
+          merge-multiple: true
+      - name: Build the site and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if [ "$GITHUB_REF_TYPE" = tag ]; then channel=release; else channel=latest; fi
+          if [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF_TYPE" = tag ]; then branch=gh-pages; else branch=gh-pages-test; fi
+          version=$(git describe --tags --always)
+          commit=$(git rev-parse --short HEAD)
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch "$branch" "$remote" site 2>/dev/null || mkdir site
+          rm -rf site/.git
+          tools/site/build-site.sh site "$channel" "$version" "$commit" images
+          cd site
+          git init -q -b "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish $channel $version"
+          git push -q --force "$remote" "$branch"
+      - name: Keep the site as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-site
+          path: site
+      - name: GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir assets
+          for f in images/*.bin; do
+            b=$(basename "$f" .bin)
+            cp "$f" "assets/saloon-watchkeeper-$b-$GITHUB_REF_NAME.bin"
+          done
+          (cd assets && sha256sum ./*.bin > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" assets/* --prerelease --verify-tag \
+            --title "$GITHUB_REF_NAME: pre-release, not fit for use" --notes-file tools/site/release-notes.md

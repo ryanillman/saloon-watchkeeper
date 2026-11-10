@@ -89,5 +89,5 @@ bool app_config_set(const char *path, const char *text, cfg_report_t *err, unsig
 bool app_config_reload(cfg_report_t *rep, unsigned *applied);
 
 // Starts a Signal K access request; false when Signal K is not running. `as` gets the name
-// the request shows in the admin UI ("boat-instruments lcd7b 2a:10").
+// the request shows in the admin UI ("Saloon Watchkeeper lcd7b 2a:10").
 bool app_request_access(char *as, size_t n);

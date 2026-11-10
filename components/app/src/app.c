@@ -804,7 +804,7 @@ static void start_access(void) {
   char id[37];
   platform_mac(mac);
   sk_access_client_id_from_mac(mac, id);
-  snprintf(access_as, sizeof access_as, "boat-instruments %s %02x:%02x", info_board, mac[4], mac[5]);
+  snprintf(access_as, sizeof access_as, "Saloon Watchkeeper %s %02x:%02x", info_board, mac[4], mac[5]);
   sk_access_set_identity(id, access_as);
   sk_access_on_token(on_access_token);
   sk_access_on_href(on_access_href);

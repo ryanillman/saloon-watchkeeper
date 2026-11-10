@@ -1,4 +1,4 @@
-menu "Boat instruments board"
+menu "Saloon Watchkeeper board"
   choice BI_BOARD
     prompt "Board"
     default BI_BOARD_SQUARE4
