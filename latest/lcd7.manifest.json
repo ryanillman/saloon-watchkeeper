@@ -1,0 +1,8 @@
+{
+  "name": "Saloon Watchkeeper (lcd7), pre-release 563a381",
+  "version": "563a381",
+  "new_install_prompt_erase": false,
+  "builds": [
+    { "chipFamily": "ESP32-S3", "parts": [ { "path": "lcd7.bin", "offset": 0 } ] }
+  ]
+}
