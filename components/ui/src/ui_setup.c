@@ -175,6 +175,7 @@ static void on_close(lv_event_t *e) {
 static void build_menu(void) {
   static const struct { ui_setup_screen_t s; const char *label, *name; } items[] = {
     {SETUP_WIFI, "Wi-Fi", "menu_wifi"},       {SETUP_SIGNALK, "Signal K", "menu_signalk"},
+    {SETUP_SOURCES, "Sources", "menu_sources"},
     {SETUP_ROLES, "Roles", "menu_roles"},     {SETUP_DISCOVERY, "Discovery", "menu_discovery"},
     {SETUP_DISPLAY, "Display", "menu_display"}, {SETUP_ABOUT, "About", "menu_about"},
   };
@@ -785,6 +786,49 @@ static void build_signalk(void) {
   u.live_access = live_line("access_state", u.cb->access_state);
 }
 
+// ---- sources: where the data comes from ----
+// Signal K only, Signal K first with the NMEA 2000 bus filling in when it is down, or the bus alone. The bus setting is
+// read at boot, so a change takes effect after a restart.
+
+static lv_obj_t *src_btn[3], *src_note;   // valid while the Sources screen is shown
+
+static int src_mode(void) { return !u.work.n2k.enabled ? 0 : u.work.n2k.only ? 2 : 1; }
+
+static void src_show(void) {
+  static const char *const note[] = {
+    "Signal K only. The NMEA 2000 bus is not used.",
+    "Signal K first. When it is down, the bus keeps the instruments alive. Alarms need Signal K.",
+    "NMEA 2000 only. No Signal K and no alarms, and no Anchor.",
+  };
+  int m = src_mode();
+  for (int i = 0; i < 3; i++)
+    if (src_btn[i]) style_button(src_btn[i], i == m);
+  if (src_note) lv_label_set_text(src_note, note[m]);
+}
+
+static void on_source(lv_event_t *e) {
+  int m = (int)(uintptr_t)lv_event_get_user_data(e);
+  u.work.n2k.enabled = m != 0;
+  u.work.n2k.only = m == 2;
+  src_show();
+}
+
+static void build_sources(void) {
+  const ui_colors_t *c = ui_theme();
+  static const char *const label[] = {"SIGNAL K", "SK + NMEA 2K", "NMEA 2K"}, *const name[] = {"src_sk", "src_both", "src_bus"};
+  lv_obj_t *r = row(u.body);
+  for (int i = 0; i < 3; i++) {
+    src_btn[i] = button(r, label[i], on_source, (void *)(uintptr_t)i);
+    part(name[i], src_btn[i]);
+  }
+  src_note = text(u.body, "", c->fg);
+  lv_obj_set_width(src_note, lv_pct(100));
+  part("src_note", src_note);
+  lv_obj_t *n = text(u.body, "Restart to apply. On the 7 inch boards the bus turns the USB port off: flash and read logs on the UART port.", c->dim);
+  lv_obj_set_width(n, lv_pct(100));
+  src_show();
+}
+
 // ---- discovery labels ----
 
 static void label_done(const char *t, uintptr_t k) {
@@ -828,7 +872,7 @@ void ui_setup_discovery_changed(void) {
 }
 
 static const char *title_of(ui_setup_screen_t s) {
-  static const char *t[] = {"SETUP", "WI-FI", "SIGNAL K", "ROLES", "DISCOVERY", "DISPLAY", "ABOUT"};
+  static const char *t[] = {"SETUP", "WI-FI", "SIGNAL K", "SOURCES", "ROLES", "DISCOVERY", "DISPLAY", "ABOUT"};
   return t[s];
 }
 
@@ -855,6 +899,7 @@ static void show_screen(ui_setup_screen_t s) {
   u.live_fn = NULL;
   u.n_parts = u.n_parts_frame;   // the header's parts stay
   u.n_segs = 0;
+  src_btn[0] = src_btn[1] = src_btn[2] = src_note = NULL;
   lv_obj_clean(u.body);
   lv_label_set_text(u.title, title_of(s));
   if (edits(s)) lv_obj_remove_flag(u.save, LV_OBJ_FLAG_HIDDEN);
@@ -872,6 +917,7 @@ static void show_screen(ui_setup_screen_t s) {
     case SETUP_DISCOVERY: build_discovery(); break;
     case SETUP_WIFI: build_wifi(); break;
     case SETUP_SIGNALK: build_signalk(); break;
+    case SETUP_SOURCES: build_sources(); break;
     default: build_later(); break;
   }
   lv_obj_scroll_to_y(u.body, 0, LV_ANIM_OFF);

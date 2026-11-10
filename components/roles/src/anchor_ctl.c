@@ -157,7 +157,12 @@ void anchor_ctl_update(int64_t now_ms, anchor_pt_t *track, size_t track_cap) {
   c.st.hold_pct = !c.hold ? 0 : c.hold_sent ? 100 : (int)((now_ms - c.hold_start_ms) * 100 / HOLD_MS);
   if (c.st.hold_pct > 100) c.st.hold_pct = 100;
   c.st.no_sd = c.watch && !c.watch->have_sd;
+  c.st.fail = anchor_view_failed(v);
+  c.st.armed = c.watch && (c.watch->was_set || c.watch->rec.armed);
+  c.st.cause = bd_source_state(BD_SRC_SK) == BD_SRC_CONNECTING ? "SIGNAL K CONNECTING" : "SIGNAL K OFFLINE";
 }
+
+bool anchor_view_failed(const anchor_view_t *v) { return v->mode == AM_NO_DATA && !alerts_source_is_up(); }
 
 const anchor_ctl_state_t *anchor_ctl_state(void) {
   c.st.message = c.msg;

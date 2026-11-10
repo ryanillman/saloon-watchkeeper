@@ -39,7 +39,7 @@ static void anchor_tile(const role_binding_t *b, int64_t now_ms, glance_tile_t *
     case AM_NOT_SET: glance_tile_state(out, GT_OFF); word(out, "NOT SET"); break;
     case AM_RESTORING: glance_tile_state(out, GT_NO_DATA); word(out, "RESTORING"); break;
     case AM_NO_LIMIT: glance_tile_state(out, GT_NO_DATA); word(out, "NO LIMIT"); break;
-    default: glance_tile_state(out, GT_NO_DATA); break;   // NO DATA
+    default: glance_tile_state(out, GT_NO_DATA); if (anchor_view_failed(&v)) word(out, "FAIL"); break;   // NO DATA; FAIL when the connection is the reason
   }
   // An alarm outranks missing data: the server's alarm and the display's own (watch lost, not restored).
   if (alerts_for_path("navigation.anchor") >= AL_ALARM || alerts_for_path(ANCHOR_WATCH_ALERT_ID) >= AL_ALARM) {

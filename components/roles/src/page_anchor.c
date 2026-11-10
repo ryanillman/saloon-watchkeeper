@@ -13,7 +13,7 @@ _Static_assert(sizeof(anchor_pt_t) == sizeof(ui_swing_pt_t), "the plot reads the
 
 static struct {
   lv_obj_t *plot, *dist_val, *dist_cap, *bear_val, *bear_cap, *mode, *limit, *minus, *plus, *main, *main_lbl, *bar,
-      *info, *nosd;
+      *info, *nosd, *fail, *fail_title, *fail_armed, *fail_cause;
   bool wide;
 } w;
 
@@ -66,6 +66,56 @@ static void on_main(lv_event_t *e) {
     case LV_EVENT_DELETE: anchor_ctl_page_left(); break;   // the shell rebuilt the page mid-press: no RELEASED will come
     default: break;
   }
+}
+
+// The FAIL page: everything the page knows came from Signal K, and it is not there. The old track, limit and times are
+// not shown (they would read as current); the page says so, whether an anchor was set, and why.
+static void fail_line(lv_layer_t *layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t width, lv_color_t col) {
+  lv_draw_line_dsc_t d;
+  lv_draw_line_dsc_init(&d);
+  d.p1.x = x1; d.p1.y = y1; d.p2.x = x2; d.p2.y = y2;
+  d.width = width;
+  d.color = col;
+  d.round_start = d.round_end = 1;
+  lv_draw_line(layer, &d);
+}
+
+static void draw_fail_cross(lv_event_t *e) {
+  lv_area_t a;
+  lv_obj_get_coords(w.fail_title, &a);
+  int32_t padx = 40, pady = 22, t = 5;
+  lv_layer_t *layer = lv_event_get_layer(e);
+  lv_color_t col = ui_theme()->fault_cross;
+  fail_line(layer, a.x1 - padx, a.y1 - pady, a.x2 + padx, a.y2 + pady, t, col);
+  fail_line(layer, a.x2 + padx, a.y1 - pady, a.x1 - padx, a.y2 + pady, t, col);
+}
+
+static void build_fail(lv_obj_t *area, const lv_font_t *title, const lv_font_t *line) {
+  const ui_colors_t *c = ui_theme();
+  w.fail = lv_obj_create(area);
+  lv_obj_remove_style_all(w.fail);
+  lv_obj_set_size(w.fail, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(w.fail, c->bg, 0);
+  lv_obj_set_style_bg_opa(w.fail, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(w.fail, LV_OBJ_FLAG_SCROLLABLE);   // clickable: it swallows touches meant for the controls beneath
+  lv_obj_set_flex_flow(w.fail, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(w.fail, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(w.fail, 18, 0);
+  w.fail_title = lv_label_create(w.fail);
+  lv_obj_set_style_text_font(w.fail_title, title, 0);
+  lv_obj_set_style_text_color(w.fail_title, c->fault_label, 0);
+  lv_label_set_text(w.fail_title, "ANCHOR FAIL");
+  w.fail_armed = lv_label_create(w.fail);
+  lv_obj_set_style_text_font(w.fail_armed, line, 0);
+  lv_obj_set_style_text_color(w.fail_armed, c->fg, 0);
+  lv_obj_set_style_text_align(w.fail_armed, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_text(w.fail_armed, "");
+  w.fail_cause = lv_label_create(w.fail);
+  lv_obj_set_style_text_font(w.fail_cause, line, 0);
+  lv_obj_set_style_text_color(w.fail_cause, c->dim, 0);
+  lv_label_set_text(w.fail_cause, "");
+  lv_obj_add_event_cb(w.fail, draw_fail_cross, LV_EVENT_DRAW_MAIN_END, NULL);
+  lv_obj_add_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
 }
 
 void anchor_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b) {
@@ -137,6 +187,7 @@ void anchor_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindi
 
   if (w.wide) w.info = make_label(area, small, c->dim, LV_TEXT_ALIGN_LEFT, pad, pad + lv_font_get_line_height(big) + 40, colw);
   w.nosd = make_label(area, small, c->warn, LV_TEXT_ALIGN_RIGHT, W - pad - 120, w.wide ? row_y - 2 * pad - 14 : H - strip - 2 * lv_font_get_line_height(small) - 4, 120);
+  build_fail(area, big, mid);   // last: it covers everything above when shown
 }
 
 static const char *mode_word(anchor_mode_t m) {
@@ -179,6 +230,17 @@ void anchor_refresh(role_binding_t *b, int64_t now_ms) {
   const anchor_view_t *v = &s->view;
   const cfg_units_t *u = b ? b->units : NULL;
   char t[40];
+
+  if (w.fail) {   // Signal K is down: the page is FAIL and nothing under it is current
+    if (s->fail) {
+      lv_label_set_text(w.fail_armed, s->armed ? "AN ANCHOR WAS SET" : "NO ANCHOR KNOWN TO BE SET");
+      lv_obj_set_style_text_color(w.fail_armed, s->armed ? ui_theme()->warn : ui_theme()->fg, 0);
+      lv_label_set_text(w.fail_cause, s->cause);
+      lv_obj_remove_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(w.fail, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 
   ui_swing_state_t st = swing_state(v->mode);
   ui_swing_data_t d = {.track = (const ui_swing_pt_t *)track, .track_n = v->track_n,

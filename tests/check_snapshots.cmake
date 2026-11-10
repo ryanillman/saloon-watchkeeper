@@ -6,7 +6,7 @@ if(NOT rc EQUAL 0)
   message(FATAL_ERROR "sim --snapshot exited with ${rc}")
 endif()
 foreach(f sim480/day/setup-wifi-keyboard.png sim800/night/setup-wifi.png sim800/day/setup-signalk.png
-        sim480/day/setup-roles.png sim800/day/setup-discovery.png
+        sim480/day/setup-roles.png sim800/day/setup-sources.png sim480/night/setup-sources.png sim800/day/setup-discovery.png
         sim480/day/setup-menu.png sim800/day/setup-display.png sim800/night/setup-about.png sim480/night/setup-display.png
         sim480/day/engine-p0-live.png sim1024/night/anchor-p0-holding.png sim800/dusk/engine-p1-live.png
         sim800/day/engine-p0-fault.png sim480/day/engine-p0-fault.png sim1024/day/engine-p1-fault.png
@@ -22,13 +22,16 @@ foreach(f sim480/day/setup-wifi-keyboard.png sim800/night/setup-wifi.png sim800/
         sim480/dusk/glance-p0-fault.png sim1024/day/glance-p0-fault.png
         sim800/day/quick-panel.png sim480/night/quick-panel.png
         sim480/day/anchor-p0-notset.png sim480/day/anchor-p0-holding.png sim800/day/anchor-p0-warn.png
-        sim800/night/anchor-p0-dragging.png sim1024/day/anchor-p0-nodata.png sim1024/dusk/anchor-p0-restoring.png
+        sim800/night/anchor-p0-dragging.png sim1024/day/anchor-p0-nodata.png sim480/night/anchor-p0-nodata-unset.png sim1024/dusk/anchor-p0-restoring.png
         sim480/night/glance-p0-anchor-holding.png sim800/day/glance-p0-anchor-dragging.png
         sim1024/day/glance-p0-anchor-nodata.png
         sim480/day/navigation-p0-full.png sim800/night/navigation-p0-full.png sim1024/dusk/navigation-p0-nocourse.png
         sim800/day/navigation-p0-nohdg.png sim480/night/navigation-p0-bugnear.png sim480/day/navigation-p0-computed.png
         sim480/day/depth-p0-live.png sim800/night/depth-p0-live.png sim1024/dusk/depth-p0-surface.png
-        sim800/dusk/depth-p0-fault.png sim480/night/depth-p0-no-tide.png sim800/day/depth-p0-tide-partial.png)
+        sim800/dusk/depth-p0-fault.png sim480/night/depth-p0-no-tide.png sim800/day/depth-p0-tide-partial.png
+        sim800/day/engine-p0-fallback.png sim480/day/tanks-p0-fallback.png sim1024/night/power-p0-fallback.png
+        sim800/day/power-p0-banks-fallback.png sim480/dusk/anchor-p0-fallback.png sim800/day/glance-p0-fallback.png
+        sim1024/day/navigation-p0-fallback.png sim800/night/depth-p0-fallback.png)
   if(NOT EXISTS ${OUT}/${f})
     message(FATAL_ERROR "missing ${f}")
   endif()

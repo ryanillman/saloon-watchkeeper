@@ -20,6 +20,7 @@ typedef struct {
   bool height_ok, high_ok, low_ok;
   double height_m, high_m, low_m;
   bool tide_seen;             // the tide plugin has sent anything
+  bool tide_fail;             // the tide region shows TIDE FAIL: Signal K is down, or a tide that was coming has stopped
   bd_sample_t time_high, time_low;
   bool has_time_high, has_time_low;
   tide_t tide;
@@ -56,6 +57,12 @@ static void read_view(const role_binding_t *b, int64_t now_ms, view_t *v) {
     v->tide_seen = sample(b, G_TIDE, k, &s) && (s.valid || s.rx_ms != 0);
   }
   v->tide = tide_assess(v->has_time_high ? &v->time_high : NULL, v->has_time_low ? &v->time_low : NULL, bd_newest_source_time());
+  // Tide comes only from a Signal K plugin; the bus has none. Quietly no tide when no plugin has ever spoken and the server
+  // is up (a boat without one), and when Signal K is not in use at all (bus only). A FAIL flag when the server is
+  // configured but down, or when a tide that was coming has stopped.
+  bool sk_down = bd_source_state(BD_SRC_SK) != BD_SRC_NOT_CONFIGURED && !alerts_source_is_up();
+  bool usable = v->height_ok || v->high_ok || v->low_ok || v->tide.dir != TIDE_UNKNOWN;
+  v->tide_fail = sk_down || (v->tide_seen && !usable);
 }
 
 // At most "99.9" or "999": a sounder does not reach four digits, so a larger number is held at 999 rather than grown.
@@ -454,10 +461,11 @@ void depth_refresh(role_binding_t *b, int64_t now_ms) {
   set_text(w.ref, depth_ref_label(v.ref));
 
   tide_now(&v, b->units, line, sizeof line);
-  set_text(w.tide_now, line[0] ? line : "NO TIDE DATA");
-  show(w.tide_now, v.tide_seen);
-  show(w.row_high, v.tide_seen);
-  show(w.row_low, v.tide_seen);
+  set_text(w.tide_now, v.tide_fail ? "TIDE FAIL" : line[0] ? line : "NO TIDE DATA");
+  lv_obj_set_style_text_color(w.tide_now, v.tide_fail ? c->fault_label : c->fg, 0);
+  show(w.tide_now, v.tide_seen || v.tide_fail);
+  show(w.row_high, v.tide_seen && !v.tide_fail);
+  show(w.row_low, v.tide_seen && !v.tide_fail);
   tide_row("HIGH", &v.time_high, v.has_time_high, v.high_ok, v.high_m, b->units, line, sizeof line);
   set_text(w.row_high, line);
   tide_row("LOW ", &v.time_low, v.has_time_low, v.low_ok, v.low_m, b->units, line, sizeof line);

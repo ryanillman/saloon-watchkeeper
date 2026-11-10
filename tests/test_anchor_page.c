@@ -407,6 +407,37 @@ static void test_staged_radius_is_dropped_when_the_page_is_left(void) {
   TEST_ASSERT_FALSE(anchor_ctl_state()->limit_staged);
 }
 
+// Signal K down is a FAIL page (the bus carries no anchor data, so a live bus changes nothing); the page says whether an
+// anchor was set and why it cannot tell. A stale distance with the server up is NO DATA, not FAIL.
+static void test_fail_when_signal_k_is_down_says_whether_an_anchor_was_set(void) {
+  bd_source_register(BD_SRC_SK, "signalk", 2);
+  bd_source_register(BD_SRC_N2K, "nmea2000", 1);
+  bd_source_set_state(BD_SRC_N2K, BD_SRC_LIVE);   // the bus is up and irrelevant
+  bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE);
+  alerts_source_up(false);
+  const anchor_ctl_state_t *s = update(T);
+  TEST_ASSERT_TRUE(s->fail);
+  TEST_ASSERT_FALSE(s->armed);
+  TEST_ASSERT_EQUAL_STRING("SIGNAL K OFFLINE", s->cause);
+  watch.was_set = true;   // an anchor was seen set this session
+  TEST_ASSERT_TRUE(update(T + 1000)->armed);
+  bd_source_set_state(BD_SRC_SK, BD_SRC_CONNECTING);
+  TEST_ASSERT_EQUAL_STRING("SIGNAL K CONNECTING", update(T + 2000)->cause);
+}
+
+static void test_no_fail_with_the_server_up_or_while_restoring(void) {
+  holding(T, 50);
+  TEST_ASSERT_FALSE(update(T)->fail);                              // live and holding
+  alerts_source_up(true);
+  bd_set_number(bd_intern("navigation.anchor.currentRadius"), 20, 1, T - 200000);   // stale distance, server up
+  TEST_ASSERT_FALSE(update(T)->fail);
+  watch.restoring = true;
+  alerts_source_up(false);
+  const anchor_ctl_state_t *s = update(T + 1000);
+  TEST_ASSERT_EQUAL(AM_RESTORING, s->view.mode);
+  TEST_ASSERT_FALSE(s->fail);                                      // RESTORING keeps its page: RAISE clears a stuck record
+}
+
 int main(void) {
   lv_init();
   lv_display_t *disp = lv_display_create(1024, 600);
@@ -440,5 +471,7 @@ int main(void) {
   RUN_TEST(test_hold_interrupted_by_a_page_rebuild_never_raises);
   RUN_TEST(test_hold_cancelled_when_the_button_is_deleted);
   RUN_TEST(test_staged_radius_is_dropped_when_the_page_is_left);
+  RUN_TEST(test_fail_when_signal_k_is_down_says_whether_an_anchor_was_set);
+  RUN_TEST(test_no_fail_with_the_server_up_or_while_restoring);
   return UNITY_END();
 }
