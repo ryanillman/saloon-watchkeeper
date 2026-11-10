@@ -1,6 +1,6 @@
 # Saloon Watchkeeper (repo directory: boat-instruments)
 
-ESP32-S3 touch-display marine instruments (LVGL, ESP-IDF v5.5.1, Signal K). Components are in `components/`; a Linux simulator and host tests are in `sim/` and `tests/`. README.md is the public document (what it is, simulator, build, config) and carries no bench specifics. The bench-board details are below; `docs/testing.md` has the live scenarios and what each should show. Older docs under `docs/` still say "boat-instruments".
+ESP32-S3 touch-display marine instruments (LVGL, ESP-IDF v5.5.1, Signal K). Components are in `components/`; a Linux simulator and host tests are in `sim/` and `tests/`. README.md is the public document (what it is, simulator, build, config) and carries no bench specifics. The bench-board details are below; `docs/testing.md` has the live scenarios and what each should show.
 
 ## Working here
 

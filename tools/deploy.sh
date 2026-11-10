@@ -108,8 +108,8 @@ fi
 
 missing=0
 while read -r board port; do
-  if [ ! -f "build/$board/boat_instruments.bin" ]; then
-    echo "no image for $board (build/$board/boat_instruments.bin). Run tools/build-firmware.sh" >&2
+  if [ ! -f "build/$board/saloon_watchkeeper.bin" ]; then
+    echo "no image for $board (build/$board/saloon_watchkeeper.bin). Run tools/build-firmware.sh" >&2
     missing=1
   fi
 done < "$jobs"

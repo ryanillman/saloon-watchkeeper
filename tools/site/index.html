@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saloon Watchkeeper installer</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.2.1/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg:#fff; --fg:#1b1f24; --dim:#5b6570; --line:#d0d7de; --warn-bg:#fff1f0; --warn-fg:#a1111b; --card:#f6f8fa; --accent:#0b5cad; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --fg:#e6e9ed; --dim:#9aa4af; --line:#2d333b; --warn-bg:#2a1214; --warn-fg:#ff8a8a; --card:#161b22; --accent:#58a6ff; }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:44rem; margin:0 auto; padding:1.5rem 1rem 3rem; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; }
+  h2 { font-size:1.15rem; margin:2rem 0 .5rem; }
+  p { margin:.5rem 0; }
+  .dim { color:var(--dim); font-size:.9rem; }
+  .warn { background:var(--warn-bg); color:var(--warn-fg); border:1px solid var(--warn-fg); border-radius:8px; padding:.75rem 1rem; font-weight:600; }
+  .channel { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:.75rem 1rem; margin:.75rem 0; }
+  .channel[hidden] { display:none; }
+  .board { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1rem; padding:.5rem 0; border-top:1px solid var(--line); }
+  .board:first-of-type { border-top:0; }
+  .board b { min-width:14rem; }
+  a { color:var(--accent); }
+  code { font-size:.9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Saloon Watchkeeper</h1>
+  <p class="dim">Install the firmware on a Waveshare ESP32-S3 touch display from this page.</p>
+
+  <p class="warn">Pre-release software. Not fit for use on a boat. Do not rely on it for navigation or to protect your engine, batteries or boat.</p>
+
+  <h2>Before you start</h2>
+  <ul>
+    <li>Use desktop <b>Chrome or Edge</b> (Web Serial). Firefox and Safari cannot flash.</li>
+    <li>Plug the board into this computer with a data USB cable. On the 7" boards use the USB port that shows up as a serial device; if the NMEA 2000 bus is enabled there, use the UART port.</li>
+    <li>Pick <b>your</b> board. The wrong image gives a garbled or dark panel; flashing the right one fixes it.</li>
+    <li>Settings are on the SD card, so an update keeps them. A board with no SD card starts from the defaults.</li>
+  </ul>
+
+  <div id="release" class="channel" hidden>
+    <h2 style="margin-top:0">Release <span class="dim" id="release-ver"></span></h2>
+    <p class="dim">The newest tagged build. Marked pre-release.</p>
+    <div class="boards"></div>
+  </div>
+
+  <div id="latest" class="channel" hidden>
+    <h2 style="margin-top:0">Latest <span class="dim" id="latest-ver"></span></h2>
+    <p class="dim">Every commit to the main branch. May be broken.</p>
+    <div class="boards"></div>
+  </div>
+
+  <p id="none" class="dim" hidden>Nothing has been published yet.</p>
+
+  <p class="dim">Source and documentation: <a href="https://github.com/ryanillman/saloon-watchkeeper">github.com/ryanillman/saloon-watchkeeper</a>. MIT licensed, with no warranty. Not affiliated with Signal K, Victron, Waveshare or Garmin.</p>
+</main>
+<script>
+const BOARDS = {
+  square4: "ESP32-S3-Touch-LCD-4 (4 inch, 480x480)",
+  lcd7: "ESP32-S3-Touch-LCD-7 (7 inch, 800x480)",
+  lcd7b: "ESP32-S3-Touch-LCD-7B (7 inch, 1024x600)",
+};
+async function show(channel) {
+  let info;
+  try {
+    const r = await fetch(channel + "/info.json", { cache: "no-store" });
+    if (!r.ok) return false;
+    info = await r.json();
+  } catch (e) { return false; }
+  const box = document.getElementById(channel);
+  document.getElementById(channel + "-ver").textContent = info.version + " (" + info.built.slice(0, 10) + ")";
+  const list = box.querySelector(".boards");
+  for (const id of info.boards) {
+    const row = document.createElement("div");
+    row.className = "board";
+    const name = document.createElement("b");
+    name.textContent = BOARDS[id] || id;
+    const btn = document.createElement("esp-web-install-button");
+    btn.setAttribute("manifest", channel + "/" + id + ".manifest.json");
+    const sum = document.createElement("a");
+    sum.href = channel + "/" + id + ".bin";
+    sum.textContent = "image";
+    sum.className = "dim";
+    row.append(name, btn, sum);
+    list.append(row);
+  }
+  box.hidden = false;
+  return true;
+}
+Promise.all([show("release"), show("latest")]).then(r => { if (!r.some(Boolean)) document.getElementById("none").hidden = false; });
+</script>
+</body>
+</html>

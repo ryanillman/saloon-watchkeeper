@@ -19,15 +19,15 @@ SERVER = "localhost:3000"
 
 def request_access():
     body = json.dumps({
-        "clientId": "boat-instruments-sk-inject",
-        "description": "boat-instruments test injector",
+        "clientId": "saloon-watchkeeper-sk-inject",
+        "description": "Saloon Watchkeeper test injector",
         "permissions": "readwrite",
     }).encode()
     req = urllib.request.Request(f"http://{SERVER}/signalk/v1/access/requests", body,
                                  {"Content-Type": "application/json"})
     resp = json.load(urllib.request.urlopen(req))
     href = resp.get("href")
-    print("Access requested. Approve 'boat-instruments test injector' in the Signal K admin UI")
+    print("Access requested. Approve 'Saloon Watchkeeper test injector' in the Signal K admin UI")
     print(f"(http://{SERVER}/admin → Security → Access Requests), with read/write permission.")
     while True:
         time.sleep(2)
