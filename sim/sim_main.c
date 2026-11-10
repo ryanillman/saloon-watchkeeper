@@ -503,6 +503,7 @@ static int run_snapshots(const char *out) {
             if (write_page(disp, dir, "-off", b)) return 1;
             if (p == 0) {   // the port coolant alarm, short and then too long for the banner
               fixture_engines();
+              bd_set_number(bd_find("propulsion.port.temperature"), 377.15, SK_SOURCE_ID, platform_millis());   // 104 C: in the alarm zone, as the banner says
               alert_raise("propulsion.port.temperature", AL_ALARM, "Port coolant high");
               alerts_show();
               if (write_page(disp, dir, "-alarm", b)) return 1;

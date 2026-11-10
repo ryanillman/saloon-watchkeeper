@@ -18,9 +18,11 @@ done <<LIST
 glance            sim800/day/glance-p0-live.png
 engine            sim800/day/engine-p0-live.png
 engine-fail       sim800/day/engine-p0-fault.png
+engine-alarm      sim800/day/engine-p0-alarm.png
 power             sim800/day/power-p0-banks-live.png
 navigation        sim800/day/navigation-p0-full.png
 anchor            sim800/day/anchor-p0-holding.png
+anchor-dragging   sim800/day/anchor-p0-dragging.png
 depth             sim800/day/depth-p0-live.png
 glance-night      sim1024/night/glance-p0-live.png
 glance-4in        sim480/day/glance-p0-live.png
