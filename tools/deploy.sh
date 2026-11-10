@@ -1,7 +1,8 @@
 #!/bin/sh
 # Flash each serial port with the image for that physical board.
-# The tty name is not used. The port's USB serial is looked up in tools/board-usb.txt.
-# Usage: tools/deploy.sh [--dry-run] /dev/ttyACM0 [/dev/ttyACM1 ...]
+# The tty name is not used: each board is asked which it is (see tools/board-id.py), which resets it.
+# Usage: tools/deploy.sh [--dry-run] <port | board=port> ...    e.g. /dev/ttyACM0 lcd7=/dev/ttyACM1
+# --dry-run only identifies the boards (it still resets them).
 # Needs ESP-IDF on PATH: . ~/esp/esp-idf/export.sh
 set -eu
 cd "$(dirname "$0")/.."
@@ -12,61 +13,24 @@ if [ "${1:-}" = "--dry-run" ]; then
   shift
 fi
 if [ $# -eq 0 ]; then
-  echo "usage: tools/deploy.sh [--dry-run] /dev/ttyACM0 [/dev/ttyACM1 ...]" >&2
+  echo "usage: tools/deploy.sh [--dry-run] <port | board=port> ..." >&2
   exit 2
 fi
 
-map=tools/board-usb.txt
-if [ ! -f "$map" ]; then
-  echo "missing $map" >&2
-  exit 1
-fi
-
-# Reject a bad map before opening any port.
-while read -r key name extra; do
-  case $key in
-    ''|'#'*) continue ;;
-  esac
-  if [ -z "$name" ] || [ -n "$extra" ]; then
-    echo "bad line in $map: $key ${name:-} ${extra:-}" >&2
-    exit 1
-  fi
-  if [ ! -f "boards/$name/sdkconfig.defaults" ]; then
-    echo "$map: '$name' is not a board under boards/" >&2
-    exit 1
-  fi
-done < "$map"
-
+# The firmware on each port names its board in the boot log (tools/board-id.py resets the chip and reads it), so no
+# serial-number table is needed. A blank chip, or one running other firmware, cannot say: name it as board=port.
 identify() {
   port=$1
-  props=$(udevadm info -q property -n "$port" 2>/dev/null) || {
-    echo "udevadm cannot read $port" >&2
-    return 1
-  }
-  serial=$(printf '%s\n' "$props" | sed -n 's/^ID_SERIAL=//p' | head -n 1)
-  short=$(printf '%s\n' "$props" | sed -n 's/^ID_SERIAL_SHORT=//p' | head -n 1)
-  serial_u=$(printf '%s' "$serial" | tr '[:lower:]' '[:upper:]')
-  short_u=$(printf '%s' "$short" | tr '[:lower:]' '[:upper:]')
-  if [ -z "$serial_u" ] && [ -z "$short_u" ]; then
-    echo "no USB serial for $port" >&2
+  if ! python3 -c 'import serial' 2>/dev/null; then
+    echo "pyserial is missing. Run: . ~/esp/esp-idf/export.sh" >&2
     return 1
   fi
-
-  found=""
-  while read -r key name extra; do
-    case $key in
-      ''|'#'*) continue ;;
-    esac
-    key_u=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')
-    if [ "$key_u" = "$short_u" ] || [ "$key_u" = "$serial_u" ]; then
-      found=$name
-      break
-    fi
-  done < "$map"
-
-  if [ -z "$found" ]; then
-    echo "no board for $port (ID_SERIAL=${serial:-?} ID_SERIAL_SHORT=${short:-?})" >&2
-    echo "add a line to $map" >&2
+  found=$(python3 "$(dirname "$0")/board-id.py" "$port") || {
+    echo "name it yourself: tools/deploy.sh <board>=$port" >&2
+    return 1
+  }
+  if [ ! -f "boards/$found/sdkconfig.defaults" ]; then
+    echo "$port reports board '$found', which is not a directory under boards/" >&2
     return 1
   fi
   printf '%s\n' "$found"
@@ -84,7 +48,16 @@ logdir=
 trap 'rm -f "$jobs"; [ -n "$logdir" ] && rm -rf "$logdir"' EXIT
 
 seen=""
-for port in "$@"; do
+for arg in "$@"; do
+  named=""
+  port=$arg
+  case $arg in
+    *=*) named=${arg%%=*}; port=${arg#*=} ;;
+  esac
+  if [ -n "$named" ] && [ ! -f "boards/$named/sdkconfig.defaults" ]; then
+    echo "'$named' is not a board under boards/" >&2
+    exit 1
+  fi
   if [ ! -e "$port" ]; then
     echo "no such port: $port" >&2
     exit 1
@@ -97,7 +70,7 @@ for port in "$@"; do
       ;;
   esac
   seen="$seen $canon"
-  board=$(identify "$port")
+  if [ -n "$named" ]; then board=$named; else board=$(identify "$port") || exit 1; fi
   printf '%s %s\n' "$board" "$canon" >> "$jobs"
   echo "$board $port"
 done

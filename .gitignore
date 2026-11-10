@@ -16,3 +16,6 @@ docs/superpowers/
 
 # Local task list, not published
 TODO.md
+
+# Local Claude Code state and private notes
+.claude/
