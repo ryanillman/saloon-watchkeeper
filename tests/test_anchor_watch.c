@@ -242,6 +242,53 @@ static void test_reconnect_to_a_server_without_the_anchor_is_watch_lost_not_calm
   TEST_ASSERT_TRUE(on_disk_armed());          // and the record is not quietly disarmed
 }
 
+// The bus knows nothing of the anchor (Signal K's plugin owns the watch), so a live bus must neither hide the loss nor
+// pass for the server: the watch is judged on Signal K alone, whatever else is feeding the display.
+static void test_signal_k_down_with_the_bus_live_is_watch_lost_then_recovers(void) {
+  bd_init();
+  hist_init();
+  bd_source_register(BD_SRC_SK, "signalk", 2);
+  bd_source_register(BD_SRC_N2K, "nmea2000", 1);
+  anchor_ids_t ids;
+  anchor_ids_bind(&ids);
+  bd_id_t pos = bd_intern("navigation.position"), hdg = bd_intern("navigation.headingTrue");
+  anchor_watch_init(&w, dir, 0, 60000);
+  int64_t t = 1000000;
+  bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE);
+  bd_set_position(ids.position, 48.5, -123.0, BD_SRC_SK, t);
+  bd_set_number(ids.max_radius, 50, BD_SRC_SK, t);
+  bd_set_number(ids.current_radius, 20, BD_SRC_SK, t);
+  bd_set_number(ids.bearing_true, 1.0, BD_SRC_SK, t);
+  anchor_view_t v;
+  anchor_view_build(&ids, false, alerts_source_is_up(), t, &v, NULL, 0);
+  anchor_watch_tick(&w, &v, alerts_source_is_up(), t, dir);
+  TEST_ASSERT_TRUE(on_disk_armed());
+  bd_invalidate_source(BD_SRC_SK);   // the server goes; the bus carries on
+  bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE);
+  bd_source_set_state(BD_SRC_N2K, BD_SRC_LIVE);
+  alerts_source_up(false);
+  for (int64_t dt = 1000; dt <= 70000; dt += 1000) {
+    bd_set_position(pos, 48.5, -123.0, BD_SRC_N2K, t + dt);
+    bd_set_number(hdg, 1.0, BD_SRC_N2K, t + dt);
+    anchor_view_build(&ids, false, alerts_source_is_up(), t + dt, &v, NULL, 0);
+    TEST_ASSERT_EQUAL(AM_NO_DATA, v.mode);
+    anchor_watch_tick(&w, &v, alerts_source_is_up(), t + dt, dir);
+    if (dt < 60000) TEST_ASSERT_FALSE(alarm_up("WATCH LOST"));
+  }
+  TEST_ASSERT_TRUE(alarm_up("WATCH LOST"));
+  TEST_ASSERT_TRUE(on_disk_armed());
+  alerts_source_up(true);   // the server returns and the plugin still has the anchor
+  bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE);
+  int64_t r = t + 72000;
+  bd_set_position(ids.position, 48.5, -123.0, BD_SRC_SK, r);
+  bd_set_number(ids.max_radius, 50, BD_SRC_SK, r);
+  bd_set_number(ids.current_radius, 21, BD_SRC_SK, r);
+  bd_set_number(ids.bearing_true, 1.0, BD_SRC_SK, r);
+  anchor_view_build(&ids, false, alerts_source_is_up(), r, &v, NULL, 0);
+  anchor_watch_tick(&w, &v, alerts_source_is_up(), r, dir);
+  TEST_ASSERT_FALSE(alarm_up("WATCH LOST"));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_not_armed_no_alert);
@@ -259,5 +306,6 @@ int main(void) {
   RUN_TEST(test_raised_elsewhere_while_watching_disarms_quietly);
   RUN_TEST(test_write_failure_turns_off_the_sd_flag);
   RUN_TEST(test_reconnect_to_a_server_without_the_anchor_is_watch_lost_not_calm);
+  RUN_TEST(test_signal_k_down_with_the_bus_live_is_watch_lost_then_recovers);
   return UNITY_END();
 }

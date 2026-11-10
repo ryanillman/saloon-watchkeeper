@@ -1013,6 +1013,7 @@ void app_tick(void) {
   }
   if (a.dir[0] && a.cfg.n2k.enabled && !a.cfg.n2k.only)   // learn the boat's instances from Signal K for the next cold start
     can_instances_tick(&inst_cache, a.network && sk_client_state() == SK_LIVE, platform_millis(), a.dir);
+  if (!app_network_wanted(&a.cfg)) bd_source_set_state(BD_SRC_SK, BD_SRC_NOT_CONFIGURED);   // bus only: pages that need Signal K are not drawn as failed
   ui_src_t sk_ui = UI_SRC_OFFLINE;   // no client yet (or none by design in "only" mode): the dot says so
   if (a.network) {
     switch (sk_client_state()) {

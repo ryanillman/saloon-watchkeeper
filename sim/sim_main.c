@@ -314,6 +314,7 @@ static void anchor_state(const char *state) {
   alerts_source_up(true);
   alerts_clear("navigation.anchor");
   sim_watch.restoring = false;
+  sim_watch.was_set = strcmp(state, "notset") && strcmp(state, "restoring") && strcmp(state, "nodata-unset");   // an anchor was set this session
   for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++) bd_set_invalid(bd_intern(paths[i]));
   if (!strcmp(state, "restoring")) {
     sim_watch.restoring = true;
@@ -335,9 +336,57 @@ static void anchor_state(const char *state) {
   if (!strcmp(state, "warn")) alert_raise("navigation.anchor", AL_WARN, "Anchor near its limit");
   if (!strcmp(state, "dragging")) alert_raise("navigation.anchor", AL_ALARM, "Anchor dragging");
   if (!strcmp(state, "nodata")) alerts_source_up(false);   // the connection is gone
+  if (!strcmp(state, "nodata-unset")) alerts_source_up(false);   // gone, and no anchor was ever seen
 }
 
-static const char *const anchor_states[] = {"notset", "holding", "warn", "dragging", "nodata", "restoring"};
+static const char *const anchor_states[] = {"notset", "holding", "warn", "dragging", "nodata", "nodata-unset", "restoring"};
+
+// ---- Signal K down, the NMEA 2000 bus up (docs/nmea2000-plan.md, the audit gate) ----
+// What the display holds when the server drops while a bus feeds it: every Signal K sample goes invalid, as
+// bd_invalidate_source does on a disconnect, and the paths the bus can supply are written again by the bus. Anything
+// else (solar, chargers, inverters, DC-DC, tide, anchor, autopilot, course, the server's true wind and current) stays
+// invalid, so a page that shows a stale number, a blank hole or no flag for one of them is a bug.
+static bool sim_fallback;
+
+static bool bus_supplies(const char *path) {
+  static const char *const prefix[] = {
+    "propulsion.", "tanks.", "electrical.batteries.", "environment.depth.", "environment.wind.angleApparent",
+    "environment.wind.speedApparent", "navigation.headingTrue", "navigation.courseOverGroundTrue",
+    "navigation.speedOverGround", "navigation.speedThroughWater", "navigation.position", "navigation.datetime"};
+  for (size_t i = 0; i < sizeof prefix / sizeof prefix[0]; i++)
+    if (!strncmp(path, prefix[i], strlen(prefix[i]))) return true;
+  return false;
+}
+
+static void fixture_fallback(void) {
+  static bd_sample_t keep[BD_MAX_PATHS + 1];
+  bd_id_t n = bd_count();
+  for (bd_id_t id = 1; id <= n; id++) {
+    memset(&keep[id], 0, sizeof keep[id]);
+    bd_get(id, &keep[id]);
+  }
+  bd_invalidate_source(BD_SRC_SK);
+  int64_t now = platform_millis();
+  for (bd_id_t id = 1; id <= n; id++) {
+    const bd_sample_t *s = &keep[id];
+    if (!s->valid || s->source != BD_SRC_SK || !bus_supplies(bd_path(id))) continue;
+    if (s->kind == BD_NUMBER) bd_set_number(id, s->num, BD_SRC_N2K, now);
+    else if (s->kind == BD_POSITION) bd_set_position(id, s->pos.lat, s->pos.lon, BD_SRC_N2K, now);
+    else bd_set_text(id, s->text, BD_SRC_N2K, now);
+  }
+  bd_source_register(BD_SRC_SK, "signalk", 2);
+  bd_source_register(BD_SRC_N2K, "nmea2000", 1);
+  bd_source_set_state(BD_SRC_SK, BD_SRC_OFFLINE);
+  bd_source_set_state(BD_SRC_N2K, BD_SRC_LIVE);
+  alerts_source_up(false);
+  sim_fallback = true;
+}
+
+static void fixture_fallback_end(void) {
+  sim_fallback = false;
+  bd_source_set_state(BD_SRC_SK, BD_SRC_LIVE);
+  alerts_source_up(true);
+}
 
 static const char *palette_names[] = {"day", "dusk", "night"};
 
@@ -345,7 +394,12 @@ static void sim_display_reset(void) { lv_obj_invalidate(lv_screen_active()); }  
 
 static int write_page(lv_display_t *disp, const char *dir, const char *suffix, const sim_board_t *b) {
   ui_shell_set_clock("02:14");
-  ui_shell_set_source(UI_SRC_LIVE);
+  if (sim_fallback) {
+    ui_shell_set_sources((ui_source_t){true, UI_SRC_OFFLINE}, (ui_source_t){true, UI_SRC_LIVE});
+    alerts_show();   // the app lays the strip out after it sets the sources, so does this
+  } else {
+    ui_shell_set_source(UI_SRC_LIVE);
+  }
   ui_shell_refresh();
   lv_obj_invalidate(lv_display_get_screen_active(disp));
   lv_refr_now(disp);
@@ -361,6 +415,31 @@ static int write_page(lv_display_t *disp, const char *dir, const char *suffix, c
     return 1;
   }
   return 0;
+}
+
+// The page on screen with Signal K down and the bus live. Every fixture is set again first, so the picture does not depend
+// on what the page's own renders left behind, and again afterwards for the next page.
+static int write_fallback(lv_display_t *disp, const char *dir, const sim_board_t *b, bool banks) {
+  static const char *const anchor_tile = "holding";
+  alerts_clear("propulsion.port.temperature");
+  fixture_engines();
+  fixture_tanks();
+  if (banks) fixture_banks(); else fixture_power();
+  fixture_nav("full");
+  fixture_depth(true);
+  anchor_state(anchor_tile);
+  fixture_fallback();
+  alerts_show();
+  int rc = write_page(disp, dir, banks ? "-banks-fallback" : "-fallback", b);
+  fixture_fallback_end();
+  alerts_show();
+  fixture_engines();
+  fixture_tanks();
+  if (banks) fixture_banks(); else fixture_power();
+  fixture_nav("full");
+  fixture_depth(true);
+  anchor_state("notset");
+  return rc;
 }
 
 static int run_snapshots(const char *out) {
@@ -525,6 +604,7 @@ static int run_snapshots(const char *out) {
           } else if (write_page(disp, dir, "", b)) {
             return 1;
           }
+          if (write_fallback(disp, dir, b, false)) return 1;
           ui_shell_move(NAV_UP);
         }
         if (r == 0) {   // two warnings, with the list open
@@ -554,7 +634,7 @@ static int run_snapshots(const char *out) {
             lv_timer_handler();
             static const struct { ui_setup_screen_t s; const char *name; } shots[] = {
               {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"},
-              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}};
+              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}, {SETUP_SOURCES, "setup-sources"}};
             for (size_t k = 0; k < sizeof shots / sizeof shots[0]; k++) {
               ui_setup_show(shots[k].s);
               lv_obj_invalidate(lv_display_get_screen_active(disp));
@@ -603,6 +683,7 @@ static int run_snapshots(const char *out) {
           bd_set_invalid(bd_find("electrical.chargers.276.current"));
           bd_set_invalid(bd_find("electrical.batteries.281.current"));
           if (write_page(disp, dir, "-banks-fault", b)) return 1;
+          if (write_fallback(disp, dir, b, true)) return 1;
           ui_shell_move(NAV_UP);
         }
       }

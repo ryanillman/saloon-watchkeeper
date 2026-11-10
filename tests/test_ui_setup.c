@@ -490,6 +490,30 @@ static void test_request_access_button_calls_cb(void) {
   TEST_ASSERT_NOT_NULL(ui_setup_part("access_state"));
 }
 
+static void test_sources_page_picks_the_mode_and_saves_it(void) {
+  open_setup();
+  TEST_ASSERT_FALSE(ui_setup_working()->n2k.enabled);   // the default: Signal K only
+  click("menu_sources");
+  TEST_ASSERT_NOT_NULL(ui_setup_part("src_sk"));
+  TEST_ASSERT_FALSE(ui_setup_dirty());
+  click("src_both");
+  TEST_ASSERT_TRUE(ui_setup_working()->n2k.enabled);
+  TEST_ASSERT_FALSE(ui_setup_working()->n2k.only);
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(ui_setup_part("src_note")), "Signal K first"));
+  click("src_bus");
+  TEST_ASSERT_TRUE(ui_setup_working()->n2k.enabled);
+  TEST_ASSERT_TRUE(ui_setup_working()->n2k.only);
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(ui_setup_part("src_note")), "no alarms"));
+  TEST_ASSERT_TRUE(ui_setup_dirty());
+  click("save");
+  TEST_ASSERT_EQUAL_INT(1, saves);
+  TEST_ASSERT_TRUE(saved.n2k.enabled && saved.n2k.only);
+  click("menu_sources");
+  click("src_sk");   // back to Signal K only: the bus is off and the stale "only" is cleared
+  TEST_ASSERT_FALSE(ui_setup_working()->n2k.enabled);
+  TEST_ASSERT_FALSE(ui_setup_working()->n2k.only);
+}
+
 // Review Focus 5: on the 4" screen the field being edited stays above the keyboard.
 static void test_keyboard_keeps_field_visible_480(void) {
   static uint8_t b2[480 * 48 * 2];
@@ -562,6 +586,7 @@ int main(void) {
   RUN_TEST(test_sk_address_pad_has_digits_and_dot_together);
   RUN_TEST(test_sk_hostname_opens_on_letters);
   RUN_TEST(test_sk_manual_host_saves);
+  RUN_TEST(test_sources_page_picks_the_mode_and_saves_it);
   RUN_TEST(test_request_access_button_calls_cb);
   RUN_TEST(test_keyboard_keeps_field_visible_480);
   RUN_TEST(test_discovery_label_edit);

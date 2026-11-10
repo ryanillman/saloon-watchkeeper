@@ -351,7 +351,7 @@ static void test_anchor_tile_never_ok_when_data_missing(void) {
   alerts_source_up(false);   // the connection is gone
   tile();
   TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
-  TEST_ASSERT_EQUAL_STRING("NO DATA", t.word);
+  TEST_ASSERT_EQUAL_STRING("FAIL", t.word);   // the connection is the reason: FAIL, not a bare NO DATA
   anchor_start(true);   // restoring, nothing shown back yet
   bd_init();
   anchor_start(true);

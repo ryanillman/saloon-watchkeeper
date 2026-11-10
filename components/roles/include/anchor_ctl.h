@@ -32,7 +32,15 @@ typedef struct {
   const char *message;      // "" or OFFLINE, NO ACCESS, NO PLUGIN, REJECTED, NOT CONFIRMED (5 s)
   int hold_pct;             // raise hold progress, 0..100
   bool no_sd;               // there is no usable card: no boot-restore protection
+  bool fail;                // Signal K is not live, so nothing about the anchor is known: the page shows ANCHOR FAIL
+  bool armed;               // an anchor was set (seen live this session, or the SD record says so): the FAIL page says so
+  const char *cause;        // why: "SIGNAL K OFFLINE" or "SIGNAL K CONNECTING"
 } anchor_ctl_state_t;
+
+// Whether the page and tile are in the FAIL state: the Signal K connection is down and the display is not holding a
+// boot restore (RESTORING keeps its own page: holding RAISE there clears a stuck record). The bus has no anchor data,
+// so a live bus never changes this.
+bool anchor_view_failed(const anchor_view_t *v);
 
 // plugin picks the command routes. watch (may be NULL) gives restoring/no-SD and is cleared on Raise or Drop; dir is
 // where its record lives. units gives the display unit for steps and text (feet when depth is "ft", else metres).

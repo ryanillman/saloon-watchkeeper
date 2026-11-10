@@ -9,7 +9,7 @@
 #include "lvgl.h"
 #include "ui_theme.h"
 
-typedef enum { SETUP_MENU, SETUP_WIFI, SETUP_SIGNALK, SETUP_ROLES, SETUP_DISCOVERY, SETUP_DISPLAY, SETUP_ABOUT } ui_setup_screen_t;
+typedef enum { SETUP_MENU, SETUP_WIFI, SETUP_SIGNALK, SETUP_SOURCES, SETUP_ROLES, SETUP_DISCOVERY, SETUP_DISPLAY, SETUP_ABOUT } ui_setup_screen_t;
 
 #define SETUP_IDLE_MS 300000   // closes after 5 minutes without a touch; unsaved changes are dropped
 
@@ -48,7 +48,7 @@ void ui_setup_wifi_results(const ui_ap_t *aps, int n);   // UI task: a scan fini
 // "up_<role>", "down_<role>", "remove_<role>", "add_<role>", "start_<role>", "run",
 // "keep_<role>_<id>", "missing_<role>_<id>", "label_<role>_<id>", "confirm_<role>",
 // "auto_<role>", "scan", "ap_<ssid>", "ap_other", "wifi_state", "sk_auto", "sk_manual",
-// "edit_host", "edit_port", "sk_state", "request_access", "access_state", "kb", "kb_text").
+// "edit_host", "edit_port", "sk_state", "src_sk", "src_both", "src_bus", "src_note", "request_access", "access_state", "kb", "kb_text").
 bool ui_setup_dirty(void);
 const cfg_t *ui_setup_working(void);
 lv_obj_t *ui_setup_part(const char *name);
