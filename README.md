@@ -17,6 +17,33 @@ It started with a simple annoyance: the display that shows a boat's battery and 
 - **Day, dusk, and night palettes.** Night is red on black. Brightness and palette are set from the top strip.
 - **A desktop simulator.** Most development runs in a Linux/SDL build of the same code against a real Signal K server, so you can try it without hardware.
 
+## Screenshots
+
+These are renders from the desktop simulator with fixture data, not photos of a boat. `tools/update-screenshots.sh` regenerates them.
+
+<p align="center">
+  <img src="docs/images/glance.png" width="49%" alt="Glance page: one tile each for engine, power, tanks, anchor, depth and navigation">
+  <img src="docs/images/engine.png" width="49%" alt="Engine page: twin-engine RPM dial with coolant, oil and voltage gauges">
+</p>
+<p align="center">
+  <img src="docs/images/navigation.png" width="49%" alt="Navigation page: HSI-style compass with apparent and true wind, course, cross-track error and autopilot heading">
+  <img src="docs/images/power.png" width="49%" alt="Power page: flow diagram from solar, shore and alternator through the battery banks to the loads">
+</p>
+<p align="center">
+  <img src="docs/images/anchor.png" width="49%" alt="Anchor page: swing plot inside the limit circle, distance and bearing, HOLDING">
+  <img src="docs/images/depth.png" width="49%" alt="Depth page: depth below the keel with a chart that continues into the tide forecast">
+</p>
+<p align="center">
+  <img src="docs/images/engine-fail.png" width="49%" alt="Engine page with the port coolant and fuel senders failed: red cross and a FAIL label on those fields only">
+  <img src="docs/images/glance-night.png" width="49%" alt="Glance page in the night palette, red on black">
+</p>
+<p align="center">
+  <img src="docs/images/glance-4in.png" width="32%" alt="Glance page on the 4 inch square display">
+  <img src="docs/images/anchor-4in.png" width="32%" alt="Anchor page on the 4 inch square display">
+</p>
+
+The fourth row shows what failure looks like: only the failed fields lose their value, and the rest stay live. The night palette is red on black.
+
 ## Supported hardware
 
 All three boards are Waveshare ESP32-S3 touch displays with an RGB panel and a GT911 touch controller. A new board is a profile in `boards/`, not a fork.
