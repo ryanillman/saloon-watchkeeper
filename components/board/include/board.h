@@ -1,6 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "lvgl.h"
 #include "ui_theme.h"
@@ -27,3 +28,7 @@ esp_err_t board_can_enable(void);
 
 // The board this image was built for (CONFIG_BI_BOARD_*).
 const board_t *board_get(void);
+
+// The board's shared I2C master bus (touch, RTC, expander), for firmware that adds devices to it. Valid after
+// board->init(); NULL on boards that do not expose one (only square4 does so far).
+i2c_master_bus_handle_t board_i2c_bus(void);

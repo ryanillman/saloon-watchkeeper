@@ -173,6 +173,7 @@ static const board_t square4 = {
 };
 
 const board_t *board_get(void) { return &square4; }
+i2c_master_bus_handle_t board_i2c_bus(void) { return i2c; }
 
 esp_err_t board_can_pins(int *tx_gpio, int *rx_gpio) {
   *tx_gpio = 6;

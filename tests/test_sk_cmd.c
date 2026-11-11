@@ -221,6 +221,57 @@ static void test_unknown_handle_is_failed_none(void) {
   TEST_ASSERT_EQUAL(SKC_ERR_NONE, r.err);
 }
 
+static sk_cmd_t text_put(const char *path, const char *text) {
+  sk_cmd_t c = post(path);
+  c.put_text = true;
+  snprintf(c.body, sizeof c.body, "%s", text);
+  return c;
+}
+
+static void test_put_body_number(void) {
+  char b[64];
+  sk_cmd_t c = put("a.b", 12.5);
+  TEST_ASSERT_EQUAL_UINT(strlen("{\"value\":12.5}"), sk_cmd_put_body(&c, b, sizeof b));
+  TEST_ASSERT_EQUAL_STRING("{\"value\":12.5}", b);
+}
+static void test_put_body_text(void) {
+  char b[64];
+  sk_cmd_t c = text_put("environment.mode", "restricted visibility");
+  TEST_ASSERT_GREATER_THAN(0, sk_cmd_put_body(&c, b, sizeof b));
+  TEST_ASSERT_EQUAL_STRING("{\"value\":\"restricted visibility\"}", b);
+}
+static void test_put_body_escapes(void) {
+  char b[64];
+  sk_cmd_t c = text_put("x", "a\"b\\c\n");
+  TEST_ASSERT_GREATER_THAN(0, sk_cmd_put_body(&c, b, sizeof b));
+  TEST_ASSERT_EQUAL_STRING("{\"value\":\"a\\\"b\\\\c\\u000a\"}", b);
+}
+static void test_put_body_too_small(void) {
+  char b[8] = "xxxxxxx";
+  sk_cmd_t c = text_put("x", "night");
+  TEST_ASSERT_EQUAL_UINT(0, sk_cmd_put_body(&c, b, sizeof b));
+  TEST_ASSERT_EQUAL_CHAR(0, b[0]);
+  c = put("a.b", 12.5);
+  TEST_ASSERT_EQUAL_UINT(0, sk_cmd_put_body(&c, b, 4));
+  TEST_ASSERT_EQUAL_UINT(0, sk_cmd_put_body(&c, b, 0));
+}
+static void test_put_body_neither_kind(void) {
+  char b[32];
+  sk_cmd_t c = post("/p/drop");
+  TEST_ASSERT_EQUAL_UINT(0, sk_cmd_put_body(&c, b, sizeof b));
+}
+static void test_submit_text_command(void) {
+  sk_cmd_handle_t h = submit(text_put("environment.mode", "night"), false, 0);
+  TEST_ASSERT_NOT_EQUAL(0, h);
+  sk_cmd_t out;
+  sk_cmd_handle_t got;
+  TEST_ASSERT_TRUE(sk_cmd_next(&out, &got, 10));
+  TEST_ASSERT_TRUE(out.put_text);
+  TEST_ASSERT_FALSE(out.put_number);
+  TEST_ASSERT_EQUAL_STRING("environment.mode", out.path);
+  TEST_ASSERT_EQUAL_STRING("night", out.body);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_refused_while_disconnected_and_not_queued_later);
@@ -239,5 +290,11 @@ int main(void) {
   RUN_TEST(test_status_mapping);
   RUN_TEST(test_failed_command_is_not_offered_again);
   RUN_TEST(test_unknown_handle_is_failed_none);
+  RUN_TEST(test_put_body_number);
+  RUN_TEST(test_put_body_text);
+  RUN_TEST(test_put_body_escapes);
+  RUN_TEST(test_put_body_too_small);
+  RUN_TEST(test_put_body_neither_kind);
+  RUN_TEST(test_submit_text_command);
   return UNITY_END();
 }

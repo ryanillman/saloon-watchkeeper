@@ -166,3 +166,30 @@ bool sk_cmd_reply_id(const char *json, size_t len, char *out, size_t n) {
   cJSON_Delete(root);
   return ok;
 }
+
+size_t sk_cmd_put_body(const sk_cmd_t *c, char *out, size_t n) {
+  if (!n) return 0;
+  out[0] = 0;
+  size_t len = 0;
+  if (c->put_number) {
+    int w = snprintf(out, n, "{\"value\":%g}", c->value);
+    if (w < 0 || (size_t)w >= n) { out[0] = 0; return 0; }
+    return (size_t)w;
+  }
+  if (!c->put_text) return 0;
+#define PUT(ch) do { if (len + 1 >= n) { out[0] = 0; return 0; } out[len++] = (ch); } while (0)
+  for (const char *p = "{\"value\":\""; *p; p++) PUT(*p);
+  for (const char *p = c->body; *p; p++) {
+    unsigned char ch = (unsigned char)*p;
+    if (ch == '"' || ch == '\\') { PUT('\\'); PUT((char)ch); }
+    else if (ch < 0x20) {
+      static const char hex[] = "0123456789abcdef";
+      for (const char *q = "\\u00"; *q; q++) PUT(*q);
+      PUT(hex[ch >> 4]); PUT(hex[ch & 15]);
+    } else PUT((char)ch);
+  }
+  PUT('"'); PUT('}');
+#undef PUT
+  out[len] = 0;
+  return len;
+}

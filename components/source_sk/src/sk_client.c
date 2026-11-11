@@ -114,13 +114,16 @@ __attribute__((noinline)) static void drain_commands(const char *base, const cha
   sk_cmd_t cmd;
   sk_cmd_handle_t h;
   while (sk_cmd_next(&cmd, &h, platform_millis())) {
-    char url[320], body[64];
+    char url[320], body[160];
     const char *method = cmd.method[0] ? cmd.method : "POST", *payload = cmd.body[0] ? cmd.body : NULL;
-    if (cmd.put_number) {
+    if (cmd.put_number || cmd.put_text) {
       size_t n = (size_t)snprintf(url, sizeof url, "%s/signalk/v1/api/vessels/self/", base);
       for (const char *p = cmd.path; *p && n < sizeof url - 1; p++) url[n++] = *p == '.' ? '/' : *p;
       url[n] = 0;
-      snprintf(body, sizeof body, "{\"value\":%g}", cmd.value);
+      if (!sk_cmd_put_body(&cmd, body, sizeof body)) {   // does not fit: fail it rather than send a cut body
+        sk_cmd_finish(h, true, 400);
+        continue;
+      }
       method = "PUT";
       payload = body;
     } else {

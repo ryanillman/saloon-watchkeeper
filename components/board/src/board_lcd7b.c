@@ -108,6 +108,7 @@ static const board_t lcd7b = {
 };
 
 const board_t *board_get(void) { return &lcd7b; }
+i2c_master_bus_handle_t board_i2c_bus(void) { return NULL; }
 
 esp_err_t board_can_pins(int *tx_gpio, int *rx_gpio) {
   *tx_gpio = 20;

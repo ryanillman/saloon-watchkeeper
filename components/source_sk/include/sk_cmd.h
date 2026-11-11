@@ -12,9 +12,11 @@ typedef enum { SKC_PENDING, SKC_OK, SKC_FAILED } sk_cmd_state_t;
 typedef enum { SKC_ERR_NONE, SKC_ERR_OFFLINE, SKC_ERR_NO_ACCESS, SKC_ERR_NO_PLUGIN, SKC_ERR_REJECTED } sk_cmd_err_t;
 
 // put_number: PUT {"value": value} to the Signal K path `path` (dotted, relative to vessels.self).
+// put_text: the same with a string value, taken from `body` (plain text, not JSON): {"value":"night"}.
 // Otherwise POST `body` (JSON, "" for none) to the server path `path` (e.g. "/plugins/anchoralarm/raiseAnchor").
 typedef struct {
   bool put_number;
+  bool put_text;        // PUT {"value":"<body>"} to the Signal K path `path`; `body` holds the text
   char path[96];
   char body[256];
   double value;
@@ -47,3 +49,8 @@ void sk_cmd_finish_id(sk_cmd_handle_t h, bool transport_ok, int status, const ch
 // The string "id" of a JSON reply body into `out` (cap `n`). False, `out` empty, when there is none, it is not a string,
 // it does not fit, or the body is not JSON.
 bool sk_cmd_reply_id(const char *json, size_t len, char *out, size_t n);
+
+// The JSON body of a put_number or put_text command: {"value":12.5} or {"value":"night"}. Text escapes
+// " and \ and control characters. Returns the length, or 0 when the command is neither kind or the body does
+// not fit `n` (including the terminating NUL).
+size_t sk_cmd_put_body(const sk_cmd_t *c, char *out, size_t n);
