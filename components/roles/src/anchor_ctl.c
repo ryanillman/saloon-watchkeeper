@@ -46,6 +46,8 @@ static bool feet(void) { return c.units && !strcmp(c.units->depth, "ft"); }
 static double step_m(void) { return feet() ? 15 * 0.3048 : 5; }
 static bool is_set(anchor_mode_t m) { return m == AM_HOLDING || m == AM_WARN || m == AM_DRAGGING || m == AM_NO_LIMIT; }
 
+static bool watch_armed(void) { return c.watch && (c.watch->was_set || c.watch->rec.armed); }
+
 void anchor_ctl_setup(const anchor_ops_t *ops, anchor_plugin_t plugin, anchor_watch_t *watch, const char *dir,
                       const cfg_units_t *units) {
   memset(&c, 0, sizeof c);
@@ -158,11 +160,14 @@ void anchor_ctl_update(int64_t now_ms, anchor_pt_t *track, size_t track_cap) {
   if (c.st.hold_pct > 100) c.st.hold_pct = 100;
   c.st.no_sd = c.watch && !c.watch->have_sd;
   c.st.fail = anchor_view_failed(v);
-  c.st.armed = c.watch && (c.watch->was_set || c.watch->rec.armed);
-  c.st.cause = bd_source_state(BD_SRC_SK) == BD_SRC_CONNECTING ? "SIGNAL K CONNECTING" : "SIGNAL K OFFLINE";
+  c.st.armed = watch_armed();
+  c.st.cause = alerts_source_is_up() ? "WAITING FOR ANCHOR DATA"
+             : bd_source_state(BD_SRC_SK) == BD_SRC_CONNECTING ? "SIGNAL K CONNECTING" : "SIGNAL K OFFLINE";
 }
 
-bool anchor_view_failed(const anchor_view_t *v) { return v->mode == AM_NO_DATA && !alerts_source_is_up(); }
+// FAIL whenever there is no data, whatever the reason (connection down, or up with the anchor data stale or not back yet).
+// Never a NO DATA page of dashes.
+bool anchor_view_failed(const anchor_view_t *v) { return v->mode == AM_NO_DATA; }
 
 const anchor_ctl_state_t *anchor_ctl_state(void) {
   c.st.message = c.msg;

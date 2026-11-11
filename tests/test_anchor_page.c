@@ -425,17 +425,35 @@ static void test_fail_when_signal_k_is_down_says_whether_an_anchor_was_set(void)
   TEST_ASSERT_EQUAL_STRING("SIGNAL K CONNECTING", update(T + 2000)->cause);
 }
 
-static void test_no_fail_with_the_server_up_or_while_restoring(void) {
+static void test_fail_on_stale_data_but_not_while_restoring(void) {
   holding(T, 50);
   TEST_ASSERT_FALSE(update(T)->fail);                              // live and holding
   alerts_source_up(true);
   bd_set_number(bd_intern("navigation.anchor.currentRadius"), 20, 1, T - 200000);   // stale distance, server up
-  TEST_ASSERT_FALSE(update(T)->fail);
+  TEST_ASSERT_TRUE(update(T)->fail);                               // stale data is FAIL too, never a page of dashes
   watch.restoring = true;
   alerts_source_up(false);
   const anchor_ctl_state_t *s = update(T + 1000);
   TEST_ASSERT_EQUAL(AM_RESTORING, s->view.mode);
   TEST_ASSERT_FALSE(s->fail);                                      // RESTORING keeps its page: RAISE clears a stuck record
+}
+
+static void test_armed_watch_with_no_data_after_a_reconnect_is_fail_not_dashes(void) {
+  holding(T, 50);
+  update(T);
+  watch.was_set = true;                       // the watch saw the anchor set this session
+  bd_invalidate_source(1);                    // the connection dropped and came back: nothing resent yet
+  alerts_source_up(true);
+  const anchor_ctl_state_t *s = update(T + 5000);
+  TEST_ASSERT_EQUAL(AM_NO_DATA, s->view.mode);
+  TEST_ASSERT_TRUE(s->fail);                  // the FAIL page, not a NO DATA page with dashes
+  TEST_ASSERT_TRUE(s->armed);
+  TEST_ASSERT_EQUAL_STRING("WAITING FOR ANCHOR DATA", s->cause);
+  TEST_ASSERT_TRUE(anchor_view_failed(&s->view));
+  holding(T + 6000, 50);                      // the data returns
+  s = update(T + 6000);
+  TEST_ASSERT_EQUAL(AM_HOLDING, s->view.mode);
+  TEST_ASSERT_FALSE(s->fail);
 }
 
 int main(void) {
@@ -472,6 +490,7 @@ int main(void) {
   RUN_TEST(test_hold_cancelled_when_the_button_is_deleted);
   RUN_TEST(test_staged_radius_is_dropped_when_the_page_is_left);
   RUN_TEST(test_fail_when_signal_k_is_down_says_whether_an_anchor_was_set);
-  RUN_TEST(test_no_fail_with_the_server_up_or_while_restoring);
+  RUN_TEST(test_fail_on_stale_data_but_not_while_restoring);
+  RUN_TEST(test_armed_watch_with_no_data_after_a_reconnect_is_fail_not_dashes);
   return UNITY_END();
 }
