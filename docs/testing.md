@@ -138,7 +138,7 @@ Play `tools/scenario.sh glance-mixed` (or `two-engines` for the clock), then che
 
 ## The Anchor page, its tile and the watch
 
-Needs an anchor plugin on the server (`hoekens-anchor-alarm` or `signalk-anchoralarm-plugin`; set `anchor.plugin` in `config.json` to match, default `hoekens-anchor-alarm`), a position (a GPS, or `tools/sk-inject` publishing `navigation.position`), and the display's token with write access. `tools/scenario.sh anchor-holding` plays a boat at anchor without a plugin. Compare with the snapshots in `build/sim/snap/` (`anchor-p0-<state>.png`, `glance-p0-anchor-<state>.png`).
+Needs an anchor plugin on the server (`hoekens-anchor-alarm` or `signalk-anchoralarm-plugin`; set it to match under Setup > Roles > Anchor plugin, or `anchor.plugin` in `config.json`; default `hoekens-anchor-alarm`), a position (a GPS, or `tools/sk-inject` publishing `navigation.position`), and the display's token with write access. `tools/scenario.sh anchor-holding` plays a boat at anchor without a plugin. Compare with the snapshots in `build/sim/snap/` (`anchor-p0-<state>.png`, `glance-p0-anchor-<state>.png`).
 
 | Check | Expect |
 |---|---|

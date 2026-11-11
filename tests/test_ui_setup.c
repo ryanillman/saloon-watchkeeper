@@ -271,6 +271,26 @@ static void test_add_offers_missing_roles_only(void) {
   TEST_ASSERT_EQUAL_UINT8(0, ui_setup_working()->roles[role_index(ui_setup_working(), "tanks")].src_entry);
 }
 
+static void test_roles_anchor_plugin_row(void) {
+  open_setup();
+  click("menu_roles");
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", ui_setup_working()->anchor_plugin);
+  click("plugin_anchoralarm");
+  TEST_ASSERT_EQUAL_STRING("anchoralarm", ui_setup_working()->anchor_plugin);
+  click("plugin_hoekens-anchor-alarm");
+  TEST_ASSERT_EQUAL_STRING("hoekens-anchor-alarm", ui_setup_working()->anchor_plugin);
+  click("plugin_anchoralarm");
+  click("save");
+  TEST_ASSERT_EQUAL_STRING("anchoralarm", saved.anchor_plugin);
+}
+
+static void test_roles_anchor_plugin_row_needs_the_anchor_role(void) {
+  open_setup();
+  click("menu_roles");
+  click("remove_anchor");
+  TEST_ASSERT_NULL(ui_setup_part("plugin_anchoralarm"));
+}
+
 static void test_discovery_confirm_writes_pins_and_excludes(void) {
   open_setup();
   click("menu_discovery");
@@ -573,6 +593,8 @@ int main(void) {
   RUN_TEST(test_no_sd_note);
   RUN_TEST(test_roles_reorder_and_save);
   RUN_TEST(test_add_offers_missing_roles_only);
+  RUN_TEST(test_roles_anchor_plugin_row);
+  RUN_TEST(test_roles_anchor_plugin_row_needs_the_anchor_role);
   RUN_TEST(test_discovery_confirm_writes_pins_and_excludes);
   RUN_TEST(test_discovery_refresh_with_nothing_new_leaves_the_screen_alone);
   RUN_TEST(test_discovery_refresh_with_a_new_id_keeps_unconfirmed_choices);

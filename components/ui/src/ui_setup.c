@@ -371,6 +371,10 @@ static void build_roles(void) {
     labels[i] = titles[i];
   }
   segmented(u.body, "Start on", "start", u.work.start_role, sizeof u.work.start_role, vals, labels, n);
+  if (has_role("anchor"))   // a setting of the Anchor role: no row on a board that does not show it
+    segmented(u.body, "Anchor plugin", "plugin", u.work.anchor_plugin, sizeof u.work.anchor_plugin,
+              (const char *const[]){"hoekens-anchor-alarm", "anchoralarm"},
+              (const char *const[]){"HOEKEN", "ANCHORALARM"}, 2);
 }
 
 // ---- Discovery ----
