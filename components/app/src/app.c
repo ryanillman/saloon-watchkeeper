@@ -21,6 +21,8 @@
 #include "sk_access.h"
 #include "sk_client.h"
 #include "sk_cmd.h"
+#include "app_electrical.h"
+#include "sk_electrical.h"
 #include "sk_parse.h"
 #include "ui_alerts.h"
 #include "ui_clock.h"
@@ -624,6 +626,15 @@ static uint8_t setup_discovery(ui_disc_role_t *out, uint8_t max) {
   return n;
 }
 
+static void setup_disc_name(const char *role, const char *id, char *out, size_t n) {
+  out[0] = 0;
+  for (uint8_t i = 0; i < a.count; i++)
+    if (a.roles[i].def && !strcmp(a.cfg.roles[i].role, role)) {
+      role_label_of(a.roles[i].def, id, out, n);   // leaves out empty when the source published no name
+      return;
+    }
+}
+
 static void setup_rediscover(void) {
   if (a.network) sk_client_rediscover_now();
 }
@@ -693,7 +704,7 @@ static void setup_access_state(char *out, size_t n) {
   else snprintf(out, n, "Access request: %s (%s)", sk_access_state_name(st), sk_access_message());
 }
 
-static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery,
+static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery, .disc_name = setup_disc_name,
                                  .run_discovery = setup_rediscover, .wifi_scan = setup_wifi_scan,
                                  .wifi_state = setup_wifi_state, .sk_state = setup_sk_state,
                                  .request_access = setup_request_access, .access_state = setup_access_state};
@@ -908,6 +919,7 @@ void app_start_network(void) {
   sk_parse_set_discovery_prefixes(prefixes);
   PLATFORM_EXT_BSS static sk_sub_t ids[256];
   size_t n = app_bound_ids(ids, 256);
+  sk_electrical_attach(app_electrical());   // device-aware electrical data from the stream
   sk_client_init(&a.cfg.sk, ids, n);
   start_access();
   sk_client_start();

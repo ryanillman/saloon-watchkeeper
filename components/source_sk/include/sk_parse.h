@@ -40,6 +40,13 @@ const char *sk_vessel_mmsi(void);
 // Signal K task calls it. NULL removes it.
 void sk_set_emergency_cb(void (*cb)(const char *id, bool active, bool has_pos, double lat, double lon, const char *ref));
 
+// Sees every numeric or text value of a delta (not notifications, not the REST snapshot) with the update's own
+// "$source" ("" when it has none): that is where a value's device is known, and the tree keeps only the latest
+// value per path. `num` is NAN for text, `text` NULL for a number. While one is set the stream also subscribes to
+// "electrical.*". NULL removes it. The Signal K task calls it.
+typedef void (*sk_observe_cb)(const char *path, double num, const char *text, const char *source, int64_t now_ms, void *ctx);
+void sk_set_observe_cb(sk_observe_cb cb, void *ctx);
+
 // A bound path with its resend hint: 0 = on change ("instant"), else a fixed period in ms.
 typedef struct { bd_id_t id; uint32_t resend_ms; } sk_sub_t;
 

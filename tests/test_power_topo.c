@@ -34,9 +34,9 @@ static void spec_topology(void) {
 }
 static void bind_power(void) { role_bind(role_find("power"), &rc, &cfg.units, &b); }
 static void intern_all(void) {
-  const char *p[] = {"electrical.batteries.279.voltage", "electrical.batteries.280.voltage",
-                     "electrical.batteries.281.voltage", "electrical.chargers.276.current",
-                     "electrical.alternators.0.current", "electrical.solar.288.panelPower",
+  const char *p[] = {"electrical.resolved.batteries.279.voltage", "electrical.resolved.batteries.280.voltage",
+                     "electrical.resolved.batteries.281.voltage", "electrical.resolved.chargers.276.current",
+                     "electrical.alternators.0.current", "electrical.resolved.solar.288.panelPower",
                      "electrical.dcdc.1.current", "electrical.dcdc.2.current"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++) bd_intern(p[i]);
 }
@@ -82,8 +82,8 @@ static void test_topo_resolves_instances(void) {
 }
 
 static void test_topo_unbound_source_keeps_link(void) {
-  const char *p[] = {"electrical.batteries.279.voltage", "electrical.batteries.280.voltage",
-                     "electrical.batteries.281.voltage", "electrical.solar.288.panelPower",
+  const char *p[] = {"electrical.resolved.batteries.279.voltage", "electrical.resolved.batteries.280.voltage",
+                     "electrical.resolved.batteries.281.voltage", "electrical.resolved.solar.288.panelPower",
                      "electrical.dcdc.1.current", "electrical.dcdc.2.current"};   // no charger, no alternator
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++) bd_intern(p[i]);
   spec_topology();
@@ -98,7 +98,7 @@ static void test_topo_unbound_source_keeps_link(void) {
 }
 
 static void test_topo_unbound_bank(void) {
-  const char *p[] = {"electrical.batteries.279.voltage", "electrical.batteries.280.voltage"};   // no 281
+  const char *p[] = {"electrical.resolved.batteries.279.voltage", "electrical.resolved.batteries.280.voltage"};   // no 281
   for (size_t i = 0; i < 2; i++) bd_intern(p[i]);
   spec_topology();
   bind_power();
@@ -133,13 +133,13 @@ static void source(const char *group, const char *id, double watts) {
 }
 static void shunt_w(const char *id, double watts) {
   char p[96];
-  snprintf(p, sizeof p, "electrical.batteries.%s.power", id);
+  snprintf(p, sizeof p, "electrical.resolved.batteries.%s.power", id);
   set(p, watts);
 }
 static void live(bool with_charger) {
-  source("solar", "288", 200);
+  source("resolved.solar", "288", 200);
   source("dcdc", "1", 100);
-  if (with_charger) source("chargers", "276", 0);
+  if (with_charger) source("resolved.chargers", "276", 0);
   source("alternators", "0", 40);   // charges START: not part of the house arithmetic
   source("dcdc", "2", 55);          // house -> nav converter, output side
   set("electrical.dcdc.2.input.voltage", 10);
@@ -147,9 +147,9 @@ static void live(bool with_charger) {
   shunt_w("279", 50);
   shunt_w("280", 12);
   shunt_w("281", 5);
-  set("electrical.batteries.279.capacity.stateOfCharge", 0.8);
-  set("electrical.batteries.280.capacity.stateOfCharge", 0.95);
-  set("electrical.batteries.281.capacity.stateOfCharge", 0.6);
+  set("electrical.resolved.batteries.279.capacity.stateOfCharge", 0.8);
+  set("electrical.resolved.batteries.280.capacity.stateOfCharge", 0.95);
+  set("electrical.resolved.batteries.281.capacity.stateOfCharge", 0.6);
 }
 
 static void test_compute_three_bank_scenario(void) {

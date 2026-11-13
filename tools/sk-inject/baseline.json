@@ -1,8 +1,13 @@
 {
   "description": "Routine values for every Signal K path the displays cover. Units are Signal K SI: K, Pa, Hz (rpm/60), ratio, V, A, W, s, m3/s. A row's \"off\" is its value when its group is off (rows without it keep their nominal). \"drift\" is change per 60 s.",
   "optionalGroups": ["three-bank", "venus-system", "course", "autopilot"],
+  "realElectrical": "real-electrical.json",
   "profiles": {
     "underway": {},
+    "real": {
+      "realElectrical": true,
+      "silentGroups": ["house", "solar", "charger", "inverter", "alternator", "three-bank", "venus-system"]
+    },
     "anchor": {
       "groupsOff": ["engine.port", "engine.starboard", "alternator"],
       "overrides": {

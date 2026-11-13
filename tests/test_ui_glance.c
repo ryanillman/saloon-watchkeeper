@@ -34,9 +34,9 @@ static void fixtures(void) {
   num("propulsion.port.oilPressure", 300000);
   num("propulsion.port.temperature", 358.15);
   num("propulsion.port.alternatorVoltage", 14.0);
-  num("electrical.batteries.279.capacity.stateOfCharge", 0.74);
-  num("electrical.batteries.279.voltage", 12.6);
-  num("electrical.batteries.279.current", -4.8);
+  num("electrical.resolved.batteries.279.capacity.stateOfCharge", 0.74);
+  num("electrical.resolved.batteries.279.voltage", 12.6);
+  num("electrical.resolved.batteries.279.current", -4.8);
   num("tanks.freshWater.0.currentLevel", 0.64);
   num("tanks.fuel.0.currentLevel", 0.82);
 }
@@ -173,7 +173,7 @@ static void test_tile_edge_takes_the_state_colour(void) {
 }
 
 static void test_no_data_tile_shows_the_fault_style_and_no_number(void) {
-  bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));
+  bd_set_invalid(bd_find("electrical.resolved.batteries.279.capacity.stateOfCharge"));
   build(800, 440, SIZE_WIDE);
   TEST_ASSERT_EQUAL_STRING("NO DATA", txt(1, GP_WORD));
   TEST_ASSERT_TRUE(shown(glance_part(1, GP_FAULT)));
@@ -197,7 +197,7 @@ static void test_trend_plots_history_after_a_backfill_and_refresh(void) {
   TEST_ASSERT_LESS_OR_EQUAL_UINT16(2, glance_trend_points(1));   // a minute of record: next to nothing
   float v[300];
   for (int i = 0; i < 300; i++) v[i] = 0.9f - 0.001f * (float)i;
-  bd_id_t soc = bd_find("electrical.batteries.279.capacity.stateOfCharge");
+  bd_id_t soc = bd_find("electrical.resolved.batteries.279.capacity.stateOfCharge");
   hist_backfill(soc, v, 300);
   role_find("glance")->refresh(&bind_glance, NOW + 10000);
   TEST_ASSERT_GREATER_THAN_UINT16(50, glance_trend_points(1));

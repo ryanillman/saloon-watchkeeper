@@ -19,8 +19,38 @@ static void outf(app_out_fn out, const char *fmt, ...) {
   out(line);
 }
 
+// What the display actually holds, one path per line: the ground truth behind a page that says FAIL.
+static int data(int argc, char **argv, app_out_fn out) {
+  if (argc != 2) {
+    out("usage: data <path prefix>   e.g. data electrical.resolved");
+    return 1;
+  }
+  const size_t pl = strlen(argv[1]);
+  const unsigned limit = 80;
+  unsigned shown = 0, found = 0;
+  int64_t now = platform_millis();
+  for (bd_id_t id = 1; id <= bd_count(); id++) {
+    const char *path = bd_path(id);
+    bd_sample_t s;
+    if (!path || strncmp(path, argv[1], pl) != 0 || !bd_get(id, &s)) continue;
+    found++;
+    if (shown >= limit) continue;
+    shown++;
+    char val[48];
+    if (!s.valid) snprintf(val, sizeof val, "INVALID");
+    else if (s.kind == BD_NUMBER) snprintf(val, sizeof val, "%.4g", s.num);
+    else if (s.kind == BD_TEXT) snprintf(val, sizeof val, "\"%s\"", s.text);
+    else snprintf(val, sizeof val, "%.5f,%.5f", s.pos.lat, s.pos.lon);
+    outf(out, "%s = %s  age %llds  from %s", path, val, (long long)((now - s.rx_ms) / 1000), bd_source_name(s.source)[0] ? bd_source_name(s.source) : "?");
+  }
+  if (!found) out("no paths");
+  else outf(out, "%u path(s)%s", found, found > shown ? ", the first 80 shown: use a longer prefix" : "");
+  return 0;
+}
+
 static int help(app_out_fn out) {
   out("status                      firmware, network, Signal K, memory, SD, alerts");
+  out("data <prefix>               the data model under a path prefix: value, age, source (data electrical.resolved)");
   out("config show                 the config (password and token masked)");
   out("config set <path> <value>   change one setting, save it, and apply it");
   out("                            e.g. config set sources.signalk.token <token>");
@@ -151,6 +181,7 @@ int app_cmd_run(int argc, char **argv, app_out_fn out) {
   if (argc < 1) return 0;
   if (!strcmp(argv[0], "help")) return help(out);
   if (!strcmp(argv[0], "status")) return status(out);
+  if (!strcmp(argv[0], "data")) return data(argc, argv, out);
   if (!strcmp(argv[0], "config")) return config(argc, argv, out);
   if (!strcmp(argv[0], "sk")) return sk(argc, argv, out);
   if (!strcmp(argv[0], "reboot")) {

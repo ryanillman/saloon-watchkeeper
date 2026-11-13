@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # python -I leaves th
 import control  # noqa: E402
 import skhttp  # noqa: E402
 import zones  # noqa: E402
-from boatmodel import load_baseline  # noqa: E402
+from boatmodel import build_delta, load_baseline  # noqa: E402
 from boatstate import MANUAL, BoatState  # noqa: E402
 from overlay import Alarm, Notify, OverlayError, Post, notify_delta, parse_overlay  # noqa: E402
 
@@ -95,11 +95,7 @@ class Boat:
                 self.log(m)
             for owner, a in alarms:
                 self.spawn(self.alarm(owner, a) if isinstance(a, Alarm) else self.notify(a) if isinstance(a, Notify) else self.request(a))
-            await self.send({
-                "context": "vessels.self",
-                "updates": [{"source": {"label": "sk-inject"},
-                             "values": [{"path": p, "value": v} for p, v in values.items()]}],
-            })
+            await self.send(build_delta(values, self.state.baseline.real_updates(self.state.profile)))
             try:
                 await asyncio.wait_for(self.stop.wait(), timeout=self.interval)
             except asyncio.TimeoutError:

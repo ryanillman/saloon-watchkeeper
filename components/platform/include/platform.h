@@ -21,6 +21,10 @@
 
 // Monotonic milliseconds since an arbitrary start point.
 int64_t platform_millis(void);
+#ifndef ESP_PLATFORM
+// Host tests only: makes platform_millis() run `ms` ahead, so windows of seconds can be tested without waiting.
+void platform_linux_advance_ms(int64_t ms);
+#endif
 
 // "YYYY-MM-DDTHH:MM:SS[.fff]" followed by "Z" or "+hh:mm" / "-hh:mm" to seconds since 1970. False on anything else
 // (including a time with no zone), leaving *epoch_s untouched. Pure.

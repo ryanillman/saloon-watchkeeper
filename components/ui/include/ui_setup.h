@@ -24,6 +24,7 @@ typedef struct {
   void (*about)(char *out, size_t n);  // About text, one item per line
   bool has_buzzer, has_sd, dims;       // dims: the backlight has a brightness level, not just on/off
   uint8_t (*discovery)(ui_disc_role_t *out, uint8_t max);   // what is found now, per configured role
+  void (*disc_name)(const char *role, const char *id, char *out, size_t n);   // the source's own name for an id, "" if none (NULL: none)
   void (*run_discovery)(void);         // read the Signal K tree again; ui_setup_discovery_changed follows
   const char *const *roles_available;  // roles this firmware draws, NULL-terminated (ADD)
   void (*wifi_scan)(void);             // start a scan off the UI task; ui_setup_wifi_results follows

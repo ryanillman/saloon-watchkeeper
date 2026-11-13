@@ -1,6 +1,7 @@
 #!/bin/sh
 # Drive the long-running boat that feeds Signal K (tools/sk-inject/boat.py).
-#   tools/scenario.sh up [--profile anchor] [--with three-bank]   start the boat (routine values for every path)
+#   tools/scenario.sh up [--profile anchor|real] [--with three-bank]   start the boat (routine values for every path;
+#                                      `real` sends a captured Victron boat's electrical data per device instead of the synthetic one)
 #   tools/scenario.sh down | status | zones | log
 #   tools/scenario.sh                  list the overlays
 #   tools/scenario.sh fuel             play the overlay alarm-fuel-low (a unique prefix is enough)

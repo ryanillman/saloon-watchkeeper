@@ -7,7 +7,9 @@
 #include "history.h"
 #include "sk_client.h"
 #include "platform.h"
+#include "electrical.h"
 #include "sk_cmd.h"
+#include "sk_electrical.h"
 #include "sk_parse.h"
 #include "sk_transport.h"
 
@@ -16,6 +18,8 @@ static void *cb_ctx;
 static int polls;
 static int http_gets;
 static int history_gets;
+static int sources_gets;
+static const char *sources_body;   // NULL: the server has no sources tree
 static char history_url[256];
 static const char *history_body;   // NULL: the generic snapshot body
 static int live_polls = 1;   // polls that keep the socket open
@@ -50,6 +54,13 @@ bool sk_http_get(const char *url, const char *token, char **body, size_t *len) {
     if (!history_body) return false;
     *body = strdup(history_body);
     *len = strlen(history_body);
+    return true;
+  }
+  if (strstr(url, "/signalk/v1/api/sources")) {
+    sources_gets++;
+    if (!sources_body) return false;
+    *body = strdup(sources_body);
+    *len = strlen(sources_body);
     return true;
   }
   const char *full = full_body ? full_body : "{\"uuid\":\"urn:mrn:signalk:uuid:abc\",\"propulsion\":{\"port\":{\"revolutions\":{\"value\":1}}}}";
@@ -172,6 +183,8 @@ void setUp(void) {
   last_sent[0] = 0;
   http_gets = 0;
   history_gets = 0;
+  sources_gets = 0;
+  sources_body = NULL;
   history_body = NULL;
   history_url[0] = 0;
   hist_init();
@@ -185,7 +198,7 @@ void setUp(void) {
   sk_sub_t sub = {rpm, 0};
   sk_client_init(&c.sk, &sub, 1);
 }
-void tearDown(void) {}
+void tearDown(void) { sk_electrical_attach(NULL); }
 
 static void test_history_backfilled_once_on_going_live(void) {
   hist_track(rpm);
@@ -380,6 +393,47 @@ static void test_client_going_offline_stops_accepting_commands(void) {
   TEST_ASSERT_EQUAL_UINT16(0, sk_cmd_submit(&c, false, platform_millis()));
 }
 
+
+static el_t el;
+static void delta(const char *source, const char *path, const char *value) {
+  char j[400];
+  snprintf(j, sizeof j, "{\"updates\":[{\"$source\":\"%s\",\"values\":[{\"path\":\"%s\",\"value\":%s}]}]}", source, path, value);
+  sk_parse_message(j, strlen(j), 1000);
+}
+
+static void test_sources_tree_fetched_on_discovery_and_names_devices(void) {
+  el_init(&el);
+  sk_electrical_attach(&el);
+  sources_body = "{\"can0\":{\"224\":{\"n2k\":{\"modelId\":\"Some Shunt 500A\"}}}}";
+  sk_client_run_once();
+  TEST_ASSERT_EQUAL_INT(1, sources_gets);
+  delta("can0.224", "electrical.batteries.1.voltage", "13.9");   // the model named the device, so this is a battery at once
+  TEST_ASSERT_EQUAL(EL_FN_BATTERY, el_endpoint(&el, 0)->fn);
+}
+
+static void test_sources_tree_read_again_on_rediscovery(void) {
+  sk_client_set_rediscover_ms(0);
+  live_polls = 4;
+  sk_client_run_once();
+  TEST_ASSERT_GREATER_THAN_INT(1, sources_gets);
+}
+
+static void test_close_invalidates_resolved_leaves(void) {
+  el_init(&el);
+  sk_electrical_attach(&el);
+  const char *src = "{\"can0\":{\"224\":{\"n2k\":{\"modelId\":\"Some Shunt 500A\"}}}}";
+  sk_electrical_load_sources(src, strlen(src));
+  delta("can0.224", "electrical.batteries.0.voltage", "13.9");
+  bd_id_t ids[4];
+  TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)bd_match("electrical.resolved.batteries.*.voltage", ids, 4));
+  bd_sample_t s;
+  bd_get(ids[0], &s);
+  TEST_ASSERT_TRUE(s.valid);
+  sk_client_run_once();   // ends with the connection closed
+  bd_get(ids[0], &s);
+  TEST_ASSERT_FALSE(s.valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_backoff_sequence);
@@ -406,5 +460,8 @@ int main(void) {
   RUN_TEST(test_overflow_resubscribes);
   RUN_TEST(test_no_overflow_subscribes_once);
   RUN_TEST(test_rebind_unsubscribes_first);
+  RUN_TEST(test_sources_tree_fetched_on_discovery_and_names_devices);
+  RUN_TEST(test_sources_tree_read_again_on_rediscovery);
+  RUN_TEST(test_close_invalidates_resolved_leaves);
   return UNITY_END();
 }

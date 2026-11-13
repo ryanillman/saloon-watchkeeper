@@ -151,11 +151,20 @@ static void stamp(bd_id_t id, int64_t now, int64_t src_s) {
   if (src_s && bd_get(id, &s) && s.source == SK_SOURCE_ID && s.rx_ms == now) bd_set_source_time(id, src_s);
 }
 
-static void store_value(const char *path, const cJSON *v, int64_t now, int64_t src_s) {
+static sk_observe_cb observer;
+static void *observer_ctx;
+void sk_set_observe_cb(sk_observe_cb cb, void *ctx) {
+  observer = cb;
+  observer_ctx = ctx;
+}
+
+static void store_value(const char *path, const cJSON *v, int64_t now, int64_t src_s, const char *source) {
   if (!strncmp(path, NOTE_PREFIX, strlen(NOTE_PREFIX))) {
     store_notification(path, v, now);
     return;
   }
+  if (observer && (cJSON_IsNumber(v) || cJSON_IsString(v)))
+    observer(path, cJSON_IsNumber(v) ? v->valuedouble : NAN, cJSON_IsString(v) ? v->valuestring : NULL, source, now, observer_ctx);
   if (!strcmp(path, "environment.current")) {   // set and drift arrive as one object ({setTrue, drift}); the page reads two numbers
     static const char *const leaf[] = {"environment.current.setTrue", "environment.current.drift"};
     static const char *const member[] = {"setTrue", "drift"};
@@ -207,9 +216,11 @@ void sk_parse_message(const char *json, size_t len, int64_t now) {
       int64_t src_s = 0;   // the update's own time (the server's clock), 0 when absent or unreadable
       const cJSON *ts = cJSON_GetObjectItem(u, "timestamp");
       if (!cJSON_IsString(ts) || !platform_parse_iso8601(ts->valuestring, &src_s)) src_s = 0;
+      const cJSON *src = cJSON_GetObjectItem(u, "$source");
+      const char *source = cJSON_IsString(src) ? src->valuestring : "";
       cJSON_ArrayForEach(e, cJSON_GetObjectItem(u, "values")) {
         const cJSON *p = cJSON_GetObjectItem(e, "path");
-        if (cJSON_IsString(p) && p->valuestring[0]) store_value(p->valuestring, cJSON_GetObjectItem(e, "value"), now, src_s);
+        if (cJSON_IsString(p) && p->valuestring[0]) store_value(p->valuestring, cJSON_GetObjectItem(e, "value"), now, src_s, source);
       }
       cJSON_ArrayForEach(e, cJSON_GetObjectItem(u, "meta")) {
         const cJSON *p = cJSON_GetObjectItem(e, "path");
@@ -291,6 +302,12 @@ char *sk_build_subscribe(const sk_sub_t *subs, size_t n) {
   cJSON_AddStringToObject(s, "path", "notifications.*");
   cJSON_AddStringToObject(s, "policy", "instant");
   cJSON_AddItemToArray(arr, s);
+  if (observer) {   // the electrical resolver reads every device's values, whatever the roles bound
+    cJSON *e = cJSON_CreateObject();
+    cJSON_AddStringToObject(e, "path", "electrical.*");
+    cJSON_AddStringToObject(e, "policy", "instant");
+    cJSON_AddItemToArray(arr, e);
+  }
   char *out = cJSON_PrintUnformatted(root);
   cJSON_Delete(root);
   return out;

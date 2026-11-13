@@ -1,6 +1,9 @@
 #include "power_page.h"
 
-// Paths are the signalk-venus defaults and may change after a capture from the real Cerbo.
+// The battery, solar and charger groups read what the electrical resolver publishes (electrical.resolved.*, ids
+// from el_endpoint_id), never raw per-device paths: raw instance numbers collide across devices and a panel input can
+// look like a battery. Slot suffixes are the signalk-venus names, which the resolver reproduces. The inverter, dcdc,
+// alternator and system groups still read raw signalk-venus paths.
 // A Cerbo only publishes on change by default and fixed-period subscriptions do not resend on
 // Signal K 2.35.1 (milestone 4 verification), so no Power slot has a max age or a resend period.
 static const role_slot_t battery[] = {
@@ -54,9 +57,9 @@ static const role_slot_t system_slots[] = {
 
 #define N(a) ((uint8_t)(sizeof a / sizeof a[0]))
 static const role_group_t groups[] = {
-  {"battery",    "electrical.batteries",  1, 4, battery,       N(battery)},
-  {"solar",      "electrical.solar",      1, 4, solar,         N(solar)},
-  {"charger",    "electrical.chargers",   1, 4, charger,       N(charger)},
+  {"battery",    "electrical.resolved.batteries", 1, 4, battery,       N(battery)},
+  {"solar",      "electrical.resolved.solar", 1, 4, solar,         N(solar)},
+  {"charger",    "electrical.resolved.chargers", 1, 4, charger,       N(charger)},
   {"inverter",   "electrical.inverters",  1, 2, inverter,      N(inverter)},
   {"dcdc",       "electrical.dcdc",       1, 2, dcdc,          N(dcdc)},
   {"alternator", "electrical.alternators", 1, 2, alternator,   N(alternator)},

@@ -14,6 +14,7 @@ typedef enum { BD_NUMBER, BD_POSITION, BD_TEXT } bd_kind_t;
 // Source ids, as stored in bd_sample_t.source. Ids below BD_MAX_SOURCES; 0 is anonymous (tests).
 #define BD_SRC_SK 1
 #define BD_SRC_N2K 2
+#define BD_SRC_ELECTRICAL 3   // the electrical resolver's classified endpoints (electrical.resolved.*)
 #define BD_MAX_SOURCES 8
 
 typedef struct {

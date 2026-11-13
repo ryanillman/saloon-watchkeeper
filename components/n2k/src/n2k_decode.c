@@ -94,8 +94,19 @@ static void dc_status(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 1275
   const uint8_t *d = m->data;
   if (m->len < 4) return;
   uint8_t inst = d[1];
+  if (d[2] < 0xFE) emit(cb, ctx, N2K_F_DC_TYPE, inst, 0, d[2]);
   if (d[3] <= 100) emit(cb, ctx, N2K_F_BATT_SOC, inst, 0, d[3] / 100.0);   // percent, 0-100; above is a fault or not-available
   if (m->len >= 7 && ok_u16(u16(d, 5))) emit(cb, ctx, N2K_F_BATT_TIME_REMAINING, inst, 0, u16(d, 5) * 60.0);
+}
+
+static void converter_status(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 127750  // verify: canboat
+  const uint8_t *d = m->data;
+  if (m->len >= 3 && d[2] < 0xFE) emit(cb, ctx, N2K_F_CONV_STATE, d[1], 0, d[2]);
+}
+
+static void ac_power(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 127744  // verify: canboat
+  const uint8_t *d = m->data;
+  if (m->len >= 4 && ok_u16(u16(d, 2))) emit(cb, ctx, N2K_F_AC_CURRENT, d[1], 0, u16(d, 2) * 0.1);
 }
 
 static void heading(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {  // 127250  // verify: canboat
@@ -144,6 +155,8 @@ bool n2k_decode(const n2k_msg_t *m, n2k_value_cb cb, void *ctx) {
     case 127505: tank(m, cb, ctx); return true;
     case 127489: engine_dynamic(m, cb, ctx); return true;
     case 127506: dc_status(m, cb, ctx); return true;
+    case 127750: converter_status(m, cb, ctx); return true;
+    case 127744: ac_power(m, cb, ctx); return true;
     case 127250: heading(m, cb, ctx); return true;
     case 129026: cog_sog(m, cb, ctx); return true;
     case 128259: speed(m, cb, ctx); return true;

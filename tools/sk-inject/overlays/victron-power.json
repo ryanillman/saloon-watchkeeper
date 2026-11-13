@@ -1,5 +1,5 @@
 {
-  "description": "A Victron boat: battery 279, solar 288, charger 276, inverter 275 on shore power, alternator 0. Solar ramps 0-300 W over 60 s. At 30 s the battery starts discharging (negative current, 4 h remaining). At 45 s the solar current goes null (IN and LOAD fail). At 60 s the battery is nearly flat (600 s left, 5 %), which falls in the house battery's alarm zone, so the server raises a low-charge alarm; solar current is restored. At 80 s the battery is restored (95 %).",
+  "description": "(The display reads these through the electrical resolver: solar and charger paths are adopted at once, battery 279 after its voltage has held steady for about 10 s.) A Victron boat: battery 279, solar 288, charger 276, inverter 275 on shore power, alternator 0. Solar ramps 0-300 W over 60 s. At 30 s the battery starts discharging (negative current, 4 h remaining). At 45 s the solar current goes null (IN and LOAD fail). At 60 s the battery is nearly flat (600 s left, 5 %), which falls in the house battery's alarm zone, so the server raises a low-charge alarm; solar current is restored. At 80 s the battery is restored (95 %).",
   "durationMs": 90000,
   "after": [
     { "atMs": 0, "op": "ramp", "path": "electrical.solar.288.current", "from": 0, "to": 22, "overMs": 60000 },

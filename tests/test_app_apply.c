@@ -119,7 +119,7 @@ static void test_tapping_a_glance_tile_opens_that_role(void) {
 }
 
 static void test_history_tracks_the_trend_paths_and_samples_each_tick(void) {
-  bd_id_t soc = bd_intern("electrical.batteries.279.capacity.stateOfCharge");
+  bd_id_t soc = bd_intern("electrical.resolved.batteries.279.capacity.stateOfCharge");
   app_bind();   // a battery appeared
   bd_id_t ids[HIST_MAX_PATHS];
   size_t n = hist_tracked(ids, HIST_MAX_PATHS);
@@ -135,7 +135,7 @@ static void test_history_tracks_the_trend_paths_and_samples_each_tick(void) {
 
 static void test_a_path_made_by_any_source_gets_its_instance_bound(void) {
   // The NMEA 2000 bus creates paths with no Signal K discovery behind them; the roles must still pick them up.
-  bd_id_t soc = bd_intern("electrical.batteries.1.capacity.stateOfCharge");
+  bd_id_t soc = bd_intern("electrical.resolved.batteries.1.capacity.stateOfCharge");
   app_tick();   // no app_bind call and no network: the tick has to notice the new path
   bd_id_t ids[HIST_MAX_PATHS];
   size_t n = hist_tracked(ids, HIST_MAX_PATHS);

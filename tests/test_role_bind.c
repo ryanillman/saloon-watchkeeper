@@ -163,6 +163,15 @@ static void test_binding_same_detects_new_instance_in_second_group(void) {
   TEST_ASSERT_TRUE(role_binding_same(&b2, &b3));
 }
 
+static void test_binding_same_notices_a_changed_label(void) {   // a name the source published can change under a bound instance
+  bd_intern("x.alpha.first.v");
+  bind2(&b2);
+  bind2(&b3);
+  TEST_ASSERT_TRUE(role_binding_same(&b2, &b3));
+  snprintf(b3.g[0].inst_label[0], sizeof b3.g[0].inst_label[0], "RENAMED");
+  TEST_ASSERT_FALSE(role_binding_same(&b2, &b3));
+}
+
 static void test_placeholder_per_group(void) {
   bind2(&b2);
   for (int g = 0; g < 2; g++) {
@@ -189,9 +198,9 @@ static void test_power_groups_bind(void) {
   const role_def_t *pw = role_find("power");
   TEST_ASSERT_NOT_NULL(pw);
   TEST_ASSERT_EQUAL_UINT8(3, pw->page_count);
-  bd_intern("electrical.batteries.279.voltage");
-  bd_intern("electrical.solar.288.panelPower");
-  bd_intern("electrical.chargers.276.current");
+  bd_intern("electrical.resolved.batteries.279.voltage");
+  bd_intern("electrical.resolved.solar.288.panelPower");
+  bd_intern("electrical.resolved.chargers.276.current");
   role_binding_t pb;
   strcpy(rc.role, "power");
   role_bind(pw, &rc, &cfg.units, &pb);
@@ -203,22 +212,22 @@ static void test_power_groups_bind(void) {
     TEST_ASSERT_EQUAL_UINT8(1, pb.g[g].inst_count);
     TEST_ASSERT_EQUAL(BD_NONE, pb.g[g].ids[0][0]);
   }
-  TEST_ASSERT_EQUAL_STRING("electrical.solar.288.panelPower", bd_path(pb.g[1].ids[0][2]));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.solar.288.panelPower", bd_path(pb.g[1].ids[0][2]));
   // SoC and time remaining live under capacity. (Signal K schema, signalk-venus).
-  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
-  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.timeRemaining", bd_path(pb.g[0].ids[0][4]));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.batteries.279.capacity.timeRemaining", bd_path(pb.g[0].ids[0][4]));
 }
 
 static void test_power_soc_capacity_path_and_fallback(void) {
   const role_def_t *pw = role_find("power");
-  bd_intern("electrical.batteries.279.capacity.stateOfCharge");
-  bd_intern("electrical.batteries.279.timeRemaining");   // only the bare name published
+  bd_intern("electrical.resolved.batteries.279.capacity.stateOfCharge");
+  bd_intern("electrical.resolved.batteries.279.timeRemaining");   // only the bare name published
   role_binding_t pb;
   strcpy(rc.role, "power");
   role_bind(pw, &rc, &cfg.units, &pb);
   TEST_ASSERT_EQUAL_STRING("279", pb.g[0].inst_id[0]);
-  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
-  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.timeRemaining", bd_path(pb.g[0].ids[0][4]));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.batteries.279.capacity.stateOfCharge", bd_path(pb.g[0].ids[0][3]));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.batteries.279.timeRemaining", bd_path(pb.g[0].ids[0][4]));
 }
 
 static void test_depth_zero_group(void) {
@@ -247,8 +256,8 @@ static void test_role_discover_ignores_pins_and_excludes(void) {
 }
 
 static void test_role_discover_prefixes_multi_group_ids(void) {
-  bd_intern("electrical.batteries.279.voltage");
-  bd_intern("electrical.solar.288.panelPower");
+  bd_intern("electrical.resolved.batteries.279.voltage");
+  bd_intern("electrical.resolved.solar.288.panelPower");
   bd_intern("electrical.venus.dcPower");   // the depth-0 system group is not an instance
   char ids[16][24];
   uint8_t n = role_discover(role_find("power"), ids, 16);
@@ -285,6 +294,7 @@ int main(void) {
   RUN_TEST(test_multi_group_exclude_is_prefixed);
   RUN_TEST(test_max_inst_caps_discovery);
   RUN_TEST(test_binding_same_detects_new_instance_in_second_group);
+  RUN_TEST(test_binding_same_notices_a_changed_label);
   RUN_TEST(test_placeholder_per_group);
   RUN_TEST(test_multi_group_pinned_and_bind_keys_are_prefixed);
   RUN_TEST(test_power_groups_bind);

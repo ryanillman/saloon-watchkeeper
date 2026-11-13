@@ -82,7 +82,7 @@ void tearDown(void) {
 
 static void test_help_lists_commands(void) {
   TEST_ASSERT_EQUAL_INT(0, run("help"));
-  const char *want[] = {"status", "config show", "config set", "config reload", "sk request-access", "reboot"};
+  const char *want[] = {"status", "data <prefix>", "config show", "config set", "config reload", "sk request-access", "reboot"};
   for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out, want[i]), want[i]);
 }
 
@@ -162,6 +162,30 @@ static void test_request_access_needs_signalk(void) {
   TEST_ASSERT_NOT_NULL(strstr(out, "access: idle"));
 }
 
+static void test_data_lists_paths_under_a_prefix_with_their_state(void) {
+  bd_id_t ok = bd_intern("electrical.resolved.batteries.abc12345.voltage");
+  bd_id_t bad = bd_intern("electrical.resolved.solar.def67890.current");
+  bd_id_t txt = bd_intern("electrical.resolved.solar.def67890.label");
+  bd_intern("propulsion.port.revolutions");
+  bd_set_number(ok, 13.25, BD_SRC_ELECTRICAL, platform_millis());
+  bd_set_number(bad, 1.0, BD_SRC_ELECTRICAL, platform_millis());
+  bd_set_invalid(bad);
+  bd_set_text(txt, "BlueSolar f5", BD_SRC_ELECTRICAL, platform_millis());
+  TEST_ASSERT_EQUAL_INT(0, run("data electrical.resolved"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "electrical.resolved.batteries.abc12345.voltage = 13.25"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "electrical.resolved.solar.def67890.current = INVALID"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"BlueSolar f5\""));
+  TEST_ASSERT_NULL(strstr(out, "propulsion"));   // only the prefix asked for
+  TEST_ASSERT_NOT_NULL(strstr(out, "3 path"));
+}
+
+static void test_data_says_so_when_nothing_matches_and_needs_a_prefix(void) {
+  TEST_ASSERT_EQUAL_INT(0, run("data nothing.here"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "no paths"));
+  TEST_ASSERT_NOT_EQUAL(0, run("data"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "usage"));
+}
+
 static void test_unknown_command_usage(void) {
   TEST_ASSERT_EQUAL_INT(1, run("frobnicate"));
   TEST_ASSERT_NOT_NULL(strstr(out, "help"));
@@ -186,6 +210,8 @@ int main(void) {
   RUN_TEST(test_config_set_display_applies);
   RUN_TEST(test_config_reload);
   RUN_TEST(test_request_access_needs_signalk);
+  RUN_TEST(test_data_lists_paths_under_a_prefix_with_their_state);
+  RUN_TEST(test_data_says_so_when_nothing_matches_and_needs_a_prefix);
   RUN_TEST(test_unknown_command_usage);
   return UNITY_END();
 }

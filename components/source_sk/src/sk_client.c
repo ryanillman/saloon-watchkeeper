@@ -1,4 +1,5 @@
 #include "sk_client.h"
+#include "sk_electrical.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -152,6 +153,15 @@ static void discover(const char *url, const char *token) {
   free(body);
 }
 
+// The sources tree names the devices behind each delta's $source; a server without one is fine.
+static void load_sources(const char *base, const char *token) {
+  char url[160], *body = NULL;
+  size_t len = 0;
+  snprintf(url, sizeof url, "%s/signalk/v1/api/sources", base);
+  if (sk_http_get(url, token, &body, &len)) sk_electrical_load_sources(body, len);
+  free(body);
+}
+
 void sk_client_set_rediscover_ms(int32_t ms) {
   if (!c.lock) c.lock = platform_lock_create();
   platform_lock(c.lock);
@@ -196,6 +206,7 @@ void sk_client_run_once(void) {
   snprintf(rest, sizeof rest, "http://%s:%u/signalk/v1/api/vessels/self", host, port);
   snprintf(url, sizeof url, "%s", rest);
   discover(url, token);
+  load_sources(base, token);
 
   set_state(SK_CONNECTING);
   snprintf(url, sizeof url, "ws://%s:%u/signalk/v1/stream?subscribe=none", host, port);
@@ -231,6 +242,7 @@ void sk_client_run_once(void) {
       sk_access_poll(base, platform_millis());
       if (now_please || platform_millis() - last_discovery >= every) {   // engines that power up later
         discover(rest, token);
+        load_sources(base, token);
         last_discovery = platform_millis();
       }
     }
@@ -240,6 +252,7 @@ void sk_client_run_once(void) {
   sk_cmd_set_connected(false);
   alerts_source_up(false);
   bd_invalidate_source(SK_SOURCE_ID);   // nothing from this server can be trusted now
+  sk_electrical_feed_down();
   set_state(SK_BACKOFF);
 }
 

@@ -1,0 +1,11 @@
+{
+  "description": "Who the devices in the 2026-11-12 Victron capture are (Signal K sources.can0.<address>.n2k). The generator copies this onto each device's source object so the server's sources tree names them as a real N2K server would.",
+  "label": "can0",
+  "devices": {
+    "36": {"canName": "c046a0002cc001f5", "modelId": "BlueSolar Charger MPPT 100/15", "deviceClass": "Electrical Generation", "manufacturerCode": "Victron Energy"},
+    "37": {"canName": "c046a0002cc001f6", "modelId": "BlueSolar Charger MPPT 100/15", "deviceClass": "Electrical Generation", "manufacturerCode": "Victron Energy"},
+    "41": {"canName": "c046a0002cc001f8", "modelId": "Phoenix Smart IP43 Charger 12|30", "deviceClass": "Electrical Generation", "manufacturerCode": "Victron Energy"},
+    "224": {"canName": "c046aa002cc001f9", "modelId": "SmartShunt IP65 300A", "deviceClass": "Electrical Generation", "manufacturerCode": "Victron Energy"},
+    "225": {"canName": "c046aaef2cc001f7", "modelId": "Cerbo GX", "deviceClass": "Electrical Generation", "manufacturerCode": "Victron Energy"}
+  }
+}

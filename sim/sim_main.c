@@ -126,16 +126,16 @@ static void fixture_depth(bool tide) {
 // A Victron boat, as signalk-venus reports it (SI units; ratios; seconds).
 static void fixture_power(void) {
   const struct { const char *path; double v; } d[] = {
-    {"electrical.batteries.279.voltage", 13.4}, {"electrical.batteries.279.current", 12.0},
-    {"electrical.batteries.279.capacity.stateOfCharge", 0.82},
-    {"electrical.solar.288.voltage", 13.5},     {"electrical.solar.288.current", 18.0},
-    {"electrical.solar.288.panelPower", 260},
-    {"electrical.chargers.276.voltage", 13.6},  {"electrical.chargers.276.current", 10.0},
+    {"electrical.resolved.batteries.279.voltage", 13.4}, {"electrical.resolved.batteries.279.current", 12.0},
+    {"electrical.resolved.batteries.279.capacity.stateOfCharge", 0.82},
+    {"electrical.resolved.solar.288.voltage", 13.5},     {"electrical.resolved.solar.288.current", 18.0},
+    {"electrical.resolved.solar.288.panelPower", 260},
+    {"electrical.resolved.chargers.276.voltage", 13.6},  {"electrical.resolved.chargers.276.current", 10.0},
     {"electrical.alternators.0.voltage", 14.1}, {"electrical.alternators.0.current", 30.0},
   };
   const struct { const char *path; const char *v; } t[] = {
-    {"electrical.solar.288.chargingMode", "bulk"},
-    {"electrical.chargers.276.chargingMode", "absorption"},
+    {"electrical.resolved.solar.288.chargingMode", "bulk"},
+    {"electrical.resolved.chargers.276.chargingMode", "absorption"},
     {"electrical.inverters.275.acin.acState.acSource", "grid"},
     {"electrical.inverters.275.inverterMode", "charging"},
     {"electrical.alternators.0.chargingMode", "bulk"},
@@ -143,7 +143,7 @@ static void fixture_power(void) {
   int64_t now = platform_millis();
   for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
   for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) bd_set_text(bd_intern(t[i].path), t[i].v, SK_SOURCE_ID, now);
-  bd_set_invalid(bd_intern("electrical.batteries.279.capacity.timeRemaining"));   // charging: Venus sends null
+  bd_set_invalid(bd_intern("electrical.resolved.batteries.279.capacity.timeRemaining"));   // charging: Venus sends null
 }
 
 // The three-bank boat of docs/specs/2026-11-04-multi-bank-power-design.md, on top of fixture_power():
@@ -151,11 +151,11 @@ static void fixture_power(void) {
 static void fixture_banks(void) {
   fixture_power();
   const struct { const char *path; double v; } d[] = {
-    {"electrical.batteries.279.current", 12.0},
-    {"electrical.batteries.280.voltage", 12.8}, {"electrical.batteries.280.current", 0.5},
-    {"electrical.batteries.280.capacity.stateOfCharge", 0.96},
-    {"electrical.batteries.281.voltage", 13.1}, {"electrical.batteries.281.current", 1.0},
-    {"electrical.batteries.281.capacity.stateOfCharge", 0.90},
+    {"electrical.resolved.batteries.279.current", 12.0},
+    {"electrical.resolved.batteries.280.voltage", 12.8}, {"electrical.resolved.batteries.280.current", 0.5},
+    {"electrical.resolved.batteries.280.capacity.stateOfCharge", 0.96},
+    {"electrical.resolved.batteries.281.voltage", 13.1}, {"electrical.resolved.batteries.281.current", 1.0},
+    {"electrical.resolved.batteries.281.capacity.stateOfCharge", 0.90},
     {"electrical.dcdc.1.voltage", 13.6}, {"electrical.dcdc.1.current", 8.0},
     {"electrical.dcdc.2.voltage", 13.4}, {"electrical.dcdc.2.current", 4.0},
     {"electrical.dcdc.2.input.voltage", 13.3}, {"electrical.dcdc.2.input.current", 4.4},
@@ -165,8 +165,8 @@ static void fixture_banks(void) {
   for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
   bd_set_text(bd_intern("electrical.dcdc.1.chargingMode"), "bulk", SK_SOURCE_ID, now);
   bd_set_text(bd_intern("electrical.dcdc.2.chargingMode"), "float", SK_SOURCE_ID, now);
-  bd_set_invalid(bd_intern("electrical.batteries.280.capacity.timeRemaining"));
-  bd_set_invalid(bd_intern("electrical.batteries.281.capacity.timeRemaining"));
+  bd_set_invalid(bd_intern("electrical.resolved.batteries.280.capacity.timeRemaining"));
+  bd_set_invalid(bd_intern("electrical.resolved.batteries.281.capacity.timeRemaining"));
 }
 
 static void set_banks(cfg_role_t *r) {
@@ -248,7 +248,7 @@ static void fixture_history(void) {
   }
   static float v[HIST_MINUTES];
   const struct { const char *path; float from, to; } d[] = {
-    {"electrical.batteries.279.capacity.stateOfCharge", 0.97f, 0.82f},
+    {"electrical.resolved.batteries.279.capacity.stateOfCharge", 0.97f, 0.82f},
     {"tanks.freshWater.0.currentLevel", 0.80f, 0.72f},
   };
   for (size_t k = 0; k < sizeof d / sizeof d[0]; k++) {
@@ -352,7 +352,7 @@ static bool sim_fallback;
 
 static bool bus_supplies(const char *path) {
   static const char *const prefix[] = {
-    "propulsion.", "tanks.", "electrical.batteries.", "environment.depth.", "environment.wind.angleApparent",
+    "propulsion.", "tanks.", "electrical.resolved.batteries.", "environment.depth.", "environment.wind.angleApparent",
     "environment.wind.speedApparent", "navigation.headingTrue", "navigation.courseOverGroundTrue",
     "navigation.speedOverGround", "navigation.speedThroughWater", "navigation.position", "navigation.datetime"};
   for (size_t i = 0; i < sizeof prefix / sizeof prefix[0]; i++)
@@ -532,7 +532,7 @@ static int run_snapshots(const char *out) {
               if (write_page(disp, dir, "-low-tide", b)) return 1;
               fixture_depth(true);
             }
-            bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));   // the house charge goes
+            bd_set_invalid(bd_find("electrical.resolved.batteries.279.capacity.stateOfCharge"));   // the house charge goes
             bd_set_invalid(bd_find("propulsion.port.temperature"));                         // and the port coolant sender
             bd_set_invalid(bd_find("tanks.freshWater.1.currentLevel"));                     // and a water tank sender
             bd_set_invalid(bd_find("environment.depth.belowKeel"));                         // and the sounder
@@ -601,7 +601,7 @@ static int run_snapshots(const char *out) {
             fixture_power();
             if (write_page(disp, dir, "-live", b)) return 1;
             if (p == 0) {   // the solar controller's current goes null: IN and LOAD fail, the battery stays live
-              bd_set_invalid(bd_find("electrical.solar.288.current"));
+              bd_set_invalid(bd_find("electrical.resolved.solar.288.current"));
               if (write_page(disp, dir, "-fault", b)) return 1;
             }
           } else if (write_page(disp, dir, "", b)) {
@@ -683,8 +683,8 @@ static int run_snapshots(const char *out) {
         for (uint8_t p = 0; p < pages; p++) {
           fixture_banks();
           if (write_page(disp, dir, "-banks-live", b)) return 1;
-          bd_set_invalid(bd_find("electrical.chargers.276.current"));
-          bd_set_invalid(bd_find("electrical.batteries.281.current"));
+          bd_set_invalid(bd_find("electrical.resolved.chargers.276.current"));
+          bd_set_invalid(bd_find("electrical.resolved.batteries.281.current"));
           if (write_page(disp, dir, "-banks-fault", b)) return 1;
           if (write_fallback(disp, dir, b, true)) return 1;
           ui_shell_move(NAV_UP);

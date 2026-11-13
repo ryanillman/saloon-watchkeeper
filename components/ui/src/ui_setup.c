@@ -379,6 +379,13 @@ static void build_roles(void) {
 
 // ---- Discovery ----
 
+// The name the data source gave an id (a device's model, from the electrical resolver), or "". Shown beside the id when
+// no label was set; never saved as one, so it keeps following the source.
+static void source_name(uint8_t role, const char *id, char *out, size_t n) {
+  out[0] = 0;
+  if (u.cb->disc_name) u.cb->disc_name(u.work.roles[role].role, id, out, n);
+}
+
 static int find_role(const char *name) {
   for (uint8_t i = 0; i < u.work.role_count; i++)
     if (!strcmp(u.work.roles[i].role, name)) return i;
@@ -503,9 +510,13 @@ static void build_discovery(void) {
       u.rows[k].btn = on_off(rr, u.rows[k].keep, on_keep, (void *)(uintptr_t)k);
       snprintf(pn, sizeof pn, "keep_%s_%s", r->role, ids[i]);
       part(pn, u.rows[k].btn);
-      char line[48];
-      snprintf(line, sizeof line, "%s%s%s", ids[i], label[0] ? "  " : "", label);
+      char line[48], name[16];
+      source_name((uint8_t)ri, ids[i], name, sizeof name);
+      const char *shown = label[0] ? label : name;
+      snprintf(line, sizeof line, "%s%s%s", ids[i], shown[0] ? "  " : "", shown);
       u.rows[k].text = text(rr, line, c->fg);
+      snprintf(pn, sizeof pn, "row_%s_%s", r->role, ids[i]);
+      part(pn, u.rows[k].text);
       lv_obj_t *lb = button(rr, "LABEL", on_label, (void *)(uintptr_t)k);
       snprintf(pn, sizeof pn, "label_%s_%s", r->role, ids[i]);
       part(pn, lb);
@@ -838,8 +849,10 @@ static void build_sources(void) {
 static void label_done(const char *t, uintptr_t k) {
   snprintf(u.rows[k].label, sizeof u.rows[k].label, "%s", t);
   if (u.rows[k].text && lv_obj_is_valid(u.rows[k].text)) {
-    char line[48];
-    snprintf(line, sizeof line, "%s%s%s", u.rows[k].id, t[0] ? "  " : "", t);
+    char line[48], name[16];
+    source_name(u.rows[k].role, u.rows[k].id, name, sizeof name);
+    const char *shown = t[0] ? t : name;
+    snprintf(line, sizeof line, "%s%s%s", u.rows[k].id, shown[0] ? "  " : "", shown);
     lv_label_set_text(u.rows[k].text, line);   // in place: a rebuild would drop unconfirmed keep/skip choices
   }
 }

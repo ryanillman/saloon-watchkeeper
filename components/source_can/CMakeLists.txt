@@ -3,4 +3,4 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/components.cmake)
 bi_component(NAME source_can
   SRCS src/source_can.c src/can_instances.c
   INCLUDE_DIRS include
-  REQUIRES n2k boatdata platform json)
+  REQUIRES n2k electrical boatdata platform json)

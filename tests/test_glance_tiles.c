@@ -152,10 +152,10 @@ static void test_engine_role_with_no_instance_is_no_data_not_off(void) {
 // ---- power ----
 
 static void house(double soc, double volts, double amps, double secs) {
-  num("electrical.batteries.279.capacity.stateOfCharge", soc);
-  num("electrical.batteries.279.voltage", volts);
-  num("electrical.batteries.279.current", amps);
-  num("electrical.batteries.279.capacity.timeRemaining", secs);
+  num("electrical.resolved.batteries.279.capacity.stateOfCharge", soc);
+  num("electrical.resolved.batteries.279.voltage", volts);
+  num("electrical.resolved.batteries.279.current", amps);
+  num("electrical.resolved.batteries.279.capacity.timeRemaining", secs);
 }
 
 static void test_power_tile_shows_house_soc_with_trend_and_context(void) {
@@ -168,12 +168,12 @@ static void test_power_tile_shows_house_soc_with_trend_and_context(void) {
   TEST_ASSERT_EQUAL_STRING("%", t.unit);
   TEST_ASSERT_EQUAL_STRING("12.6 V  -4.8 A", t.context[0]);
   TEST_ASSERT_EQUAL_STRING("28 h left", t.context[1]);
-  TEST_ASSERT_EQUAL_STRING("electrical.batteries.279.capacity.stateOfCharge", bd_path(t.trend));
+  TEST_ASSERT_EQUAL_STRING("electrical.resolved.batteries.279.capacity.stateOfCharge", bd_path(t.trend));
 }
 
 static void test_power_invalid_soc_is_no_data_with_no_number(void) {
   house(0.74, 12.6, -4.8, 100800);
-  bd_set_invalid(bd_find("electrical.batteries.279.capacity.stateOfCharge"));
+  bd_set_invalid(bd_find("electrical.resolved.batteries.279.capacity.stateOfCharge"));
   bind("power");
   tile();
   TEST_ASSERT_EQUAL(GT_NO_DATA, t.state);
@@ -182,8 +182,8 @@ static void test_power_invalid_soc_is_no_data_with_no_number(void) {
 
 static void test_power_start_bank_alarm_shows_on_the_tile(void) {
   house(0.74, 12.6, -4.8, 100800);
-  bd_id_t sv = num("electrical.batteries.280.voltage", 10.9);
-  num("electrical.batteries.280.capacity.stateOfCharge", 0.5);
+  bd_id_t sv = num("electrical.resolved.batteries.280.voltage", 10.9);
+  num("electrical.resolved.batteries.280.capacity.stateOfCharge", 0.5);
   zone(sv, -1e9, 11.5, AL_ALARM);
   bind("power");
   tile();

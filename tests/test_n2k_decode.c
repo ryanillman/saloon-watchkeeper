@@ -179,10 +179,51 @@ static void test_battery_soc(void) {
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.82, find(N2K_F_BATT_SOC)->value);
   TEST_ASSERT_EQUAL_DOUBLE(36000.0, find(N2K_F_BATT_TIME_REMAINING)->value);
   TEST_ASSERT_EQUAL_UINT8(1, find(N2K_F_BATT_SOC)->instance);
-  d[3] = 0xFF; le(d, 5, 0xFFFF, 2);
+  d[2] = 0xFF; d[3] = 0xFF; le(d, 5, 0xFFFF, 2);   // DC type is a field now: not available too
   ngot = 0;
   decode(127506, d, 11);
   TEST_ASSERT_EQUAL_INT(0, ngot);
+}
+
+// Bytes below are reassembled payloads taken from a real capture (127506 DC detail, 127750 converter, 127744 AC).
+static void test_dc_status_solar_type(void) {
+  const uint8_t d[9] = {0x40, 0x01, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  TEST_ASSERT_TRUE(decode(127506, d, 9));
+  TEST_ASSERT_EQUAL_DOUBLE(3.0, find(N2K_F_DC_TYPE)->value);
+  TEST_ASSERT_EQUAL_UINT8(1, find(N2K_F_DC_TYPE)->instance);
+}
+
+static void test_dc_status_battery_type(void) {
+  const uint8_t d[9] = {0x40, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  TEST_ASSERT_TRUE(decode(127506, d, 9));
+  TEST_ASSERT_EQUAL_DOUBLE(0.0, find(N2K_F_DC_TYPE)->value);
+  TEST_ASSERT_EQUAL_UINT8(0, find(N2K_F_DC_TYPE)->instance);
+}
+
+static void test_dc_type_not_available_dropped(void) {
+  const uint8_t d[9] = {0x40, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  TEST_ASSERT_TRUE(decode(127506, d, 9));
+  TEST_ASSERT_NULL(find(N2K_F_DC_TYPE));
+}
+
+static void test_converter_state_decoded(void) {
+  const uint8_t d[8] = {0x3C, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};   // absorption
+  TEST_ASSERT_TRUE(decode(127750, d, 8));
+  TEST_ASSERT_EQUAL_DOUBLE(4.0, find(N2K_F_CONV_STATE)->value);
+  const uint8_t na[8] = {0x3C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  ngot = 0;
+  TEST_ASSERT_TRUE(decode(127750, na, 8));
+  TEST_ASSERT_NULL(find(N2K_F_CONV_STATE));
+}
+
+static void test_ac_current_decoded(void) {
+  const uint8_t d[8] = {0x3C, 0x00, 0x0A, 0x00, 0xFF, 0xFF, 0xFF, 0x7F};   // 1.0 A, power not available
+  TEST_ASSERT_TRUE(decode(127744, d, 8));
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, find(N2K_F_AC_CURRENT)->value);
+  const uint8_t na[8] = {0x3C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F};
+  ngot = 0;
+  TEST_ASSERT_TRUE(decode(127744, na, 8));
+  TEST_ASSERT_NULL(find(N2K_F_AC_CURRENT));
 }
 
 static void test_heading(void) {
@@ -290,6 +331,11 @@ int main(void) {
   RUN_TEST(test_fluid_names);
   RUN_TEST(test_engine_dynamic);
   RUN_TEST(test_battery_soc);
+  RUN_TEST(test_dc_status_solar_type);
+  RUN_TEST(test_dc_status_battery_type);
+  RUN_TEST(test_dc_type_not_available_dropped);
+  RUN_TEST(test_converter_state_decoded);
+  RUN_TEST(test_ac_current_decoded);
   RUN_TEST(test_heading);
   RUN_TEST(test_cog_sog);
   RUN_TEST(test_speed_through_water);

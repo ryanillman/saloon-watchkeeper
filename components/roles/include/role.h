@@ -56,7 +56,7 @@ typedef struct {
 typedef struct {
   uint8_t inst_count;
   char inst_id[ROLE_MAX_INST][24];       // relative to the group prefix: "freshWater.0"
-  char inst_label[ROLE_MAX_INST][12];
+  char inst_label[ROLE_MAX_INST][16];   // a configured label (11 characters at most) or a name the data source published (15)
   bd_id_t ids[ROLE_MAX_INST][ROLE_MAX_SLOTS];
   double min[ROLE_MAX_INST][ROLE_MAX_SLOTS], max[ROLE_MAX_INST][ROLE_MAX_SLOTS];   // SI
 } role_group_binding_t;
@@ -80,7 +80,10 @@ const char *const *role_names(void);
 
 // What discovery finds for this role right now, ignoring pins and excludes: instance ids,
 // sorted per group, prefixed with the group name in multi-group roles ("battery.279").
-uint8_t role_discover(const role_def_t *d, char ids[][24], uint8_t max);   // NULL if not implemented
+uint8_t role_discover(const role_def_t *d, char ids[][24], uint8_t max);
+// The name the data source published for an id as role_discover writes it ("battery.3b7be7d5", or a bare id in a
+// single-group role): false when it published none. Setup's Discovery list shows it beside the id.
+bool role_label_of(const role_def_t *d, const char *config_key, char *out, size_t n);   // NULL if not implemented
 
 // Per group: instances pinned in config, else discovered (sorted), else one placeholder
 // labelled with the role title whose slots are all BD_NONE.

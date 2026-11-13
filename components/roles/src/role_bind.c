@@ -39,6 +39,23 @@ static void label_for(const char *id, char *out, size_t n) {
   out[i] = 0;
 }
 
+// A name the data source published for an instance, at "<prefix>.<id>.label" (the electrical resolver does, from a
+// device's model). False when there is none or it was withdrawn.
+static bool published_label(const role_group_t *g, const char *id, char *out, size_t n) {
+  char path[128];
+  snprintf(path, sizeof path, "%s.%s.label", g->prefix, id);
+  bd_id_t b = bd_find(path);
+  bd_sample_t s;
+  if (b == BD_NONE || !bd_get(b, &s) || !s.valid || s.kind != BD_TEXT || !s.text[0]) return false;
+  snprintf(out, n, "%s", s.text);
+  return true;
+}
+
+// The label for an instance nobody named in config: what the source calls it, else its id.
+static void default_label(const role_group_t *g, const char *id, char *out, size_t n) {
+  if (!published_label(g, id, out, n)) label_for(id, out, n);
+}
+
 // Config ids are bare in a single-group role, "<group>.<id>" otherwise.
 static bool multi(const role_def_t *d) { return d->group_count > 1; }
 
@@ -57,6 +74,18 @@ static bool excluded(const role_def_t *d, const role_group_t *g, const cfg_role_
 
 
 static uint8_t max_inst(const role_group_t *g) { return g->max_inst < ROLE_MAX_INST ? g->max_inst : ROLE_MAX_INST; }
+
+// A source that names its instances ("<id>.label") withdraws one by invalidating that name (the electrical resolver does
+// when it merges a mirror away or an endpoint becomes another function). Its other paths stay in the data model, so
+// without this a retired instance would be found again and show as a failed one. A source that never names instances
+// is unaffected: a sender whose values went invalid is still an instance, and flags.
+static bool withdrawn(const role_group_t *g, const char *id) {
+  char path[128];
+  snprintf(path, sizeof path, "%s.%s.label", g->prefix, id);
+  bd_id_t b = bd_find(path);
+  bd_sample_t s;
+  return b != BD_NONE && bd_get(b, &s) && !s.valid;
+}
 
 // Every distinct <id> (id_depth segments) in "<prefix>.<id>.<anything>". Keeps
 // the first max_inst in sorted order.
@@ -80,7 +109,7 @@ static uint8_t discover(const role_def_t *d, const role_group_t *g, const cfg_ro
       if (r == 0) dup = true;
       if (r >= 0) break;
     }
-    if (dup || pos >= cap) continue;
+    if (dup || pos >= cap || withdrawn(g, inst)) continue;
     if (n == cap) n--;   // full: the largest falls off
     memmove(ids[pos + 1], ids[pos], (size_t)(n - pos) * sizeof ids[0]);
     strcpy(ids[pos], inst);
@@ -156,12 +185,12 @@ static void bind_group(const role_def_t *d, const role_group_t *g, const cfg_rol
     }
     snprintf(b->inst_id[b->inst_count], sizeof b->inst_id[0], "%s", id);
     if (c->inst[i].label[0]) snprintf(b->inst_label[b->inst_count], sizeof b->inst_label[0], "%s", c->inst[i].label);
-    else label_for(id, b->inst_label[b->inst_count], sizeof b->inst_label[0]);
+    else default_label(g, id, b->inst_label[b->inst_count], sizeof b->inst_label[0]);
     b->inst_count++;
   }
   if (b->inst_count == 0) {
     b->inst_count = discover(d, g, c, b->inst_id);
-    for (uint8_t i = 0; i < b->inst_count; i++) label_for(b->inst_id[i], b->inst_label[i], sizeof b->inst_label[i]);
+    for (uint8_t i = 0; i < b->inst_count; i++) default_label(g, b->inst_id[i], b->inst_label[i], sizeof b->inst_label[i]);
   }
   if (b->inst_count == 0) {   // nothing found: one instance whose fields all flag
     b->inst_count = 1;
@@ -183,13 +212,29 @@ void role_bind(const role_def_t *d, const cfg_role_t *c, const cfg_units_t *u, r
   for (uint8_t g = 0; g < d->group_count && g < ROLE_MAX_GROUPS; g++) bind_group(d, &d->groups[g], c, u, &b->g[g]);
 }
 
+bool role_label_of(const role_def_t *d, const char *key, char *out, size_t n) {
+  for (uint8_t gi = 0; gi < d->group_count; gi++) {
+    const role_group_t *g = &d->groups[gi];
+    if (g->id_depth == 0) continue;
+    const char *id = key;
+    if (multi(d)) {
+      size_t nl = strlen(g->name);
+      if (strncmp(key, g->name, nl) != 0 || key[nl] != '.') continue;
+      id = key + nl + 1;
+    }
+    return published_label(g, id, out, n);
+  }
+  return false;
+}
+
 bool role_binding_same(const role_binding_t *a, const role_binding_t *b) {
   if (a->def != b->def) return false;
   for (uint8_t g = 0; g < a->def->group_count && g < ROLE_MAX_GROUPS; g++) {
     const role_group_binding_t *x = &a->g[g], *y = &b->g[g];
     if (x->inst_count != y->inst_count) return false;
     for (uint8_t i = 0; i < x->inst_count; i++)
-      if (strcmp(x->inst_id[i], y->inst_id[i]) != 0 || memcmp(x->ids[i], y->ids[i], sizeof x->ids[i]) != 0)
+      if (strcmp(x->inst_id[i], y->inst_id[i]) != 0 || strcmp(x->inst_label[i], y->inst_label[i]) != 0 ||
+          memcmp(x->ids[i], y->ids[i], sizeof x->ids[i]) != 0)
         return false;
   }
   return true;

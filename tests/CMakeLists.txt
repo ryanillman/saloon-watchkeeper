@@ -17,9 +17,16 @@ bi_test(test_ui_theme ui)
 bi_test(test_ui_rose ui)
 bi_test(test_sim_boards sim_boards)
 bi_test(test_boatdata boatdata)
+bi_test(test_electrical_core electrical boatdata platform)
+bi_test(test_electrical_classify electrical boatdata platform)
+bi_test(test_electrical_product electrical boatdata platform)
+bi_test(test_electrical_merge electrical boatdata platform)
+bi_test(test_electrical_publish electrical boatdata platform)
+bi_test(test_electrical_label electrical boatdata platform)
 bi_test(test_n2k_id n2k)
 bi_test(test_n2k_rx n2k)
 bi_test(test_n2k_decode n2k)
+bi_test(test_n2k_ident n2k)
 bi_test(test_n2k_tx n2k)
 bi_test(test_n2k_node_claim n2k_node)
 bi_test(test_n2k_node_send n2k_node)
@@ -32,11 +39,16 @@ bi_test(test_history history boatdata platform)
 bi_test(test_config config json)
 bi_test(test_units units)
 bi_test(test_sk_parse source_sk_core)
-bi_test(test_sk_client source_sk_core)
+bi_test(test_sk_electrical source_sk_core electrical boatdata platform)
+bi_test(test_sk_client source_sk_core electrical)
 bi_test(test_sk_cmd source_sk_core platform)
 bi_test(test_sk_access source_sk_core)
 bi_test(test_sk_history source_sk_core history boatdata platform)
 bi_test(test_role_bind roles)
+bi_test(test_power_resolved roles electrical boatdata config)
+bi_test(test_electrical_equivalence source_can source_sk_core electrical n2k boatdata platform)
+target_compile_definitions(test_electrical_equivalence PRIVATE FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/electrical"
+  INJECT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tools/sk-inject")
 bi_test(test_anchor_profile roles)
 bi_test(test_anchor_state roles alerts boatdata history platform)
 bi_test(test_anchor_record roles platform)
@@ -77,6 +89,10 @@ add_test(NAME bi_component_idf
 # Python, as tools/scenario.sh uses: the IDF virtualenv may be first on PATH.
 add_test(NAME sk_inject_py
   COMMAND /usr/bin/python3 -W error -I -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/sk_inject)
+
+# Every command in the console's help is registered with the ESP console (a missing one is "Unrecognized command" on a board).
+add_test(NAME console_commands
+  COMMAND /usr/bin/python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/check_console_commands.py)
 
 # The JSON Schema lists the same roles the firmware accepts.
 add_test(NAME config_schema_roles

@@ -13,8 +13,18 @@ for d in components/n2k components/n2k_node components/n2k_bus; do
     exit 1
   fi
 done
+# electrical is the portable resolver: libc, boatdata and itself only (no n2k, source_*, sk_*, roles or ui).
+if [ -d components/electrical ]; then
+  bad=$( { grep -rnE '#include *"' components/electrical | grep -vE '#include *"(electrical|el_[a-z_]+|boatdata|platform)\.h"'
+           grep -rnE '#include *<' components/electrical | grep -vE '#include *<(stdint|stddef|stdbool|string|math|stdio|ctype)\.h>'; } )
+  if [ -n "$bad" ]; then
+    echo "components/electrical may include only libc, boatdata and its own headers:"
+    echo "$bad"
+    exit 1
+  fi
+fi
 dirs=""
-for d in components/ui components/roles components/alerts components/history; do [ -d "$d" ] && dirs="$dirs $d"; done
+for d in components/ui components/roles components/alerts components/history components/electrical; do [ -d "$d" ] && dirs="$dirs $d"; done
 [ -z "$dirs" ] && exit 0
 hits=$(grep -rnE '#include *[<"](esp_|freertos/|driver/|sdkconfig)' $dirs)
 if [ -n "$hits" ]; then

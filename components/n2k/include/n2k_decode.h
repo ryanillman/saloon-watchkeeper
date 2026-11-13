@@ -38,6 +38,9 @@ typedef enum {
   N2K_F_STW,                          // m/s
   N2K_F_POSITION,                     // value = latitude, value2 = longitude (degrees)
   N2K_F_TIME_EPOCH,                   // UTC seconds since 1970
+  N2K_F_DC_TYPE,                      // 127506 DC type: 0 battery, 1 alternator, 2 converter, 3 solar cell, 4 wind; instance = DC instance
+  N2K_F_CONV_STATE,                   // 127750 operating state code (0 off, 4 absorption, 5 float ...); instance = connection number
+  N2K_F_AC_CURRENT,                   // 127744, A; instance = connection number
 } n2k_field_t;
 
 typedef struct {

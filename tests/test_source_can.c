@@ -3,12 +3,13 @@
 #include "unity.h"
 #include "boatdata.h"
 #include "platform.h"
+#include "electrical.h"
 #include "source_can.h"
 
 static source_can_t sc;
 static const source_can_id_t ids[] = {{"engine.0", "port"}, {"engine.1", "starboard"}};
-static source_can_cfg_t cfg_create = {true, ids, 2};
-static source_can_cfg_t cfg_existing = {false, ids, 2};
+static source_can_cfg_t cfg_create = {true, ids, 2, NULL};
+static source_can_cfg_t cfg_existing = {false, ids, 2, NULL};
 
 void setUp(void) {
   bd_init();
@@ -236,6 +237,179 @@ static void test_only_mode_creates_everything(void) {
   TEST_ASSERT_TRUE(get("electrical.batteries.7.voltage", &s));
 }
 
+
+// ---- Feeding the electrical resolver ----
+static el_t el;
+static source_can_t rs;
+static void rsetup(void) {
+  bd_init();
+  el_init(&el);
+  source_can_cfg_t c = {true, ids, 2, &el};
+  source_can_init(&rs, &c);
+}
+static void rfeed(uint8_t src, uint32_t pgn, const uint8_t *d, uint16_t len) {
+  n2k_msg_t m = {pgn, src, 255, 3, len, d};
+  source_can_on_msg(&m, &rs);
+}
+static const el_endpoint_t *ep_inst(uint8_t inst) {
+  for (size_t i = 0; i < el_endpoint_count(&el); i++)
+    if (el_endpoint(&el, i)->instance == inst && el_endpoint(&el, i)->domain == EL_DOM_DC) return el_endpoint(&el, i);
+  return NULL;
+}
+static const uint8_t batt0_a[8] = {0x00, 0x9E, 0x05, 0x00, 0x00, 0xFF, 0xFF, 0x2E};   // inst 0, 14.38 V, 0 A (real capture)
+static const uint8_t batt0_b[8] = {0x00, 0x9D, 0x05, 0x00, 0x00, 0xFF, 0xFF, 0x4C};   // inst 0, 14.37 V from another device
+static const uint8_t batt1_nocur[8] = {0x01, 0x72, 0x05, 0xFF, 0x7F, 0xFF, 0xFF, 0x4C};   // inst 1, 13.94 V, current n/a
+static const uint8_t claim36[8] = {0xF8, 0x01, 0xC0, 0x2C, 0x00, 0xA0, 0x46, 0xC0};
+
+static void test_can_two_devices_instance_zero_stay_separate(void) {
+  rsetup();
+  rfeed(36, 127508, batt0_a, 8);
+  rfeed(224, 127508, batt0_b, 8);
+  TEST_ASSERT_EQUAL_UINT32(2, (uint32_t)el_endpoint_count(&el));
+  TEST_ASSERT_EQUAL(BD_NONE, bd_find("electrical.batteries.0.voltage"));   // no merged raw path
+}
+
+static void test_pv_dc_type_frames_make_pv_endpoint(void) {
+  rsetup();
+  const uint8_t dc[9] = {0x40, 0x01, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  const uint8_t pv[8] = {0x01, 0x24, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x46};
+  rfeed(36, 127506, dc, 9);
+  rfeed(36, 127508, pv, 8);
+  TEST_ASSERT_EQUAL(EL_FN_PV, ep_inst(1)->fn);
+}
+
+static void test_claim_frame_sets_name_key_across_address_change(void) {
+  rsetup();
+  rfeed(36, 60928, claim36, 8);
+  rfeed(36, 127508, batt0_a, 8);
+  uint64_t key = ep_inst(0)->key;
+  rfeed(52, 60928, claim36, 8);   // the same device, re-claimed at another address
+  rfeed(52, 127508, batt0_b, 8);
+  TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)el_endpoint_count(&el));
+  TEST_ASSERT_TRUE(ep_inst(0)->key == key);
+}
+
+static void test_product_info_names_model(void) {
+  rsetup();
+  uint8_t d[134] = {0};
+  memcpy(d + 4, "Some Shunt 500A", 15);
+  rfeed(224, 126996, d, sizeof d);
+  rfeed(224, 127508, batt1_nocur, 8);
+  TEST_ASSERT_EQUAL(EL_FN_BATTERY, ep_inst(1)->fn);
+  TEST_ASSERT_EQUAL(EL_EV_PRODUCT, ep_inst(1)->ev);
+}
+
+static struct { uint32_t pgn; uint8_t dst, d[3]; uint16_t len; } sent[16];
+static int nsent;
+static bool send_ok = true;
+static bool fake_send(uint32_t pgn, uint8_t dst, const uint8_t *d, uint16_t len, void *ctx) {
+  (void)ctx;
+  if (!send_ok) return false;
+  if (nsent < 16) {
+    sent[nsent].pgn = pgn;
+    sent[nsent].dst = dst;
+    sent[nsent].len = len;
+    memcpy(sent[nsent].d, d, len <= 3 ? len : 3);
+    nsent++;
+  }
+  return true;
+}
+
+static void test_identity_request_sent_once_per_new_source(void) {
+  rsetup();
+  nsent = 0;
+  send_ok = true;
+  rfeed(36, 127508, batt0_a, 8);
+  rfeed(36, 127508, batt0_a, 8);
+  rfeed(37, 127508, batt0_b, 8);
+  source_can_request_identity(&rs, 1000, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(2, nsent);
+  TEST_ASSERT_EQUAL_UINT32(59904, sent[0].pgn);
+  TEST_ASSERT_EQUAL_UINT8(36, sent[0].dst);
+  TEST_ASSERT_EQUAL_UINT8(37, sent[1].dst);
+  TEST_ASSERT_EQUAL_UINT8(0x14, sent[0].d[0]);   // 126996
+  TEST_ASSERT_EQUAL_UINT8(0xF0, sent[0].d[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x01, sent[0].d[2]);
+  source_can_request_identity(&rs, 1001, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(2, nsent);
+}
+
+static void test_identity_request_retries_with_backoff(void) {
+  rsetup();
+  nsent = 0;
+  send_ok = true;
+  rfeed(36, 127508, batt0_a, 8);
+  source_can_request_identity(&rs, 1000, fake_send, NULL);
+  source_can_request_identity(&rs, 5999, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(1, nsent);
+  source_can_request_identity(&rs, 6000, fake_send, NULL);   // 5 s after the first
+  TEST_ASSERT_EQUAL_INT(2, nsent);
+  source_can_request_identity(&rs, 15999, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(2, nsent);
+  source_can_request_identity(&rs, 16000, fake_send, NULL);   // 10 s after the second
+  TEST_ASSERT_EQUAL_INT(3, nsent);
+}
+
+static void test_identity_request_gives_up_eventually(void) {
+  rsetup();
+  nsent = 0;
+  send_ok = true;
+  rfeed(36, 127508, batt0_a, 8);
+  for (int64_t t = 0; t < 10000000; t += 1000) source_can_request_identity(&rs, t, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(5, nsent);
+}
+
+static void test_identity_request_stops_after_product_info_and_resumes_on_claim(void) {
+  rsetup();
+  nsent = 0;
+  send_ok = true;
+  rfeed(36, 127508, batt0_a, 8);
+  uint8_t d[134] = {0};
+  memcpy(d + 4, "Mystery", 7);
+  rfeed(36, 126996, d, sizeof d);
+  source_can_request_identity(&rs, 100000, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(0, nsent);
+  rfeed(36, 60928, claim36, 8);   // it claimed an address again: whoever answers now may be someone else
+  source_can_request_identity(&rs, 100001, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(1, nsent);
+}
+
+static void test_identity_request_retried_when_send_refused(void) {
+  rsetup();
+  nsent = 0;
+  send_ok = false;
+  rfeed(36, 127508, batt0_a, 8);
+  source_can_request_identity(&rs, 1000, fake_send, NULL);
+  send_ok = true;
+  source_can_request_identity(&rs, 1001, fake_send, NULL);
+  TEST_ASSERT_EQUAL_INT(1, nsent);
+}
+
+static void test_listen_only_sends_nothing(void) {
+  rsetup();
+  rfeed(36, 127508, batt0_a, 8);
+  source_can_request_identity(&rs, 1000, NULL, NULL);   // the display never transmits: must not crash or change state
+  TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)el_endpoint_count(&el));
+}
+
+static void test_tick_publishes_and_offline_invalidates(void) {
+  rsetup();
+  const uint8_t dc[9] = {0x40, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  rfeed(224, 127506, dc, 9);
+  rfeed(224, 127508, batt0_a, 8);
+  source_can_tick(&rs);
+  bd_id_t ids_[4];
+  TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)bd_match("electrical.resolved.batteries.*.voltage", ids_, 4));
+  bd_sample_t s;
+  bd_get(ids_[0], &s);
+  TEST_ASSERT_TRUE(s.valid);
+  TEST_ASSERT_EQUAL_DOUBLE(14.38, s.num);
+  rs.last_msg_ms -= 6000;
+  source_can_tick(&rs);
+  bd_get(ids_[0], &s);
+  TEST_ASSERT_FALSE(s.valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_paths);
@@ -250,5 +424,16 @@ int main(void) {
   RUN_TEST(test_position_and_time_written);
   RUN_TEST(test_fallback_mode_creates_only_mapped_instances);
   RUN_TEST(test_only_mode_creates_everything);
+  RUN_TEST(test_can_two_devices_instance_zero_stay_separate);
+  RUN_TEST(test_pv_dc_type_frames_make_pv_endpoint);
+  RUN_TEST(test_claim_frame_sets_name_key_across_address_change);
+  RUN_TEST(test_product_info_names_model);
+  RUN_TEST(test_identity_request_sent_once_per_new_source);
+  RUN_TEST(test_identity_request_retries_with_backoff);
+  RUN_TEST(test_identity_request_gives_up_eventually);
+  RUN_TEST(test_identity_request_stops_after_product_info_and_resumes_on_claim);
+  RUN_TEST(test_identity_request_retried_when_send_refused);
+  RUN_TEST(test_listen_only_sends_nothing);
+  RUN_TEST(test_tick_publishes_and_offline_invalidates);
   return UNITY_END();
 }

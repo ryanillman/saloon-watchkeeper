@@ -37,6 +37,9 @@ static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
   if (disc_extra) strcpy(out[0].ids[out[0].count++], "center");
   return 1;
 }
+static void on_disc_name(const char *role, const char *id, char *out, size_t n) {
+  snprintf(out, n, "%s", !strcmp(role, "engine") && !strcmp(id, "port") ? "Helm" : "");
+}
 static int rediscoveries;
 static void on_run_discovery(void) { rediscoveries++; }
 static const char *const implemented[] = {"engine", "power", "tanks", NULL};
@@ -45,7 +48,7 @@ static void on_scan(void) { scans++; }
 static void on_request_access(void) { access_requests++; }
 static void on_line(char *out, size_t n) { snprintf(out, n, "state line"); }
 static ui_setup_cb_t cb = {.save = on_save, .about = on_about, .has_buzzer = true, .has_sd = true, .dims = true,
-                           .discovery = on_discovery, .run_discovery = on_run_discovery, .roles_available = implemented,
+                           .discovery = on_discovery, .disc_name = on_disc_name, .run_discovery = on_run_discovery, .roles_available = implemented,
                            .wifi_scan = on_scan, .wifi_state = on_line, .sk_state = on_line,
                            .request_access = on_request_access, .access_state = on_line};
 
@@ -557,6 +560,31 @@ static void test_keyboard_keeps_field_visible_480(void) {
   lv_display_delete(sq);
 }
 
+static void test_discovery_shows_the_name_the_source_gave(void) {
+  open_setup();
+  click("menu_discovery");
+  const char *line = lv_label_get_text(ui_setup_part("row_engine_port"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "port"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "Helm"));
+  TEST_ASSERT_NULL(strstr(lv_label_get_text(ui_setup_part("row_engine_starboard")), "Helm"));   // no name: the id alone
+}
+
+static void test_a_saved_label_replaces_the_sources_name_and_the_name_is_never_saved(void) {
+  open_setup();
+  click("menu_discovery");
+  click("confirm_engine");   // confirm without labelling: the source's name must not become a saved label
+  const cfg_role_t *r = &ui_setup_working()->roles[role_index(ui_setup_working(), "engine")];
+  TEST_ASSERT_EQUAL_STRING("", r->inst[0].label);
+  click("label_engine_port");
+  type_and_ok("MAIN");
+  const char *line = lv_label_get_text(ui_setup_part("row_engine_port"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "MAIN"));
+  TEST_ASSERT_NULL(strstr(line, "Helm"));
+  click("label_engine_port");
+  type_and_ok("");   // cleared: back to the source's name
+  TEST_ASSERT_NOT_NULL(strstr(lv_label_get_text(ui_setup_part("row_engine_port")), "Helm"));
+}
+
 static void test_discovery_label_edit(void) {
   open_setup();
   click("menu_discovery");
@@ -611,6 +639,8 @@ int main(void) {
   RUN_TEST(test_sources_page_picks_the_mode_and_saves_it);
   RUN_TEST(test_request_access_button_calls_cb);
   RUN_TEST(test_keyboard_keeps_field_visible_480);
+  RUN_TEST(test_discovery_shows_the_name_the_source_gave);
+  RUN_TEST(test_a_saved_label_replaces_the_sources_name_and_the_name_is_never_saved);
   RUN_TEST(test_discovery_label_edit);
   return UNITY_END();
 }
