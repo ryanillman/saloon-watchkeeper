@@ -108,5 +108,6 @@ jobs:
             cp "$f" "assets/saloon-watchkeeper-$b-$GITHUB_REF_NAME.bin"
           done
           (cd assets && sha256sum ./*.bin > SHA256SUMS)
+          tools/site/make-notes.sh "$GITHUB_REF_NAME" > notes.md
           gh release create "$GITHUB_REF_NAME" assets/* --prerelease --verify-tag \
-            --title "$GITHUB_REF_NAME: pre-release, not fit for use" --notes-file tools/site/release-notes.md
+            --title "$GITHUB_REF_NAME: pre-release, not fit for use" --notes-file notes.md

@@ -1,0 +1,9 @@
+{
+  "description": "Underway for the signal controller bench: the boat really moves (about 790 m east over 4 minutes, matching the baseline's 3.3 m/s SOG), which is what signalk-autostate needs to leave 'moored' (it watches position, not speed: more than its distance threshold within its window). environment.mode is left alone for the whole run so the controller's DAY / NIGHT / RESTRICTED VISIBILITY buttons can be tried (the baseline otherwise rewrites it to day every second). Engines run, so autostate should settle on motoring.",
+  "durationMs": 300000,
+  "profile": "underway",
+  "after": [
+    { "atMs": 0, "note": "stop rewriting environment.mode so a button press stays", "op": "silent", "path": "environment.mode" },
+    { "atMs": 1000, "note": "leave the dock heading east", "op": "move", "path": "navigation.position", "northM": 0, "eastM": 790, "overMs": 240000 }
+  ]
+}
