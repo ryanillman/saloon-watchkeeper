@@ -1,0 +1,8 @@
+{
+  "name": "Saloon Watchkeeper (lcd7b), pre-release v0.1.2-2-g2f6622e",
+  "version": "v0.1.2-2-g2f6622e",
+  "new_install_prompt_erase": false,
+  "builds": [
+    { "chipFamily": "ESP32-S3", "parts": [ { "path": "lcd7b.bin", "offset": 0 } ] }
+  ]
+}

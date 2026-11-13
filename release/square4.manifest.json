@@ -1,0 +1,8 @@
+{
+  "name": "Saloon Watchkeeper (square4), pre-release v0.1.2",
+  "version": "v0.1.2",
+  "new_install_prompt_erase": false,
+  "builds": [
+    { "chipFamily": "ESP32-S3", "parts": [ { "path": "square4.bin", "offset": 0 } ] }
+  ]
+}
