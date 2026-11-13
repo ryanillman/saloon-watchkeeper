@@ -2,8 +2,8 @@
 
 // The battery, solar and charger groups read what the electrical resolver publishes (electrical.resolved.*, ids
 // from el_endpoint_id), never raw per-device paths: raw instance numbers collide across devices and a panel input can
-// look like a battery. Slot suffixes are the signalk-venus names, which the resolver reproduces. The inverter, dcdc,
-// alternator and system groups still read raw signalk-venus paths.
+// look like a battery. Slot suffixes are the signalk-venus names, which the resolver reproduces. The inverter and system
+// groups still read raw signalk-venus paths. A converter (an Orion) is a charger-function endpoint: its input is not read.
 // A Cerbo only publishes on change by default and fixed-period subscriptions do not resend on
 // Signal K 2.35.1 (milestone 4 verification), so no Power slot has a max age or a resend period.
 static const role_slot_t battery[] = {
@@ -13,6 +13,7 @@ static const role_slot_t battery[] = {
   // The Signal K schema and signalk-venus put these under capacity.; the bare names are a fallback.
   {"soc",       "capacity.stateOfCharge", "stateOfCharge", Q_RATIO,    0, 1, 0, "SOC", 0},
   {"remaining", "capacity.timeRemaining", "timeRemaining", Q_DURATION, 0, 0, 0, "TIME", 0},
+  {"ref",       "ref",            NULL, Q_NONE,     0,   0,   0, "REF", 0},   // NAME.instance, published once the device's NAME is known
 };
 
 static const role_slot_t solar[] = {
@@ -20,12 +21,14 @@ static const role_slot_t solar[] = {
   {"current",   "current",        NULL, Q_CURRENT,  0,   60,  0, "AMPS", 0},
   {"panel",     "panelPower",     NULL, Q_POWER,    0,   1000, 0, "PANEL", 0},
   {"mode",      "chargingMode",   NULL, Q_NONE,     0,   0,   0, "MODE", 0},
+  {"ref",       "ref",            NULL, Q_NONE,     0,   0,   0, "REF", 0},
 };
 
 static const role_slot_t charger[] = {
   {"voltage",   "voltage",        NULL, Q_VOLTAGE,  10,  16,  0, "VOLTS", 0},
   {"current",   "current",        NULL, Q_CURRENT,  -100, 100, 0, "AMPS", 0},
   {"mode",      "chargingMode",   NULL, Q_NONE,     0,   0,   0, "MODE", 0},
+  {"ref",       "ref",            NULL, Q_NONE,     0,   0,   0, "REF", 0},
 };
 
 static const role_slot_t inverter[] = {
@@ -33,21 +36,17 @@ static const role_slot_t inverter[] = {
   {"mode",      "inverterMode",   NULL, Q_NONE,     0,   0,   0, "INVERTER", 0},
 };
 
-static const role_slot_t dcdc[] = {
-  {"voltage",   "voltage",        NULL, Q_VOLTAGE,  10,  16,  0, "VOLTS", 0},
-  {"current",   "current",        NULL, Q_CURRENT,  0,   60,  0, "AMPS", 0},
-  {"mode",      "chargingMode",   NULL, Q_NONE,     0,   0,   0, "MODE", 0},
-  // Input side, read only by multi-bank boats (power_topo). These suffixes are a guess: an Orion XS is
-  // expected to report its input, but the signalk-venus paths have not been seen. A converter whose
-  // input does not bind has its input power estimated from its output.
-  {"inVolts",   "input.voltage",  NULL, Q_VOLTAGE,  0,   0,   0, "IN VOLTS", 0},
-  {"inAmps",    "input.current",  NULL, Q_CURRENT,  0,   0,   0, "IN AMPS", 0},
-};
-
 static const role_slot_t alternator[] = {
   {"voltage",   "voltage",        NULL, Q_VOLTAGE,  10,  16,  0, "VOLTS", 0},
   {"current",   "current",        NULL, Q_CURRENT,  0,   150, 0, "AMPS", 0},
   {"mode",      "chargingMode",   NULL, Q_NONE,     0,   0,   0, "MODE", 0},
+  {"ref",       "ref",            NULL, Q_NONE,     0,   0,   0, "REF", 0},
+};
+
+// AC input of a device (PGN 127744): shore is present while it reports.
+static const role_slot_t acin[] = {
+  {"current",   "current",        NULL, Q_CURRENT,  0,   0,   0, "AC IN", 0},
+  {"ref",       "ref",            NULL, Q_NONE,     0,   0,   0, "REF", 0},
 };
 
 // The Cerbo's DC system power: read by the Summary only, never drawn as a page of its own.
@@ -57,12 +56,12 @@ static const role_slot_t system_slots[] = {
 
 #define N(a) ((uint8_t)(sizeof a / sizeof a[0]))
 static const role_group_t groups[] = {
-  {"battery",    "electrical.resolved.batteries", 1, 4, battery,       N(battery)},
+  {"battery",    "electrical.resolved.batteries", 1, 8, battery,       N(battery)},
   {"solar",      "electrical.resolved.solar", 1, 4, solar,         N(solar)},
-  {"charger",    "electrical.resolved.chargers", 1, 4, charger,       N(charger)},
+  {"charger",    "electrical.resolved.chargers", 1, 8, charger,       N(charger)},
   {"inverter",   "electrical.inverters",  1, 2, inverter,      N(inverter)},
-  {"dcdc",       "electrical.dcdc",       1, 2, dcdc,          N(dcdc)},
-  {"alternator", "electrical.alternators", 1, 2, alternator,   N(alternator)},
+  {"acin",       "electrical.resolved.acin", 1, 4, acin,       N(acin)},
+  {"alternator", "electrical.resolved.alternators", 1, 4, alternator, N(alternator)},
   {"system",     "electrical.venus",      0, 1, system_slots,  N(system_slots)},
 };
 

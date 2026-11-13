@@ -82,7 +82,7 @@ void tearDown(void) {
 
 static void test_help_lists_commands(void) {
   TEST_ASSERT_EQUAL_INT(0, run("help"));
-  const char *want[] = {"status", "data <prefix>", "config show", "config set", "config reload", "sk request-access", "reboot"};
+  const char *want[] = {"status", "data <prefix>", "config show", "config set", "config reload", "sk request-access", "power", "reboot"};
   for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out, want[i]), want[i]);
 }
 
@@ -193,6 +193,36 @@ static void test_unknown_command_usage(void) {
   TEST_ASSERT_NOT_NULL(strstr(out, "usage: config set <path> <value>"));
 }
 
+static void test_power_lists_refs_labels_and_assignment(void) {
+  write_config("{ \"roles\": [ { \"role\": \"power\","
+               "  \"banks\": [ {\"id\":\"house\",\"kind\":\"house\",\"battery\":\"c046aa002cc001f9.0\"},"
+               "                {\"id\":\"gone\",\"kind\":\"start\",\"battery\":\"c046aa002cc001f9.1\"} ],"
+               "  \"flows\": [ {\"device\":\"c046a0002cc001f5\",\"kind\":\"solar\",\"to\":\"house\"} ] } ] }");
+  TEST_ASSERT_EQUAL_INT(0, run("config reload"));
+  int64_t now = platform_millis();
+  bd_set_text(bd_intern("electrical.resolved.batteries.h.ref"), "c046aa002cc001f9.0", 1, now);
+  bd_set_text(bd_intern("electrical.resolved.batteries.h.label"), "SmartShunt", 1, now);
+  bd_set_number(bd_intern("electrical.resolved.batteries.h.voltage"), 13.1, 1, now);
+  bd_set_text(bd_intern("electrical.resolved.batteries.x.ref"), "bb00000000000001.0", 1, now);
+  bd_set_number(bd_intern("electrical.resolved.batteries.x.voltage"), 12.0, 1, now);
+  bd_set_text(bd_intern("electrical.resolved.chargers.m.ref"), "c046a0002cc001f5.0", 1, now);
+  bd_set_number(bd_intern("electrical.resolved.chargers.m.voltage"), 13.5, 1, now);
+  TEST_ASSERT_EQUAL_INT(0, run("power"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "c046aa002cc001f9.0  SmartShunt  13.1 V  bank house"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "bb00000000000001.0"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "UNASSIGNED"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "c046a0002cc001f5.0"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "flow solar -> house"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "MISSING bank gone"));   // placed, not seen
+}
+
+static void test_power_says_when_the_file_uses_the_old_format(void) {
+  write_config("{ \"roles\": [ { \"role\": \"power\", \"banks\": [ {\"id\":\"279\",\"kind\":\"house\"} ] } ] }");
+  run("config reload");
+  TEST_ASSERT_EQUAL_INT(0, run("power"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "old-format"));
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(tick_ms);
@@ -201,6 +231,8 @@ int main(void) {
   lv_display_set_buffers(disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   UNITY_BEGIN();
   RUN_TEST(test_help_lists_commands);
+  RUN_TEST(test_power_lists_refs_labels_and_assignment);
+  RUN_TEST(test_power_says_when_the_file_uses_the_old_format);
   RUN_TEST(test_status_has_all_keys);
   RUN_TEST(test_status_says_can_off_when_the_bus_is_not_started);
   RUN_TEST(test_status_reports_the_bus_when_started);

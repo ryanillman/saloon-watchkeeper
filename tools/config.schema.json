@@ -105,7 +105,38 @@
             "description": "Explicit paths: { \"port.coolant\": \"propulsion.port.exhaustTemperature\" }",
             "additionalProperties": { "type": "string" }
           },
-          "primary": { "type": "string", "description": "power role only: instance id of the primary battery bank, e.g. \"279\". Default: the first bank that reports a state of charge" },
+          "primary": { "type": "string", "description": "power role only: ignored once banks are set up (the house bank is the primary)" },
+          "banks": {
+            "type": "array",
+            "maxItems": 8,
+            "description": "power role only: named batteries. Exactly one has kind \"house\". Set up on the display (Setup > Power) or by hand; `power` on the console lists the refs",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "battery"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9-]{1,11}$", "description": "short name flows point at" },
+                "name": { "type": "string", "maxLength": 11, "description": "shown name; required for kind other, else the kind in capitals" },
+                "kind": { "enum": ["house", "start", "nav", "windlass", "thruster", "genset", "other"] },
+                "battery": { "type": "string", "pattern": "^[0-9a-f]{16}\\.[0-9]{1,3}$", "description": "the battery endpoint: <CAN NAME in lower-case hex>.<instance>" }
+              }
+            }
+          },
+          "flows": {
+            "type": "array",
+            "maxItems": 16,
+            "description": "power role only: devices that move energy into (or, for a converter, between) banks",
+            "items": {
+              "type": "object",
+              "required": ["device", "kind", "to"],
+              "properties": {
+                "device": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "the device's CAN NAME in lower-case hex" },
+                "kind": { "enum": ["solar", "shore", "engine", "converter", "other"] },
+                "to": { "type": "string", "description": "a bank id" },
+                "from": { "type": "string", "description": "converters only: the bank id it draws from" },
+                "output": { "type": "integer", "minimum": 0, "maximum": 3, "description": "which of the device's outputs, by instance order (default 0)" }
+              }
+            }
+          },
           "exclude": { "type": "array", "items": { "type": "string" }, "description": "Instance ids to hide" }
         }
       }

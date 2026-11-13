@@ -1,4 +1,5 @@
 #include "app.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 #include "history.h"
 #include "net.h"
 #include "platform.h"
+#include "power_page.h"
 #include "role.h"
 #include "sk_access.h"
 #include "sk_client.h"
@@ -705,6 +707,7 @@ static void setup_access_state(char *out, size_t n) {
 }
 
 static ui_setup_cb_t setup_cb = {.save = setup_save, .about = setup_about, .discovery = setup_discovery, .disc_name = setup_disc_name,
+                                 .power_rows = power_rows,
                                  .run_discovery = setup_rediscover, .wifi_scan = setup_wifi_scan,
                                  .wifi_state = setup_wifi_state, .sk_state = setup_sk_state,
                                  .request_access = setup_request_access, .access_state = setup_access_state};
@@ -716,6 +719,12 @@ static void open_setup(void) {
   setup_cb.dims = a.dims;
   setup_cb.roles_available = role_names();
   ui_setup_open(a.screen, &a.cfg, a.sc, &setup_cb);
+}
+
+// A Power page asks for Setup > Power (not set up, or something unassigned).
+static void open_power_setup(void) {
+  if (!ui_setup_is_open()) open_setup();
+  ui_setup_show(SETUP_POWER);
 }
 
 static void on_buzzer(bool on) {
@@ -821,6 +830,7 @@ void app_set_backlight(void (*fn)(uint8_t percent), bool dims) {
 
 void app_start_ui(lv_display_t *disp, size_class_t sc) {
   a.sc = sc;
+  power_set_setup_opener(open_power_setup);
   for (uint8_t i = 0; i < a.count; i++)   // page counts can depend on the size class
     if (a.roles[i].def && a.roles[i].def->pages) a.views[i].page_count = a.roles[i].def->pages(&a.roles[i].binding, sc);
   int start = -1, glance = -1;   // the start role; Glance if there is none; else the first
@@ -946,9 +956,10 @@ const char *app_config_dir(void) { return a.dir; }
 static bool same_roles(const cfg_t *x, const cfg_t *y) {
   if (x->role_count != y->role_count || strcmp(x->start_role, y->start_role)) return false;
   for (uint8_t i = 0; i < x->role_count; i++) {
-    cfg_role_t p = x->roles[i], q = y->roles[i];
-    p.src_entry = q.src_entry = 0;   // where it sits in the file is not a change to show
-    if (memcmp(&p, &q, sizeof p)) return false;
+    // Compared in place, around src_entry (where it sits in the file is not a change to show): a role is 3.5 KB.
+    const cfg_role_t *p = &x->roles[i], *q = &y->roles[i];
+    const size_t off = offsetof(cfg_role_t, src_entry);
+    if (memcmp(p, q, off) || memcmp((const char *)p + off + 1, (const char *)q + off + 1, sizeof *p - off - 1)) return false;
   }
   return true;
 }

@@ -264,6 +264,60 @@ static void test_path_stable_across_address_change(void) {
   TEST_ASSERT_EQUAL_DOUBLE(13.6, s.num);
 }
 
+static void test_ref_leaf_is_name_dot_instance(void) {
+  el_identity_t id = {.can_name = 0xC046AA002CC001F9ull};
+  el_set_identity(&el, 0, 10, &id);
+  bat(10, 1, 13.5, 2.0, 0.8, 1000);
+  el_publish(&el, 1000);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("batteries", ep_of(10, 1), "ref", &s));
+  TEST_ASSERT_EQUAL_INT(BD_TEXT, s.kind);
+  TEST_ASSERT_EQUAL_STRING("c046aa002cc001f9.1", s.text);
+}
+
+static void test_no_ref_without_name_then_published_when_identity_arrives(void) {
+  bat(10, 0, 13.5, 2.0, 0.8, 1000);
+  el_publish(&el, 1000);
+  TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)count("electrical.resolved.batteries.*.ref"));
+  el_identity_t id = {.can_name = 0xC046AA002CC001F9ull};
+  el_set_identity(&el, 0, 10, &id);
+  el_publish(&el, 2000);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("batteries", ep_of(10, 0), "ref", &s));
+  TEST_ASSERT_TRUE(s.valid);
+  TEST_ASSERT_EQUAL_STRING("c046aa002cc001f9.0", s.text);
+}
+
+static void test_alternator_published(void) {
+  el_observe(&el, 0, 10, 0, EL_F_DC_TYPE, 1, 1000);
+  el_observe(&el, 0, 10, 0, EL_F_VOLTAGE, 14.2, 1000);
+  el_observe(&el, 0, 10, 0, EL_F_CURRENT, 35.0, 1000);
+  el_publish(&el, 1000);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("alternators", el_endpoint(&el, 0), "current", &s));
+  TEST_ASSERT_EQUAL_DOUBLE(35.0, s.num);
+}
+
+static void test_converter_publishes_as_charger(void) {
+  el_observe(&el, 0, 10, 0, EL_F_DC_TYPE, 2, 1000);
+  el_observe(&el, 0, 10, 0, EL_F_VOLTAGE, 13.9, 1000);
+  el_observe(&el, 0, 10, 0, EL_F_CURRENT, 12.0, 1000);
+  el_publish(&el, 1000);
+  bd_sample_t s;
+  TEST_ASSERT_TRUE(get("chargers", el_endpoint(&el, 0), "current", &s));
+  TEST_ASSERT_EQUAL_DOUBLE(12.0, s.num);
+}
+
+static void test_ac_in_publishes_current(void) {
+  el_observe(&el, 0, 10, 0, EL_F_AC_CURRENT, 3.5, 1000);
+  el_publish(&el, 1000);
+  bd_sample_t s;
+  const el_endpoint_t *p = el_endpoint(&el, 0);
+  TEST_ASSERT_EQUAL_INT(EL_FN_AC_IN, p->fn);
+  TEST_ASSERT_TRUE(get("acin", p, "current", &s));
+  TEST_ASSERT_EQUAL_DOUBLE(3.5, s.num);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_battery_endpoint_published_under_resolved_prefix);
@@ -282,5 +336,10 @@ int main(void) {
   RUN_TEST(test_identity_arriving_late_moves_paths_without_leaving_a_ghost);
   RUN_TEST(test_identity_merging_two_endpoints_invalidates_the_absorbed_one);
   RUN_TEST(test_path_stable_across_address_change);
+  RUN_TEST(test_ref_leaf_is_name_dot_instance);
+  RUN_TEST(test_no_ref_without_name_then_published_when_identity_arrives);
+  RUN_TEST(test_alternator_published);
+  RUN_TEST(test_converter_publishes_as_charger);
+  RUN_TEST(test_ac_in_publishes_current);
   return UNITY_END();
 }

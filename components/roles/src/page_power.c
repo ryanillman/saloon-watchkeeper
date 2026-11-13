@@ -1,6 +1,6 @@
 // Power pages. Summary lives in page_power_summary.c. Batteries: one row per bank
 // (volts, amps, watts, state-of-charge strip, time remaining). Charging: one row per
-// solar, charger, DC-DC and alternator instance. Placeholder instances (a group that
+// solar, charger (converters included) and alternator instance. Placeholder instances (a group that
 // found nothing) are skipped, except a missing battery, which shows as a failed row.
 #include <ctype.h>
 #include <stdio.h>
@@ -9,12 +9,16 @@
 #include "power_page.h"
 #include "power_topo.h"
 
-#define CHARGE_GROUPS 4
-static const uint8_t CHARGE[CHARGE_GROUPS] = {G_SOLAR, G_CHARGER, G_DCDC, G_ALTERNATOR};
-static const char *const GROUP_LABEL[] = {"BATTERY", "SOLAR", "CHARGER", "INVERTER", "DCDC", "ALTERNATOR"};
+#define CHARGE_GROUPS 3
+static const uint8_t CHARGE[CHARGE_GROUPS] = {G_SOLAR, G_CHARGER, G_ALTERNATOR};
+static const char *const GROUP_LABEL[] = {"BATTERY", "SOLAR", "CHARGER", "INVERTER", "AC IN", "ALTERNATOR"};
 
 static int built_page = -1;
-#define RENT 12   // charging rows that can exist: 4 + 4 + 2 + 2
+static size_class_t built_sc = SIZE_WIDE;
+static void (*setup_opener)(void);
+void power_set_setup_opener(void (*open)(void)) { setup_opener = open; }
+void power_open_setup(void) { if (setup_opener) setup_opener(); }
+#define RENT 16   // charging rows that can exist: 4 solar + 8 charger + 4 alternator
 
 PLATFORM_EXT_BSS static struct {
   uint8_t n;
@@ -25,12 +29,12 @@ PLATFORM_EXT_BSS static struct {
   char gl[ROLE_MAX_INST][32];       // gauge label storage
   char slabel[ROLE_MAX_INST][32];   // row title
   lv_obj_t *src[ROLE_MAX_INST];     // multi-bank: the sources feeding this bank
-  int8_t kind[ROLE_MAX_INST];       // multi-bank: BANK_*, -1 = a battery no bank claims
+  int8_t kind[ROLE_MAX_INST];       // banks: the bank index, -1 = a battery no bank claims
   power_topo_t topo;
   bool wide;
 } bat;
 
-static struct {
+PLATFORM_EXT_BSS static struct {
   uint8_t n, g[RENT], i[RENT];
   lv_obj_t *w[RENT], *a[RENT], *panel[RENT], *mode[RENT];
   char slabel[RENT][32];
@@ -85,10 +89,12 @@ uint8_t power_banks(const role_binding_t *b, uint8_t idx[ROLE_MAX_INST], uint8_t
     n++;
   }
   const char *want = b->cfg ? b->cfg->primary : NULL;
-  if (b->cfg)   // configured banks: the house bank is the primary, and `primary` is ignored
-    for (uint8_t k = 0; k < b->cfg->bank_count; k++)
-      if (!strcmp(b->cfg->bank[k].kind, "house")) want = b->cfg->bank[k].id;
   *primary = n ? power_primary(ids, soc_bound, n, want) : 0;
+  power_topo_t t;
+  power_topo_resolve(b, &t);
+  if (t.active && t.bank[t.house].bound)   // configured banks: the house bank is the primary, and `primary` is ignored
+    for (uint8_t k = 0; k < n; k++)
+      if (idx[k] == t.bank[t.house].inst) *primary = k;
   return n;
 }
 
@@ -157,11 +163,11 @@ static uint8_t charge_rows(const role_binding_t *b, uint8_t g[RENT], uint8_t i[R
         if (i) i[n] = k;
         n++;
       }
-  if (power_multi(b) && g && i) {   // grouped by the bank they feed: house, start, nav, then sources no link names
+  if (power_multi(b) && g && i) {   // grouped by the bank they feed, in bank order, then sources no flow names
     power_topo_t t;
     power_topo_resolve(b, &t);
     int key[RENT];
-    for (uint8_t k = 0; k < n; k++) { int d = power_topo_dest(&t, g[k], i[k], NULL); key[k] = d < 0 ? 9 : d; }
+    for (uint8_t k = 0; k < n; k++) { int d = power_topo_dest(b, &t, g[k], i[k], NULL); key[k] = d < 0 ? 9 : d; }
     for (uint8_t k = 1; k < n; k++)   // insertion sort, stable
       for (uint8_t m = k; m > 0 && key[m] < key[m - 1]; m--) {
         int tk = key[m]; key[m] = key[m - 1]; key[m - 1] = tk;
@@ -172,10 +178,16 @@ static uint8_t charge_rows(const role_binding_t *b, uint8_t g[RENT], uint8_t i[R
   return n;
 }
 
+// Summary, the Banks pages (one for each power_banks_per_page banks), Batteries, then the Charging pages.
+static uint8_t banks_pages(const role_binding_t *b, size_class_t sc) {
+  uint8_t per = power_banks_per_page(sc), n = b->cfg ? b->cfg->bank_count : 0;
+  return (uint8_t)((n + per - 1) / per);
+}
+
 uint8_t power_pages(const role_binding_t *b, size_class_t sc) {
   uint8_t rows = charge_rows(b, NULL, NULL), per = PER_PAGE(sc);
   uint8_t pages = (uint8_t)((rows + per - 1) / per);
-  return (uint8_t)(2 + (power_multi(b) ? 1 : 0) + (pages ? pages : 1));
+  return (uint8_t)(2 + banks_pages(b, sc) + (pages ? pages : 1));
 }
 
 // ---- Batteries ----
@@ -194,12 +206,11 @@ static void batteries_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) 
     memcpy(real, bat.idx, sizeof real);
     uint8_t nreal = bat.n;
     bool taken[ROLE_MAX_INST] = {0};
-    for (uint8_t k = 0; k < b->cfg->bank_count; k++) {
-      int kind = !strcmp(b->cfg->bank[k].kind, "house") ? BANK_HOUSE : !strcmp(b->cfg->bank[k].kind, "start") ? BANK_START : BANK_NAV;
-      if (!bat.topo.bank_bound[kind]) continue;
-      order[m] = bat.topo.bank_inst[kind];
-      kinds[m++] = (int8_t)kind;
-      for (uint8_t r = 0; r < nreal; r++) if (real[r] == bat.topo.bank_inst[kind]) taken[r] = true;
+    for (uint8_t k = 0; k < bat.topo.bank_count; k++) {
+      if (!bat.topo.bank[k].bound) continue;
+      order[m] = bat.topo.bank[k].inst;
+      kinds[m++] = (int8_t)k;
+      for (uint8_t r = 0; r < nreal; r++) if (real[r] == bat.topo.bank[k].inst) taken[r] = true;
     }
     for (uint8_t r = 0; r < nreal && m < ROLE_MAX_INST; r++)
       if (!taken[r]) { order[m] = real[r]; kinds[m++] = -1; }
@@ -217,7 +228,7 @@ static void batteries_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) 
   for (uint8_t j = 0; j < bat.n; j++) {
     uint8_t i = bat.idx[j];
     int32_t y = pad + j * (bh + pad), x0 = pad + title_w, inner = W - x0 - pad;
-    if (bat.topo.active && bat.kind[j] >= 0) snprintf(bat.slabel[j], sizeof bat.slabel[j], "%s", bat.topo.bank_name[bat.kind[j]]);
+    if (bat.topo.active && bat.kind[j] >= 0) snprintf(bat.slabel[j], sizeof bat.slabel[j], "%s", bat.topo.bank[bat.kind[j]].name);
     else if (bat.topo.active) {
       power_label(b, G_BATTERY, i, bat.slabel[j], sizeof bat.slabel[j]);
       size_t len = strlen(bat.slabel[j]);
@@ -303,15 +314,14 @@ static void batteries_refresh(role_binding_t *b, int64_t now) {
 
 // ---- Charging ----
 
-// Summary, [Banks], Batteries, then the Charging pages.
-static uint8_t batteries_page(const role_binding_t *b) { return power_multi(b) ? 2 : 1; }
-static uint8_t first_charging_page(const role_binding_t *b) { return (uint8_t)(batteries_page(b) + 1); }
+static uint8_t batteries_page(const role_binding_t *b, size_class_t sc) { return (uint8_t)(1 + banks_pages(b, sc)); }
+static uint8_t first_charging_page(const role_binding_t *b, size_class_t sc) { return (uint8_t)(batteries_page(b, sc) + 1); }
 
 static void charging_build(lv_obj_t *area, uint8_t page, size_class_t sc, role_binding_t *b) {
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area), pad = 8;
   bool wide = sc == SIZE_WIDE;
   uint8_t g[RENT], i[RENT], total = charge_rows(b, g, i), per = PER_PAGE(sc);
-  uint8_t first = (uint8_t)((page - first_charging_page(b)) * per);
+  uint8_t first = (uint8_t)((page - first_charging_page(b, sc)) * per);
   chg.n = first >= total ? 0 : (uint8_t)(total - first < per ? total - first : per);
   if (!total) {
     lv_obj_t *l = lv_label_create(area);
@@ -335,18 +345,11 @@ static void charging_build(lv_obj_t *area, uint8_t page, size_class_t sc, role_b
     int32_t y = pad + j * (rh + pad), y1 = y + title_h, h = rh - title_h;
     power_label(b, gg, ii, chg.slabel[j], sizeof chg.slabel[j]);
     caption(area, chg.slabel[j], pad, wide ? y + rh / 2 - (topo.active ? 26 : 12) : y, wide ? title_w : W - 2 * pad, &lv_font_montserrat_20);
-    if (topo.active) {   // where this source's power goes: "TO HOUSE", "START > HOUSE" for a converter, "UNLINKED"
-      int from, to = power_topo_dest(&topo, gg, ii, &from);
-      if (to < 0) snprintf(chg.dest[j], sizeof chg.dest[j], "UNLINKED");
-      else if (from >= 0) snprintf(chg.dest[j], sizeof chg.dest[j], "%s " LV_SYMBOL_RIGHT " %s", topo.bank_name[from], topo.bank_name[to]);
-      else snprintf(chg.dest[j], sizeof chg.dest[j], "TO %s", topo.bank_name[to]);
-      bool total_only = false;   // a charger's readings are for the whole unit, attributed to its main output
-      for (uint8_t n = 0; n < topo.link_count; n++)
-        if (gg == G_CHARGER && topo.link[n].g == gg && topo.link[n].i == ii && topo.link[n].output > 0) total_only = true;
-      if (total_only) {
-        size_t len = strlen(chg.dest[j]);
-        snprintf(chg.dest[j] + len, sizeof chg.dest[j] - len, "  EST");
-      }
+    if (topo.active) {   // where this source's power goes: "TO HOUSE", "START > HOUSE" for a converter, "UNASSIGNED"
+      int from, to = power_topo_dest(b, &topo, gg, ii, &from);
+      if (to < 0) snprintf(chg.dest[j], sizeof chg.dest[j], "UNASSIGNED");
+      else if (from >= 0) snprintf(chg.dest[j], sizeof chg.dest[j], "%s " LV_SYMBOL_RIGHT " %s", topo.bank[from].name, topo.bank[to].name);
+      else snprintf(chg.dest[j], sizeof chg.dest[j], "TO %s", topo.bank[to].name);
       if (wide) power_text(area, chg.dest[j], &lv_font_montserrat_14, ui_theme()->dim, pad, y + rh / 2 + 2, title_w, LV_TEXT_ALIGN_LEFT);
       else power_text(area, chg.dest[j], &lv_font_montserrat_14, ui_theme()->dim, W / 2, y + 4, W / 2 - pad, LV_TEXT_ALIGN_RIGHT);
     }
@@ -399,17 +402,18 @@ void power_build_page(lv_obj_t *area, uint8_t page, size_class_t sc, role_bindin
   memset(&chg, 0, sizeof chg);
   lv_obj_update_layout(area);
   built_page = page;
+  built_sc = sc;
   if (page == 0) power_summary_build(area, sc, b);
-  else if (power_multi(b) && page == 1) power_banks_build(area, sc, b);
-  else if (page == batteries_page(b)) batteries_build(area, sc, b);
+  else if (page <= banks_pages(b, sc)) power_banks_build(area, sc, b, (uint8_t)(page - 1));
+  else if (page == batteries_page(b, sc)) batteries_build(area, sc, b);
   else charging_build(area, page, sc, b);
 }
 
 void power_refresh(role_binding_t *b, int64_t now) {
   if (built_page == 0) power_summary_refresh(b, now);
-  else if (power_multi(b) && built_page == 1) power_banks_refresh(b, now);
-  else if (built_page == batteries_page(b)) batteries_refresh(b, now);
-  else if (built_page > batteries_page(b)) charging_refresh(b, now);
+  else if (built_page <= banks_pages(b, built_sc)) power_banks_refresh(b, now);
+  else if (built_page == batteries_page(b, built_sc)) batteries_refresh(b, now);
+  else charging_refresh(b, now);
 }
 
 // The Glance tile: the house (primary) bank's state of charge, with the worst state over every bank's

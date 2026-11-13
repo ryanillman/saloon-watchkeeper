@@ -42,29 +42,26 @@ power_summary_t power_summarize(const power_src_t *src, size_t n, const power_sr
 // else the first with a stateOfCharge path bound (soc_bound[i]), else 0.
 uint8_t power_primary(const char ids[][24], const bool *soc_bound, uint8_t n, const char *primary);
 
-// ---- Multi-bank (spec 2026-11-04-multi-bank-power-design.md) ----
-// The caller classifies sources by the configured links; this only does the arithmetic.
-//   HOUSE IN   = sum of max(0, w) over into_house (every source linked to the house bank, a start->house
-//                converter's output included). Fails if any is unusable or there are none.
-//   HOUSE LOAD = HOUSE IN - house net - sum of in(d) over the house->nav converters. in(d) is the converter's
-//                measured input; when that is unusable it is out(d) / POWER_CONV_EFF and the figure is `est`.
-//   NAV LOAD   = sum of out(d) - nav net. Needs has_nav, at least one converter, and every out(d) and the
-//                nav shunt usable. Never `est`.
-// A failure in one figure fails only the figures that use it.
+// ---- Per bank (spec 2026-11-12-power-configuration-design.md) ----
+// The caller classifies flows by the configured topology; this only does the arithmetic, for any bank B:
+//   IN(B)   = sum of max(0, w) over `into` (every flow into B, a converter's output included). Fails if any is
+//             unusable or there are none.
+//   NET(B)  = the bank's battery power, positive when charging.
+//   FEED(B) = sum of in(d) over converters drawing from B. in(d) is the converter's measured input; when that is
+//             unusable it is out(d) / POWER_CONV_EFF and the figure is `est`. Fails when a converter has neither.
+//   LOAD(B) = IN(B) - NET(B) - FEED(B). Needs all three.
+// A failure in one bank never reaches another: each call sees only its own inputs.
 #define POWER_CONV_EFF 0.95
 
 typedef struct { bool ok; double w; bool est; } power_fig_t;
 typedef struct { const power_src_t *out; const power_src_t *in; } power_conv_t;   // in may be NULL = unknown
 typedef struct {
-  const power_src_t *into_house; size_t n_into_house;
-  const power_src_t *house_batt;                         // house shunt, NULL = none
-  const power_conv_t *to_nav; size_t n_to_nav;           // converters drawing from house toward nav
-  const power_src_t *nav_batt;                           // nav shunt, NULL = none
-  bool has_nav;
-} power_banks_in_t;
-// nav_feed: what the house->nav converters draw from the house bank (sum of in(d), `est` when any fell back).
-typedef struct { power_fig_t house_in, house_batt, house_load, nav_load, nav_feed; } power_banks_t;
-power_banks_t power_summarize_banks(const power_banks_in_t *in, int64_t max_age_ms, int64_t now_ms);
+  const power_src_t *batt;                               // the bank's battery, NULL = none
+  const power_src_t *into; size_t n_into;                // flows into the bank
+  const power_conv_t *drawn; size_t n_drawn;             // converters drawing from the bank
+} power_bank_in_t;
+typedef struct { power_fig_t in, net, load, feed; } power_bank_out_t;
+power_bank_out_t power_summarize_bank(const power_bank_in_t *in, int64_t max_age_ms, int64_t now_ms);
 
 typedef enum { TTG_VALUE, TTG_CHARGING, TTG_FAIL } ttg_mode_t;
 ttg_mode_t power_time_remaining(const bd_sample_t *ttg, const bd_sample_t *current, int64_t max_age_ms, int64_t now_ms);

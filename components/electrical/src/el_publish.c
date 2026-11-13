@@ -14,6 +14,10 @@ static const leaf_t SOLAR[] = {{EL_F_VOLTAGE, "voltage"}, {EL_F_CURRENT, "curren
                                {EL_F_CONV_STATE, "chargingMode"}};
 static const leaf_t CHARGER[] = {{EL_F_VOLTAGE, "voltage"}, {EL_F_CURRENT, "current"}, {EL_F_CONV_STATE, "chargingMode"}};
 
+static const leaf_t ALTERNATOR[] = {{EL_F_VOLTAGE, "voltage"}, {EL_F_CURRENT, "current"}, {EL_F_CONV_STATE, "chargingMode"}};
+static const leaf_t ACIN[] = {{EL_F_AC_CURRENT, "current"}};
+
+static const leaf_t REF = {EL_F_VOLTAGE, "ref"};     // like LABEL, not a reading
 static const leaf_t LABEL = {EL_F_VOLTAGE, "label"};   // the field is unused: the label is not a reading
 
 typedef struct {
@@ -26,9 +30,22 @@ static bool group_of(el_fn_t fn, group_t *g) {
   switch (fn) {
     case EL_FN_BATTERY: *g = (group_t){"batteries", BATTERY, sizeof BATTERY / sizeof BATTERY[0]}; return true;
     case EL_FN_PV: *g = (group_t){"solar", SOLAR, sizeof SOLAR / sizeof SOLAR[0]}; return true;
+    case EL_FN_CONVERTER:
     case EL_FN_CHARGER: *g = (group_t){"chargers", CHARGER, sizeof CHARGER / sizeof CHARGER[0]}; return true;
+    case EL_FN_ALTERNATOR: *g = (group_t){"alternators", ALTERNATOR, sizeof ALTERNATOR / sizeof ALTERNATOR[0]}; return true;
+    case EL_FN_AC_IN: *g = (group_t){"acin", ACIN, sizeof ACIN / sizeof ACIN[0]}; return true;
     default: return false;
   }
+}
+
+// The device's CAN NAME as the bus knows it (the key drops the top bit, the NAME does not).
+static bool name_of(const el_t *e, const el_endpoint_t *p, uint64_t *name) {
+  for (size_t i = 0; i < EL_MAX_DEVICES; i++)
+    if (e->dev[i].used && e->dev[i].id.can_name && el_dev_key(&e->dev[i]) == p->devkey) {
+      *name = e->dev[i].id.can_name;
+      return true;
+    }
+  return false;
 }
 
 static const char *mode_text(int code) {
@@ -85,6 +102,7 @@ void el_publish(el_t *e, int64_t now) {
     if (group_of(e->gone[i].fn, &old)) {
       for (size_t k = 0; k < old.n; k++) invalidate(&old, e->gone[i].key, &old.leaves[k]);
       invalidate(&old, e->gone[i].key, &LABEL);
+      invalidate(&old, e->gone[i].key, &REF);
     }
   }
   e->ngone = 0;
@@ -96,7 +114,9 @@ void el_publish(el_t *e, int64_t now) {
     if (p->pubd && (!want || p->pubfn != p->fn || p->pubkey != p->key) && group_of(p->pubfn, &old)) {
       for (size_t k = 0; k < old.n; k++) invalidate(&old, p->pubkey, &old.leaves[k]);
       invalidate(&old, p->pubkey, &LABEL);
+      invalidate(&old, p->pubkey, &REF);
       p->pubd = false;
+      p->refd = false;
     }
     if (!want) continue;
     bool full = !p->pubd;
@@ -108,6 +128,15 @@ void el_publish(el_t *e, int64_t now) {
       bd_id_t lid = bd_intern(path);
       if (lid != BD_NONE) bd_set_text(lid, label, BD_SRC_ELECTRICAL, now);
       memcpy(p->publabel, label, sizeof p->publabel);
+    }
+    uint64_t name;
+    if (!p->refd && name_of(e, p, &name)) {
+      char path[96], ref[32];
+      path_of(&g, p->key, &REF, path, sizeof path);
+      snprintf(ref, sizeof ref, "%016llx.%u", (unsigned long long)name, (unsigned)p->instance);
+      bd_id_t rid = bd_intern(path);
+      if (rid != BD_NONE) bd_set_text(rid, ref, BD_SRC_ELECTRICAL, now);
+      p->refd = true;
     }
     for (size_t k = 0; k < g.n; k++) {
       const el_endpoint_t *s = source_of(e, p, g.leaves[k].f);

@@ -17,19 +17,22 @@ typedef struct { char temperature[2], pressure[4], volume[4], speed[5], distance
 typedef struct { char id[24]; char label[12]; } cfg_instance_t;
 typedef struct { char slot[48]; char path[96]; } cfg_bind_t;          // slot "<instance>.<slot>"
 typedef struct { char slot[24]; bool has_min, has_max; double min, max; } cfg_override_t;
-// Power topology (spec 2026-11-04-multi-bank-power-design.md). A bank is a battery instance with a
-// kind; a link says which source feeds which bank kind, and for a DC-DC which kind it draws from.
-typedef struct { char id[24]; char name[12]; char kind[6]; } cfg_bank_t;   // kind "house" | "start" | "nav"
-typedef struct { char src[28]; uint8_t output; char from[6]; char to[6]; } cfg_link_t;   // src "group:instance"
-#define CFG_MAX_BANKS 3
-#define CFG_MAX_LINKS 8
+// Power configuration (spec 2026-11-12-power-configuration-design.md). A bank is a named battery endpoint with a kind;
+// a flow is a device that moves energy into (or, for a converter, between) banks. Refs are CAN NAMEs in lower-case
+// hex: a device is "<NAME>", an endpoint "<NAME>.<instance>".
+typedef struct { char id[12]; char name[12]; char kind[9]; char battery[24]; } cfg_bank_t;   // kind: house start nav windlass thruster genset other
+typedef struct { char device[17]; char kind[10]; char to[12]; char from[12]; uint8_t output; } cfg_flow_t;   // kind: solar shore engine converter other; to/from are bank ids
+#define CFG_MAX_BANKS 8
+#define CFG_MAX_FLOWS 16
 
 typedef struct {
   char role[12];
   uint8_t src_entry;  // 1-based entry in the file's roles array this came from; 0 = new
   char primary[24];   // power: instance id of the primary battery bank; empty = automatic
-  cfg_bank_t bank[CFG_MAX_BANKS]; uint8_t bank_count;   // power: 0 = single-bank mode
-  cfg_link_t link[CFG_MAX_LINKS]; uint8_t link_count;
+  cfg_bank_t bank[CFG_MAX_BANKS]; uint8_t bank_count;   // power: 0 = not set up
+  cfg_flow_t flow[CFG_MAX_FLOWS]; uint8_t flow_count;
+  bool power_rejected;   // power: the file's banks/flows were invalid (or old-format) and are kept as written, not loaded
+  bool power_old_keys;   // power: ... because they were in the old format (links, or banks named by instance id)
   cfg_instance_t inst[8]; uint8_t inst_count;
   cfg_bind_t bind[8]; uint8_t bind_count;
   cfg_override_t ovr[8]; uint8_t ovr_count;
@@ -76,11 +79,14 @@ bool cfg_save(const char *dir, const cfg_t *cfg);
 
 void cfg_defaults(cfg_t *out);
 
-// Checks a power role's banks and links. True when there are no banks, or the topology is valid:
-// known and unique kinds, exactly one "house", every link's `to` (and a DC-DC's `from`) naming a
-// configured kind, `src` as "charger|solar|dcdc|alternator:<instance>", and `from` only on a dcdc.
-// On false, `why` says what is wrong.
-bool cfg_power_topology_check(const cfg_role_t *r, char *why, size_t why_n);
+// Checks a power role's banks and flows. True when there are no banks and no flows, or the configuration is valid:
+// known kinds; unique slug ids; exactly one "house"; every battery a valid, unique endpoint ref; "other" banks named;
+// every flow a known kind on a device NAME, `to` (and a converter's `from`) naming a bank id, `from` only on a
+// converter and never equal to `to`. On false, `why` says what is wrong.
+bool cfg_power_check(const cfg_role_t *r, char *why, size_t why_n);
+
+// True when the file's power role used the old format (links, or banks named by instance id): not read.
+bool cfg_power_has_old_keys(const cfg_role_t *r);
 
 // Edits dir/config.json at a key path ("sources.signalk.token"). An existing key keeps its
 // type (string; a number must parse; a bool takes true/false); a missing key is created as a

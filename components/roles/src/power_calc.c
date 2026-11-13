@@ -65,43 +65,31 @@ power_flows_t power_flows(const power_summary_t *s) {
   return f;
 }
 
-power_banks_t power_summarize_banks(const power_banks_in_t *in, int64_t max_age_ms, int64_t now_ms) {
-  power_banks_t r = {0};
-  r.house_in.ok = in->n_into_house > 0;
-  for (size_t k = 0; r.house_in.ok && k < in->n_into_house; k++) {
+power_bank_out_t power_summarize_bank(const power_bank_in_t *in, int64_t max_age_ms, int64_t now_ms) {
+  power_bank_out_t r = {0};
+  r.in.ok = in->n_into > 0;
+  for (size_t k = 0; r.in.ok && k < in->n_into; k++) {
     double w;
-    if (!watts(&in->into_house[k], &w, max_age_ms, now_ms)) r.house_in.ok = false;
-    else if (w > 0) r.house_in.w += w;
+    if (!watts(&in->into[k], &w, max_age_ms, now_ms)) r.in.ok = false;
+    else if (w > 0) r.in.w += w;
   }
-  if (!r.house_in.ok) r.house_in.w = 0;
-  r.house_batt.ok = watts(in->house_batt, &r.house_batt.w, max_age_ms, now_ms);
-  if (!r.house_batt.ok) r.house_batt.w = 0;
+  if (!r.in.ok) r.in.w = 0;
+  r.net.ok = watts(in->batt, &r.net.w, max_age_ms, now_ms);
+  if (!r.net.ok) r.net.w = 0;
 
-  double draw = 0, out_sum = 0;
-  bool draw_ok = true, out_ok = in->has_nav && in->n_to_nav > 0, est = false;
-  for (size_t k = 0; k < in->n_to_nav; k++) {
-    const power_conv_t *c = &in->to_nav[k];
+  r.feed.ok = true;
+  for (size_t k = 0; k < in->n_drawn; k++) {
+    const power_conv_t *c = &in->drawn[k];
     double o = 0, i = 0;
-    bool have_out = watts(c->out, &o, max_age_ms, now_ms);
-    if (have_out) out_sum += o; else out_ok = false;
-    if (watts(c->in, &i, max_age_ms, now_ms)) draw += i;
-    else if (have_out) { draw += o / POWER_CONV_EFF; est = true; }
-    else draw_ok = false;
+    if (watts(c->in, &i, max_age_ms, now_ms)) r.feed.w += i;
+    else if (watts(c->out, &o, max_age_ms, now_ms)) { r.feed.w += o / POWER_CONV_EFF; r.feed.est = true; }
+    else r.feed.ok = false;
   }
-  if (in->n_to_nav > 0 && draw_ok) {
-    r.nav_feed.ok = true;
-    r.nav_feed.w = draw;
-    r.nav_feed.est = est;
-  }
-  if (r.house_in.ok && r.house_batt.ok && draw_ok) {
-    r.house_load.ok = true;
-    r.house_load.w = r.house_in.w - r.house_batt.w - draw;
-    r.house_load.est = est;
-  }
-  double nb;
-  if (out_ok && watts(in->nav_batt, &nb, max_age_ms, now_ms)) {
-    r.nav_load.ok = true;
-    r.nav_load.w = out_sum - nb;
+  if (!r.feed.ok) { r.feed.w = 0; r.feed.est = false; }
+  if (r.in.ok && r.net.ok && r.feed.ok) {
+    r.load.ok = true;
+    r.load.w = r.in.w - r.net.w - r.feed.w;
+    r.load.est = r.feed.est;
   }
   return r;
 }

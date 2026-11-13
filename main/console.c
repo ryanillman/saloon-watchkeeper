@@ -27,8 +27,9 @@ void console_start(void) {
     ESP_LOGE("console", "cannot start the serial console: %s", esp_err_to_name(err));
     return;
   }
-  static const char *const names[] = {"help", "status", "data", "config", "sk", "reboot"};
-  static const char *const hints[] = {"list commands", "firmware, network, Signal K, memory", "<path prefix>: values, ages, sources", "show | set <path> <value> | reload",
+  static const char *const names[] = {"help", "status", "data", "power", "config", "sk", "reboot"};
+  static const char *const hints[] = {"list commands", "firmware, network, Signal K, memory", "<path prefix>: values, ages, sources",
+                                      "endpoints by ref and what Power does with each", "show | set <path> <value> | reload",
                                       "request-access", "restart"};
   for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
     esp_console_cmd_t cmd = {.command = names[i], .help = hints[i], .func = forward};

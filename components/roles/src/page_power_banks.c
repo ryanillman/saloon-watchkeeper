@@ -1,7 +1,7 @@
-// Power, Banks page (only with banks configured): the boat's batteries as a chain, START -> HOUSE -> NAV,
-// with an arrow for each DC-DC between them carrying its output watts. Each bank shows its charge (the
+// Power, Banks page (only with banks configured): the boat's banks in configured order, with an arrow for each
+// converter between two of them carrying its output watts. Each bank shows its charge (the
 // icon fills to it), SoC, volts, net power, and the sources that feed it. Wide: a column per bank.
-// Square: a row per bank, the arrows between the rows. Banks not in the config are not drawn.
+// Square: a row per bank, the arrows between the rows.
 #include <stdio.h>
 #include <string.h>
 #include "platform.h"
@@ -9,21 +9,19 @@
 #include "power_topo.h"
 #include "ui_flow.h"
 
-static const int CHAIN[BANK_KINDS] = {BANK_START, BANK_HOUSE, BANK_NAV};
-
-static struct {
+PLATFORM_EXT_BSS static struct {
   power_topo_t topo;
   size_class_t sc;
   uint8_t n;                          // banks drawn
-  int kind[BANK_KINDS];               // chain order
-  int pos[BANK_KINDS];                // column or row of a kind, -1 = not drawn
-  lv_obj_t *icon[BANK_KINDS], *soc[BANK_KINDS], *volts[BANK_KINDS], *watts[BANK_KINDS], *src[BANK_KINDS];
-  ui_gauge_spec_t spec[BANK_KINDS];
-  ui_band_t bands[BANK_KINDS][6];
-  char label[BANK_KINDS][32];
+  int kind[TOPO_MAX_BANKS];               // bank index in drawing order
+  int pos[TOPO_MAX_BANKS];                // column or row of a bank, -1 = not drawn
+  lv_obj_t *icon[TOPO_MAX_BANKS], *soc[TOPO_MAX_BANKS], *volts[TOPO_MAX_BANKS], *watts[TOPO_MAX_BANKS], *src[TOPO_MAX_BANKS];
+  ui_gauge_spec_t spec[TOPO_MAX_BANKS];
+  ui_band_t bands[TOPO_MAX_BANKS][6];
+  char label[TOPO_MAX_BANKS][32];
   uint8_t nconv;
-  lv_obj_t *flow[TOPO_MAX_LINKS];
-  uint8_t flow_link[TOPO_MAX_LINKS];  // index into topo.link
+  lv_obj_t *flow[TOPO_MAX_FLOWS];
+  uint8_t flow_link[TOPO_MAX_FLOWS];  // index into topo.flow
 } bk;
 
 static int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
@@ -39,16 +37,18 @@ static lv_obj_t *field(lv_obj_t *area, const char *name, const char *unit, uint8
   return o;
 }
 
-void power_banks_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
+uint8_t power_banks_per_page(size_class_t sc) { return sc == SIZE_WIDE ? 4 : 3; }
+
+void power_banks_build(lv_obj_t *area, size_class_t sc, role_binding_t *b, uint8_t page) {
   memset(&bk, 0, sizeof bk);
   power_topo_resolve(b, &bk.topo);
   bk.sc = sc;
-  for (int k = 0; k < BANK_KINDS; k++) bk.pos[k] = -1;
-  for (int c = 0; c < BANK_KINDS; c++)
-    if (bk.topo.bank_cfg[CHAIN[c]]) {
-      bk.pos[CHAIN[c]] = bk.n;
-      bk.kind[bk.n++] = CHAIN[c];
-    }
+  for (int k = 0; k < TOPO_MAX_BANKS; k++) bk.pos[k] = -1;
+  uint8_t per = power_banks_per_page(sc), first = (uint8_t)(page * per);   // more banks than fit make more pages
+  for (int c = first; c < bk.topo.bank_count && bk.n < per; c++) {
+    bk.pos[c] = bk.n;
+    bk.kind[bk.n++] = c;
+  }
   const ui_colors_t *col = ui_theme();
   int32_t W = lv_obj_get_width(area), H = lv_obj_get_height(area), pad = 8;
   bool wide = sc == SIZE_WIDE;
@@ -58,18 +58,18 @@ void power_banks_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
   int32_t cw = (W - 2 * pad) / (bk.n ? bk.n : 1);
   int32_t rowh = (H - 2 * pad - (bk.n - 1) * gap) / (bk.n ? bk.n : 1);
   int32_t isz = wide ? clampi(H * 26 / 100, 48, 110) : clampi(rowh - 40, 48, 84);
-  int32_t icx[BANK_KINDS], ity[BANK_KINDS], ibot[BANK_KINDS];   // icon centre x, top y, bottom y, per column or row
+  int32_t icx[TOPO_MAX_BANKS], ity[TOPO_MAX_BANKS], ibot[TOPO_MAX_BANKS];   // icon centre x, top y, bottom y, per column or row
 
   for (uint8_t j = 0; j < bk.n; j++) {
     int k = bk.kind[j];
-    if (bk.topo.bank_bound[k])
-      role_gauge_spec(b, G_BATTERY, bk.topo.bank_inst[k], B_SOC, &bk.spec[k], bk.bands[k], bk.label[k]);
+    if (bk.topo.bank[k].bound)
+      role_gauge_spec(b, G_BATTERY, bk.topo.bank[k].inst, B_SOC, &bk.spec[k], bk.bands[k], bk.label[k]);
     if (wide) {
       int32_t x = pad + j * cw, cx = x + cw / 2;
       // SOC on its own line, then volts and watts side by side, with room between the lines so each
       // label reads with the value under it; the sources one per line below.
       int32_t fh = clampi((H - (pad + 30 + isz + 8) - 60 - 2 * 8 - pad) / 2, 44, 72);
-      caption(area, bk.topo.bank_name[k], &lv_font_montserrat_20, col->fg, x, pad, cw, LV_TEXT_ALIGN_CENTER);
+      caption(area, bk.topo.bank[k].name, &lv_font_montserrat_20, col->fg, x, pad, cw, LV_TEXT_ALIGN_CENTER);
       bk.icon[k] = ui_icon_create(area, ICON_BATTERY);
       lv_obj_set_pos(bk.icon[k], cx - isz / 2, pad + 30);
       lv_obj_set_size(bk.icon[k], isz, isz);
@@ -91,7 +91,7 @@ void power_banks_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
       icx[j] = pad + isz / 2;
       ity[j] = y + (rowh - isz) / 2 - 8;
       ibot[j] = ity[j] + isz;
-      caption(area, bk.topo.bank_name[k], &lv_font_montserrat_20, col->fg, x0, y, W - x0 - pad, LV_TEXT_ALIGN_LEFT);
+      caption(area, bk.topo.bank[k].name, &lv_font_montserrat_20, col->fg, x0, y, W - x0 - pad, LV_TEXT_ALIGN_LEFT);
       bk.soc[k] = field(area, "SOC", pct, 0, x0, y + 24, fw, fh, false);
       bk.volts[k] = field(area, "VOLTS", volt, 2, x0 + fw + 6, y + 24, fw, fh, false);
       bk.watts[k] = field(area, "WATTS", pow, 0, x0 + 2 * (fw + 6), y + 24, fw, fh, false);
@@ -99,9 +99,9 @@ void power_banks_build(lv_obj_t *area, size_class_t sc, role_binding_t *b) {
     }
   }
   // One arrow per converter between two drawn banks, from the bank it draws on to the bank it feeds.
-  for (uint8_t n = 0; n < bk.topo.link_count && bk.nconv < TOPO_MAX_LINKS; n++) {
-    const power_link_t *l = &bk.topo.link[n];
-    if (l->g != G_DCDC || l->from < 0 || l->to < 0 || bk.pos[l->from] < 0 || bk.pos[l->to] < 0) continue;
+  for (uint8_t n = 0; n < bk.topo.flow_count && bk.nconv < TOPO_MAX_FLOWS; n++) {
+    const power_flow_t *l = &bk.topo.flow[n];
+    if (l->kind != FLOW_CONVERTER || l->from < 0 || l->to < 0 || bk.pos[l->from] < 0 || bk.pos[l->to] < 0) continue;
     int a = bk.pos[l->from], z = bk.pos[l->to];
     lv_obj_t *f = ui_flow_create(area);
     if (wide) {
@@ -128,8 +128,8 @@ void power_banks_refresh(role_binding_t *b, int64_t now) {
   char txt[96];
   for (uint8_t j = 0; j < bk.n; j++) {
     int k = bk.kind[j];
-    bool bound = bk.topo.bank_bound[k];
-    uint8_t i = bk.topo.bank_inst[k];
+    bool bound = bk.topo.bank[k].bound;
+    uint8_t i = bk.topo.bank[k].inst;
     bd_sample_t s, st[3];
     power_src_t src;
     double w = 0, volts = 0, soc = 0;
@@ -155,16 +155,16 @@ void power_banks_refresh(role_binding_t *b, int64_t now) {
     power_bank_sources(b, &bk.topo, k, now, bk.sc == SIZE_WIDE ? "\n" : "   ", txt, sizeof txt);
     ui_label_set(bk.src[k], txt);
   }
-  double ref = 1, ww[TOPO_MAX_LINKS];
-  bool ok[TOPO_MAX_LINKS];
+  double ref = 1, ww[TOPO_MAX_FLOWS];
+  bool ok[TOPO_MAX_FLOWS];
   for (uint8_t c = 0; c < bk.nconv; c++) {
-    const power_link_t *l = &bk.topo.link[bk.flow_link[c]];
+    const power_flow_t *l = &bk.topo.flow[bk.flow_link[c]];
     bd_sample_t st[3];
     power_src_t src;
     ok[c] = false;
     ww[c] = 0;
     if (l->bound) {
-      power_src_of(b, G_DCDC, l->i, D_VOLTS, D_AMPS, -1, st, &src);
+      power_src_of(b, l->g, l->i, C_VOLTS, C_AMPS, -1, st, &src);
       ok[c] = power_watts(&src, now, &ww[c]);
     }
     if (ok[c] && ww[c] > ref) ref = ww[c];

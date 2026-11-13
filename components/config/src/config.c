@@ -73,37 +73,75 @@ static bool known_role(const char *name) {
   return false;
 }
 
-static bool kind_ok(const char *k) { return !strcmp(k, "house") || !strcmp(k, "start") || !strcmp(k, "nav"); }
+static const char *const BANK_KINDS[] = {"house", "start", "nav", "windlass", "thruster", "genset", "other"};
+static const char *const FLOW_KINDS[] = {"solar", "shore", "engine", "converter", "other"};
 
-static bool has_kind(const cfg_role_t *r, const char *k) {
-  for (uint8_t i = 0; i < r->bank_count; i++)
-    if (strcmp(r->bank[i].kind, k) == 0) return true;
+static bool in_list(const char *const *list, size_t n, const char *k) {
+  for (size_t i = 0; i < n; i++)
+    if (!strcmp(list[i], k)) return true;
   return false;
 }
 
-bool cfg_power_topology_check(const cfg_role_t *r, char *why, size_t n) {
-  if (r->bank_count == 0) return true;
+static bool is_hex16(const char *s) {
+  for (int i = 0; i < 16; i++)
+    if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f'))) return false;
+  return true;
+}
+
+static bool device_ref(const char *s) { return strlen(s) == 16 && is_hex16(s); }
+
+static bool endpoint_ref(const char *s) {   // "<16 hex>.<1-3 digits>"
+  size_t n = strlen(s);
+  if (n < 18 || n > 20 || !is_hex16(s) || s[16] != '.') return false;
+  for (size_t i = 17; i < n; i++)
+    if (s[i] < '0' || s[i] > '9') return false;
+  return true;
+}
+
+static bool slug(const char *s) {
+  if (!s[0]) return false;
+  for (; *s; s++)
+    if (!((*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') || *s == '-')) return false;
+  return true;
+}
+
+static int bank_index(const cfg_role_t *r, const char *id) {
+  for (uint8_t i = 0; i < r->bank_count; i++)
+    if (!strcmp(r->bank[i].id, id)) return i;
+  return -1;
+}
+
+bool cfg_power_has_old_keys(const cfg_role_t *r) { return r->power_old_keys; }
+
+bool cfg_power_check(const cfg_role_t *r, char *why, size_t n) {
+  if (r->bank_count == 0 && r->flow_count == 0) return true;
+  int houses = 0;
   for (uint8_t i = 0; i < r->bank_count; i++) {
-    if (!kind_ok(r->bank[i].kind)) { snprintf(why, n, "bank %u: kind must be house, start, or nav", i + 1); return false; }
-    if (!r->bank[i].id[0]) { snprintf(why, n, "bank %u: id is missing", i + 1); return false; }
-    for (uint8_t j = 0; j < i; j++)
-      if (!strcmp(r->bank[i].kind, r->bank[j].kind)) { snprintf(why, n, "two %s banks; at most one of each kind", r->bank[i].kind); return false; }
+    const cfg_bank_t *k = &r->bank[i];
+    if (!in_list(BANK_KINDS, ARRAY_LEN(BANK_KINDS), k->kind)) { snprintf(why, n, "bank %u: kind must be house, start, nav, windlass, thruster, genset or other", i + 1); return false; }
+    if (!slug(k->id)) { snprintf(why, n, "bank %u: id must be lower-case letters, digits and dashes", i + 1); return false; }
+    if (!endpoint_ref(k->battery)) { snprintf(why, n, "bank %u: battery must be <NAME>.<instance>", i + 1); return false; }
+    if (!strcmp(k->kind, "other") && !k->name[0]) { snprintf(why, n, "bank %u: an other bank needs a name", i + 1); return false; }
+    if (!strcmp(k->kind, "house")) houses++;
+    for (uint8_t j = 0; j < i; j++) {
+      if (!strcmp(k->id, r->bank[j].id)) { snprintf(why, n, "bank %u: id \"%s\" is used twice", i + 1, k->id); return false; }
+      if (!strcmp(k->battery, r->bank[j].battery)) { snprintf(why, n, "bank %u: battery is already in another bank", i + 1); return false; }
+    }
   }
-  if (!has_kind(r, "house")) { snprintf(why, n, "banks need exactly one house bank"); return false; }
-  static const char *const groups[] = {"charger", "solar", "dcdc", "alternator"};
-  for (uint8_t i = 0; i < r->link_count; i++) {
-    const cfg_link_t *l = &r->link[i];
-    const char *colon = strchr(l->src, ':');
-    bool grp = false;
-    if (colon && colon[1])
-      for (size_t g = 0; g < ARRAY_LEN(groups); g++)
-        if ((size_t)(colon - l->src) == strlen(groups[g]) && !strncmp(l->src, groups[g], strlen(groups[g]))) grp = true;
-    if (!grp) { snprintf(why, n, "link %u: src must be charger, solar, dcdc, or alternator, then :<instance>", i + 1); return false; }
-    bool dcdc = !strncmp(l->src, "dcdc:", 5);
-    if (!has_kind(r, l->to)) { snprintf(why, n, "link %u: to \"%s\" is not a configured bank", i + 1, l->to); return false; }
-    if (dcdc && !l->from[0]) { snprintf(why, n, "link %u: a dcdc link needs from", i + 1); return false; }
-    if (!dcdc && l->from[0]) { snprintf(why, n, "link %u: only a dcdc link takes from", i + 1); return false; }
-    if (dcdc && !has_kind(r, l->from)) { snprintf(why, n, "link %u: from \"%s\" is not a configured bank", i + 1, l->from); return false; }
+  if (houses != 1) { snprintf(why, n, "banks need exactly one house bank"); return false; }
+  for (uint8_t i = 0; i < r->flow_count; i++) {
+    const cfg_flow_t *f = &r->flow[i];
+    bool conv = !strcmp(f->kind, "converter");
+    if (!in_list(FLOW_KINDS, ARRAY_LEN(FLOW_KINDS), f->kind)) { snprintf(why, n, "flow %u: kind must be solar, shore, engine, converter or other", i + 1); return false; }
+    if (!device_ref(f->device)) { snprintf(why, n, "flow %u: device must be a 16-digit NAME", i + 1); return false; }
+    if (bank_index(r, f->to) < 0) { snprintf(why, n, "flow %u: to \"%s\" is not a bank", i + 1, f->to); return false; }
+    if (conv && !f->from[0]) { snprintf(why, n, "flow %u: a converter needs from", i + 1); return false; }
+    if (!conv && f->from[0]) { snprintf(why, n, "flow %u: only a converter takes from", i + 1); return false; }
+    if (conv && bank_index(r, f->from) < 0) { snprintf(why, n, "flow %u: from \"%s\" is not a bank", i + 1, f->from); return false; }
+    if (conv && !strcmp(f->from, f->to)) { snprintf(why, n, "flow %u: a converter's from and to must differ", i + 1); return false; }
+    if (f->output > 3) { snprintf(why, n, "flow %u: output must be 0 to 3", i + 1); return false; }
+    for (uint8_t j = 0; j < i; j++)
+      if (!strcmp(f->device, r->flow[j].device) && f->output == r->flow[j].output) { snprintf(why, n, "flow %u: that device output is already flow %u", i + 1, j + 1); return false; }
   }
   return true;
 }
@@ -118,11 +156,13 @@ static void parse_role(const cJSON *j, cfg_role_t *r) {
     COPY(k->id, cJSON_GetObjectItem(it, "id"));
     COPY(k->name, cJSON_GetObjectItem(it, "name"));
     COPY(k->kind, cJSON_GetObjectItem(it, "kind"));
+    COPY(k->battery, cJSON_GetObjectItem(it, "battery"));
   }
-  cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "links")) {
-    if (r->link_count >= CFG_MAX_LINKS) break;
-    cfg_link_t *l = &r->link[r->link_count++];
-    COPY(l->src, cJSON_GetObjectItem(it, "src"));
+  cJSON_ArrayForEach(it, cJSON_GetObjectItem(j, "flows")) {
+    if (r->flow_count >= CFG_MAX_FLOWS) break;
+    cfg_flow_t *l = &r->flow[r->flow_count++];
+    COPY(l->device, cJSON_GetObjectItem(it, "device"));
+    COPY(l->kind, cJSON_GetObjectItem(it, "kind"));
     COPY(l->from, cJSON_GetObjectItem(it, "from"));
     COPY(l->to, cJSON_GetObjectItem(it, "to"));
     const cJSON *o = cJSON_GetObjectItem(it, "output");
@@ -279,12 +319,19 @@ static void parse(const cJSON *root, cfg_t *c, cfg_report_t *rep) {
         if (!strcmp(r->role, "power")) {
           char why[96] = "";
           bool over = cJSON_GetArraySize(cJSON_GetObjectItem(it, "banks")) > CFG_MAX_BANKS ||
-                      cJSON_GetArraySize(cJSON_GetObjectItem(it, "links")) > CFG_MAX_LINKS;
-          if (over) snprintf(why, sizeof why, "too many banks or links (at most %d and %d)", CFG_MAX_BANKS, CFG_MAX_LINKS);
-          if (over || !cfg_power_topology_check(r, why, sizeof why)) {
+                      cJSON_GetArraySize(cJSON_GetObjectItem(it, "flows")) > CFG_MAX_FLOWS;
+          bool old = cJSON_GetObjectItem(it, "links") != NULL;
+          const cJSON *bk;
+          cJSON_ArrayForEach(bk, cJSON_GetObjectItem(it, "banks"))
+            if (!cJSON_IsString(cJSON_GetObjectItem(bk, "battery"))) old = true;
+          if (old) snprintf(why, sizeof why, "old-format banks/links are not read; set up Power on the display");
+          else if (over) snprintf(why, sizeof why, "too many banks or flows (at most %d and %d)", CFG_MAX_BANKS, CFG_MAX_FLOWS);
+          if (old || over || !cfg_power_check(r, why, sizeof why)) {
             issue(rep, "roles.power.banks", 0, why);
             r->bank_count = 0;
-            r->link_count = 0;
+            r->flow_count = 0;
+            r->power_rejected = true;
+            r->power_old_keys = old;
           }
         }
         r->src_entry = (uint8_t)i;   // i was already advanced: 1-based
@@ -393,26 +440,32 @@ static void write_role(cJSON *o, const cfg_role_t *r) {
   const char *owned[] = {"instances", "overrides", "bind", "exclude", "primary"};
   for (size_t i = 0; i < ARRAY_LEN(owned); i++) cJSON_DeleteItemFromObject(o, owned[i]);
   if (r->primary[0]) set_str(o, "primary", r->primary);
-  // banks and links are rewritten only when loaded; a rejected topology stays in the file as the user wrote it.
-  if (r->bank_count) {
+  // Banks and flows are rewritten when loaded; a rejected topology stays in the file as the user wrote it, and
+  // banks cleared on the display are removed. The old `links` key is dropped whenever new banks are written.
+  if (!strcmp(r->role, "power") && (r->bank_count || !r->power_rejected)) {
     cJSON_DeleteItemFromObject(o, "banks");
+    cJSON_DeleteItemFromObject(o, "flows");
     cJSON_DeleteItemFromObject(o, "links");
+  }
+  if (r->bank_count) {
     cJSON *a = cJSON_AddArrayToObject(o, "banks");
     for (uint8_t i = 0; i < r->bank_count; i++) {
       cJSON *k = cJSON_CreateObject();
       cJSON_AddStringToObject(k, "id", r->bank[i].id);
       if (r->bank[i].name[0]) cJSON_AddStringToObject(k, "name", r->bank[i].name);
       cJSON_AddStringToObject(k, "kind", r->bank[i].kind);
+      cJSON_AddStringToObject(k, "battery", r->bank[i].battery);
       cJSON_AddItemToArray(a, k);
     }
-    if (r->link_count) {
-      cJSON *la = cJSON_AddArrayToObject(o, "links");
-      for (uint8_t i = 0; i < r->link_count; i++) {
+    if (r->flow_count) {
+      cJSON *la = cJSON_AddArrayToObject(o, "flows");
+      for (uint8_t i = 0; i < r->flow_count; i++) {
         cJSON *l = cJSON_CreateObject();
-        cJSON_AddStringToObject(l, "src", r->link[i].src);
-        if (r->link[i].output) cJSON_AddNumberToObject(l, "output", r->link[i].output);
-        if (r->link[i].from[0]) cJSON_AddStringToObject(l, "from", r->link[i].from);
-        cJSON_AddStringToObject(l, "to", r->link[i].to);
+        cJSON_AddStringToObject(l, "device", r->flow[i].device);
+        cJSON_AddStringToObject(l, "kind", r->flow[i].kind);
+        if (r->flow[i].output) cJSON_AddNumberToObject(l, "output", r->flow[i].output);
+        if (r->flow[i].from[0]) cJSON_AddStringToObject(l, "from", r->flow[i].from);
+        cJSON_AddStringToObject(l, "to", r->flow[i].to);
         cJSON_AddItemToArray(la, l);
       }
     }

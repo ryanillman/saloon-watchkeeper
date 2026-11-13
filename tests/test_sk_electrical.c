@@ -155,9 +155,22 @@ static void test_subscription_adds_electrical_wildcard_only_when_attached(void) 
   free(without);
 }
 
+static void test_alternator_paths_are_adopted(void) {
+  delta("can0.36", "electrical.alternators.0.voltage", "14.1");
+  delta("can0.36", "electrical.alternators.0.current", "35");
+  delta("can0.36", "electrical.alternators.0.chargingMode", "\"bulk\"");
+  const el_endpoint_t *p = ep(EL_DOM_DC, 0, 0);
+  TEST_ASSERT_NOT_NULL(p);
+  TEST_ASSERT_EQUAL(EL_FN_ALTERNATOR, p->fn);
+  TEST_ASSERT_EQUAL(EL_EV_PATH, p->ev);
+  bd_id_t ids[2];
+  TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)bd_match("electrical.resolved.alternators.*.current", ids, 2));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_deltas_split_by_source_not_merged);
+  RUN_TEST(test_alternator_paths_are_adopted);
   RUN_TEST(test_sources_tree_sets_identity_key);
   RUN_TEST(test_source_stamped_with_can_name_gets_identity);
   RUN_TEST(test_adopted_solar_path_is_pv);

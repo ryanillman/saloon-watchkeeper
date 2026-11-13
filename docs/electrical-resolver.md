@@ -20,7 +20,11 @@ Both feeds, the CAN bus and the Signal K stream, report readings to one resolver
 
 `electrical.resolved.batteries.<id>.{voltage,current,capacity.stateOfCharge,capacity.timeRemaining,power}`,
 `electrical.resolved.solar.<id>.{voltage,current,panelPower,chargingMode}`,
-`electrical.resolved.chargers.<id>.{voltage,current,chargingMode}`.
+`electrical.resolved.chargers.<id>.{voltage,current,chargingMode}` (a converter publishes here too),
+`electrical.resolved.alternators.<id>.{voltage,current,chargingMode}`,
+`electrical.resolved.acin.<id>.current` (an AC input: its presence is what Power reads as shore).
+
+Once an endpoint's device has a CAN NAME it also gets `electrical.resolved.<group>.<id>.ref`, `<NAME in lower-case hex>.<instance>`, which is how `config.json` names an endpoint (a bank's `battery`) or a device (a flow's `device`, the NAME alone) and survives a replug or an address change. An endpoint with no NAME yet has no `ref` and cannot be placed.
 `<id>` is eight lowercase hex characters derived from the endpoint's stable key; use it in config pins (`battery.<id>`). The inverter, DC-DC, alternator and system groups still read raw signalk-venus paths.
 
 ## Names

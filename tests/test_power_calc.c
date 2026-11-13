@@ -178,15 +178,15 @@ static void test_flows_unknown_load(void) {
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 40, f.to_batt);
 }
 
-// ---- multi-bank figures ----
-// Spec topology: house IN = solar + start->house converter (+ charger), house load excludes what the
-// house->nav converter draws, nav load = converter output minus the nav battery's net.
+// ---- per-bank figures ----
+// Spec topology: house IN = solar + start->house converter (+ charger); house LOAD excludes what the house->nav
+// converter draws (its input, else output / 0.95 marked EST); nav LOAD = the converter's output minus the nav net.
 
 typedef struct {
   bd_sample_t into[3], hb, nav_out, nav_in, nb;
   power_src_t into_src[3], hb_src, out_src, in_src, nb_src;
   power_conv_t conv;
-  power_banks_in_t in;
+  power_bank_in_t house, nav;
 } bank_fx_t;
 
 static void fx(bank_fx_t *f, double solar, double start_dcdc, double charger, double house_net,
@@ -199,144 +199,153 @@ static void fx(bank_fx_t *f, double solar, double start_dcdc, double charger, do
   f->in_src = (power_src_t){.p = &f->nav_in};
   f->nb_src = (power_src_t){.p = &f->nb};
   f->conv = (power_conv_t){.out = &f->out_src, .in = &f->in_src};
-  f->in = (power_banks_in_t){.into_house = f->into_src, .n_into_house = 3, .house_batt = &f->hb_src,
-                             .to_nav = &f->conv, .n_to_nav = 1, .nav_batt = &f->nb_src, .has_nav = true};
+  f->house = (power_bank_in_t){.batt = &f->hb_src, .into = f->into_src, .n_into = 3, .drawn = &f->conv, .n_drawn = 1};
+  f->nav = (power_bank_in_t){.batt = &f->nb_src, .into = &f->out_src, .n_into = 1};
 }
 
-static void test_banks_steady_state(void) {
+static void test_bank_steady_state(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_TRUE(r.house_in.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300, r.house_in.w);
-  TEST_ASSERT_TRUE(r.house_load.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, r.house_load.w);
-  TEST_ASSERT_FALSE(r.house_load.est);
-  TEST_ASSERT_TRUE(r.nav_load.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 50, r.nav_load.w);
-  TEST_ASSERT_FALSE(r.nav_load.est);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_TRUE(h.in.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300, h.in.w);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 50, h.net.w);
+  TEST_ASSERT_TRUE(h.load.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, h.load.w);
+  TEST_ASSERT_FALSE(h.load.est);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 60, h.feed.w);
+  TEST_ASSERT_TRUE(n.load.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 50, n.load.w);
+  TEST_ASSERT_FALSE(n.load.est);
 }
 
-static void test_banks_nav_discharging(void) {
+static void test_bank_nav_discharging(void) {
   bank_fx_t f;
   fx(&f, 0, 0, 0, -45, 40, 45, -20);
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_TRUE(r.nav_load.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 60, r.nav_load.w);   // 40 W from the converter + 20 W from the nav battery
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, r.house_in.w);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, r.house_load.w);  // 0 - (-45) - 45
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 60, n.load.w);   // 40 W from the converter + 20 W from the nav battery
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, h.in.w);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, h.load.w);    // 0 - (-45) - 45
 }
 
-static void test_banks_dead_nav_shunt_leaves_house_valid(void) {
+static void test_two_banks_independent_failure(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
   f.nb = bad();
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.nav_load.ok);
-  TEST_ASSERT_TRUE(r.house_load.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, r.house_load.w);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_FALSE(n.load.ok);
+  TEST_ASSERT_TRUE(h.load.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, h.load.w);
 }
 
-static void test_banks_converter_input_missing_estimates(void) {
+static void test_converter_input_missing_estimates_and_flags_est(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 57, 0, 5);
   f.nav_in = bad();   // the Orion's input is not reporting
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_TRUE(r.house_load.ok);
-  TEST_ASSERT_TRUE(r.house_load.est);
-  TEST_ASSERT_TRUE(r.nav_feed.est);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 57 / 0.95, r.nav_feed.w);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300 - 50 - 57 / 0.95, r.house_load.w);
-  TEST_ASSERT_TRUE(r.nav_load.ok);
-  TEST_ASSERT_FALSE(r.nav_load.est);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 52, r.nav_load.w);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_TRUE(h.load.ok);
+  TEST_ASSERT_TRUE(h.load.est);
+  TEST_ASSERT_TRUE(h.feed.est);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 57 / 0.95, h.feed.w);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300 - 50 - 57 / 0.95, h.load.w);
+  TEST_ASSERT_TRUE(n.load.ok);
+  TEST_ASSERT_FALSE(n.load.est);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 52, n.load.w);
 }
 
-static void test_banks_converter_input_null_pointer_estimates(void) {
+static void test_converter_input_null_pointer_estimates(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 57, 0, 5);
   f.conv.in = NULL;
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_TRUE(r.house_load.est);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300 - 50 - 57 / 0.95, r.house_load.w);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_TRUE(h.load.est);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 300 - 50 - 57 / 0.95, h.load.w);
 }
 
-static void test_banks_converter_output_missing_fails_nav_only(void) {
+static void test_converter_output_missing_fails_nav_only(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
   f.nav_out = bad();   // the input is still good, so house load does not need the output
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.nav_load.ok);
-  TEST_ASSERT_TRUE(r.house_load.ok);
-  TEST_ASSERT_FALSE(r.house_load.est);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, r.house_load.w);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_FALSE(n.load.ok);
+  TEST_ASSERT_TRUE(h.load.ok);
+  TEST_ASSERT_FALSE(h.load.est);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 190, h.load.w);
 }
 
-static void test_banks_converter_input_and_output_missing_fails_both(void) {
+static void test_converter_input_and_output_missing_fails_both(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
   f.nav_out = bad();
   f.nav_in = bad();
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.nav_load.ok);
-  TEST_ASSERT_FALSE(r.house_load.ok);
-  TEST_ASSERT_TRUE(r.house_in.ok);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_FALSE(n.load.ok);
+  TEST_ASSERT_FALSE(h.load.ok);
+  TEST_ASSERT_FALSE(h.feed.ok);
+  TEST_ASSERT_TRUE(h.in.ok);
 }
 
-static void test_banks_house_in_fails_if_any_source_bad(void) {
+static void test_in_fails_if_any_source_bad(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
   f.into[1] = bad();
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.house_in.ok);
-  TEST_ASSERT_FALSE(r.house_load.ok);
-  TEST_ASSERT_TRUE(r.nav_load.ok);   // nav does not depend on house sources
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW), n = power_summarize_bank(&f.nav, 0, NOW);
+  TEST_ASSERT_FALSE(h.in.ok);
+  TEST_ASSERT_FALSE(h.load.ok);
+  TEST_ASSERT_TRUE(n.load.ok);   // nav does not depend on house sources
 }
 
-static void test_banks_no_sources_fails_house_in(void) {
+static void test_no_sources_load_fails(void) {
   bank_fx_t f;
   fx(&f, 0, 0, 0, 50, 55, 60, 5);
-  f.in.n_into_house = 0;
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.house_in.ok);
-  TEST_ASSERT_FALSE(r.house_load.ok);
+  f.house.n_into = 0;
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_FALSE(h.in.ok);
+  TEST_ASSERT_FALSE(h.load.ok);
+  TEST_ASSERT_TRUE(h.net.ok);
 }
 
-static void test_banks_house_shunt_missing_fails_load_not_in(void) {
+static void test_shunt_missing_fails_load_not_in(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
-  f.in.house_batt = NULL;
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_TRUE(r.house_in.ok);
-  TEST_ASSERT_FALSE(r.house_batt.ok);
-  TEST_ASSERT_FALSE(r.house_load.ok);
+  f.house.batt = NULL;
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_TRUE(h.in.ok);
+  TEST_ASSERT_FALSE(h.net.ok);
+  TEST_ASSERT_FALSE(h.load.ok);
 }
 
-static void test_banks_without_nav(void) {
+static void test_nothing_drawn_from_bank(void) {
   bank_fx_t f;
   fx(&f, 200, 100, 0, 50, 55, 60, 5);
-  f.in.has_nav = false;
-  f.in.n_to_nav = 0;
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.nav_load.ok);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 250, r.house_load.w);   // nothing draws from the house bank toward nav
+  f.house.n_drawn = 0;
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_TRUE(h.feed.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, h.feed.w);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 250, h.load.w);
 }
 
-static void test_banks_nav_without_converter_fails_nav_load(void) {
-  bank_fx_t f;
-  fx(&f, 200, 100, 0, 50, 55, 60, 5);
-  f.in.n_to_nav = 0;   // banks configured, but no link feeds nav
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_FALSE(r.nav_load.ok);
-  TEST_ASSERT_FALSE(r.nav_feed.ok);
-  TEST_ASSERT_TRUE(r.house_load.ok);
-}
-
-static void test_banks_negative_source_adds_nothing_to_in(void) {
+static void test_negative_source_adds_nothing_to_in(void) {
   bank_fx_t f;
   fx(&f, 200, -30, 0, 50, 55, 60, 5);
-  power_banks_t r = power_summarize_banks(&f.in, 0, NOW);
-  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 200, r.house_in.w);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 200, h.in.w);
+}
+
+static void test_valid_zero_is_a_reading(void) {
+  bank_fx_t f;
+  fx(&f, 0, 0, 0, 0, 0, 0, 0);
+  power_bank_out_t h = power_summarize_bank(&f.house, 0, NOW);
+  TEST_ASSERT_TRUE(h.in.ok);
+  TEST_ASSERT_TRUE(h.load.ok);
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0, h.load.w);
+}
+
+static void test_bank_of_other_kind_uses_same_formula(void) {   // a thruster bank charged by a converter from house
+  bank_fx_t f;
+  fx(&f, 0, 0, 0, 0, 80, 85, -400);
+  power_bank_out_t t = power_summarize_bank(&f.nav, 0, NOW);   // stands in for any downstream bank
+  TEST_ASSERT_DOUBLE_WITHIN(1e-9, 480, t.load.w);
 }
 
 int main(void) {
@@ -358,18 +367,19 @@ int main(void) {
   RUN_TEST(test_flows_load_never_negative);
   RUN_TEST(test_flows_unknown_battery);
   RUN_TEST(test_flows_unknown_load);
-  RUN_TEST(test_banks_steady_state);
-  RUN_TEST(test_banks_nav_discharging);
-  RUN_TEST(test_banks_dead_nav_shunt_leaves_house_valid);
-  RUN_TEST(test_banks_converter_input_missing_estimates);
-  RUN_TEST(test_banks_converter_input_null_pointer_estimates);
-  RUN_TEST(test_banks_converter_output_missing_fails_nav_only);
-  RUN_TEST(test_banks_converter_input_and_output_missing_fails_both);
-  RUN_TEST(test_banks_house_in_fails_if_any_source_bad);
-  RUN_TEST(test_banks_no_sources_fails_house_in);
-  RUN_TEST(test_banks_house_shunt_missing_fails_load_not_in);
-  RUN_TEST(test_banks_without_nav);
-  RUN_TEST(test_banks_nav_without_converter_fails_nav_load);
-  RUN_TEST(test_banks_negative_source_adds_nothing_to_in);
+  RUN_TEST(test_bank_steady_state);
+  RUN_TEST(test_bank_nav_discharging);
+  RUN_TEST(test_two_banks_independent_failure);
+  RUN_TEST(test_converter_input_missing_estimates_and_flags_est);
+  RUN_TEST(test_converter_input_null_pointer_estimates);
+  RUN_TEST(test_converter_output_missing_fails_nav_only);
+  RUN_TEST(test_converter_input_and_output_missing_fails_both);
+  RUN_TEST(test_in_fails_if_any_source_bad);
+  RUN_TEST(test_no_sources_load_fails);
+  RUN_TEST(test_shunt_missing_fails_load_not_in);
+  RUN_TEST(test_nothing_drawn_from_bank);
+  RUN_TEST(test_negative_source_adds_nothing_to_in);
+  RUN_TEST(test_valid_zero_is_a_reading);
+  RUN_TEST(test_bank_of_other_kind_uses_same_formula);
   return UNITY_END();
 }

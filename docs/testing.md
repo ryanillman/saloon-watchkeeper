@@ -69,7 +69,7 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | `controller-dropout` after about 8 s | Every port field flagged (silent after running); starboard live |
 | `tanks` after 20 s | Six tanks, strips side by side, fresh water draining slowly. `FRESH 2` shows `LEVEL FAIL`; the others stay live. Only `FUEL` has a volume line (110 L) |
 | `victron-power` | Power Summary is a flow diagram: SOLAR, SHORE and ENGINE nodes (only those bound; SHORE also when the inverter reports shore power) feed a bus dot, which feeds the battery and the DC LOAD; the battery icon fills to the SOC, which is the `BATTERY` readout (from `capacity.stateOfCharge`). Arrows carry chevrons that slide from source to destination, faster and heavier for larger flows, labelled `161 W to battery` (wide) or `161 W` (square). A flow of 0 W is a dim static stub. DC LOAD = IN - BATTERY. After 30 s the battery discharges: the `from battery` arrow animates and `to battery` goes to a 0 W stub; Batteries shows `4:00` instead of `CHARGING`. After 45 s solar current is null: `SOLAR FAIL` and `LOAD FAIL`, those arrows disappear, the other nodes, BATTERY and SOC stay live, the Charging solar row flags `AMPS FAIL` and `WATTS FAIL`. At 60 s solar current returns and the battery is at 5 %, which is inside the house battery's alarm zone on the server, so Signal K raises its low-charge alarm; at 80 s the battery is back at 95 %. Check the arrows move smoothly on the boards (they redraw 16 steps per cycle). The injected `electrical.*` paths reach the Power page through the electrical resolver (`docs/electrical-resolver.md`): `electrical.solar.*` and `chargers.*` are adopted at once, but battery 279 has no DC type or model, so it appears about 10 s after the boat starts (its voltage must hold steady first) |
-| `three-bank` | Needs a power role with `banks` and `links` (below). Summary is the house view: SOLAR is solar 288, SHORE is the charger's main output, ENGINE is the start-to-house converter (dcdc 1), and DC LOAD is house IN, minus the house battery, minus what the nav converter (dcdc 2) draws; the Cerbo's `dcPower` is not used. At 20 s: BATTERY 82 %, IN about 255 W, 161 W into the house battery, 58 W to nav, so DC LOAD is about 35 W. After 30 s the nav bank discharges and the nav converter draws more from house (about 94 W in) while the house battery's own current falls to 4 A. The nav draw never counts as house load. After 50 s the charger current is null: `SHORE FAIL` and `LOAD FAIL`, the other nodes and BATTERY stay live. Back at 70 s. ENGINE reads `START > HOUSE` with a battery-and-arrow icon filled to START's SoC (96 %), and its watts are dcdc 1's output (109 W). Wide: a NAV battery bottom right (filled to 90 %) reads NAV LOAD, with an arrow from the house battery labelled `59 W to nav`. Square: a text line `NAV 90 %  40 W` under the diagram. Page 2 is the Banks page: START, HOUSE, NAV with an arrow labelled with each converter's watts between them, each bank's sources under it (`FLOAT CHARGER`, `ALTERNATOR 0 W`; `CHARGER 82 W`, `SOLAR 48 W`). Batteries lists HOUSE, START, NAV with their sources; Charging groups its rows by destination (`TO HOUSE`, `START > HOUSE`, `TO START`, `HOUSE > NAV`). After 50 s the charger current is null: `SHORE FAIL`, `LOAD FAIL` on the Summary, `CHARGER FAIL` in HOUSE's source line on the Banks page; NAV stays live. Snapshots: `power-p<n>-banks-live` and `-banks-fault` in every size and palette (the fault render also fails the nav shunt's current: `NAV FAIL`). Every path is unverified until a Cerbo capture |
+| `three-bank` | Overlay for a boat with start, house and nav banks, two converters and an alternator. Power is set up by NAME now (below), and the synthetic profile publishes no device identities, so the banks cannot be placed on it: play it over `up --profile real`'s devices, or leave it for a boat with a CAN bus. Expected display when set up as in the section below: the Summary is the house view (SOLAR the solar flows, SHORE the shore flows' presence and watts, ENGINE the engine flows and the converter from the start bank, DC LOAD house IN minus the house battery minus what the converters from house draw, with `EST` where a converter's input is estimated); a NAV node and NAV LOAD for the nav bank; the Banks page lists the banks in configured order, four to a page (three on square boards); Batteries and Charging group by bank with UNASSIGNED rows last. UNVERIFIED against a real bus: every path in the overlay |
 | `alarm-coolant` at 10 s | The port coolant is driven up through its zones (the first run creates default zones: alert from 95 °C, alarm from 100 °C), so the banner arrives about 2 s after the event, raised by the server. Red banner under the strip, flashing 1 Hz: `Port coolant high`, ACK, SILENCE, and GO (GO opens Engine page 1, the detail page). The port coolant value turns red. Buzzer on boards that have one (Square 4.0). The notification appears in `GET /signalk/v2/api/notifications` |
 | `alarm-fuel-low` | The boat's routine fuel level is nominal, so any previous fuel alarm has cleared; at 8 s the level is driven through the fuel zones (alert, then alarm) and a red banner appears (text from the server's fuel zones, or `Fuel low` from the defaults), with GO. Six tanks: the extra fresh-water tank puts fuel on the second square page. GO opens that page (FUEL and GREY), not the first tanks page (BLACK and the three FRESH tanks). A wide screen has one tanks page, so GO opens that. The fuel strip is low and red. The alarm stays up through the end of the 80 s run |
 | `alarm-coolant`, tap ACK | The banner goes away and a bell with `1` appears in the top strip, left of the status text; the server shows the notification acknowledged. Tap the bell for the list, where the alarm stays with its ACK hidden. Tap SILENCE first and the buzzer stops, the server shows silenced. If the ACK did not reach the server the banner stays, steady, with `ACK NOT SENT` |
@@ -79,24 +79,31 @@ The test server is a local Signal K (2.35 at the time of writing) on `localhost:
 | Server stopped | `SK OFFLINE`, every field flagged within about 2 s |
 | Server restarted | `SK LIVE`, fields clear on the next delta |
 
-### Multi-bank power config
+### Power configuration (banks and flows)
 
-For `three-bank`, give the simulator a `config.json` whose power role is:
+Nothing is placed automatically. Set Power up on the display (Setup > Power: ADD TO BANK on a battery asks which bank it is (a menu of the kinds not yet added: House, Start, Nav, Windlass, Thruster, Genset, Other; one bank of each kind, nothing is typed); a source is added by choosing the bank it feeds; every choice (a bank's kind and battery, a source's kind, the bank it feeds, a converter's FROM bank, its output) is a button that opens a menu; deleting a bank returns the sources that fed it to Unassigned; ONE BANK does the lot on a one-battery boat) or write it by hand with the console's `power` listing, which prints every endpoint's ref and what Power does with it. Refs are CAN NAMEs: a battery is `<NAME>.<instance>`, a device is `<NAME>`. For the real profile (`tools/scenario.sh up --profile real`, devices from `tools/sk-inject/real-electrical-devices.json`):
 
 ```json
 { "role": "power",
-  "banks": [ {"id": "279", "name": "HOUSE", "kind": "house"},
-             {"id": "280", "name": "START", "kind": "start"},
-             {"id": "281", "name": "NAV",   "kind": "nav"} ],
-  "links": [ {"src": "charger:276", "output": 0, "to": "house"},
-             {"src": "charger:276", "output": 1, "to": "start"},
-             {"src": "alternator:0", "to": "start"},
-             {"src": "solar:288", "to": "house"},
-             {"src": "dcdc:1", "from": "start", "to": "house"},
-             {"src": "dcdc:2", "from": "house", "to": "nav"} ] }
+  "banks": [ {"id": "house", "name": "HOUSE", "kind": "house", "battery": "c046aa002cc001f9.0"},
+             {"id": "start", "name": "START", "kind": "start", "battery": "c046aa002cc001f9.1"} ],
+  "flows": [ {"device": "c046a0002cc001f5", "kind": "solar", "to": "house"},
+             {"device": "c046a0002cc001f6", "kind": "solar", "to": "house"},
+             {"device": "c046a0002cc001f8", "kind": "shore", "to": "house"} ] }
 ```
 
-Run `./build/sim/sim --board sim800 --config <dir> --capture out.png --after 20`. A topology that does not validate is reported on the setup screen and the role runs single-bank. Design: `docs/specs/2026-11-04-multi-bank-power-design.md`.
+Run `./build/sim/sim --board sim800 --config <dir> --capture out.png --after 20`. Expected:
+
+| Check | Result |
+|---|---|
+| No `banks` | Summary says `POWER IS NOT SET UP` with a SET UP POWER button; Batteries and Charging list everything, grouped as unassigned |
+| Banks set, something unplaced | A tappable `<n> UNASSIGNED` band along the foot of the Summary opens Setup > Power |
+| Bank kinds | house, start, nav, windlass, thruster, genset and `other` (with a name of its own); any number, two of a kind is fine; exactly one house |
+| Shore | `SHORE` means AC present: a Phoenix feeding 0 W with AC current reports shows on, `<watts> EST` when inferred from its output (no AC data), `OFF` when its AC endpoint stops reporting for 60 s |
+| Old `banks`/`links` in the file | Not read. Setup > Power says so, the console `power` says so, and the role stays not set up until placed again |
+| A bank or flow that is not seen | `MISSING` on the page; its figures say FAIL, other banks stay live |
+
+Design: `docs/superpowers/specs/2026-11-12-power-configuration-design.md` (supersedes `docs/specs/2026-11-04-multi-bank-power-design.md` where they differ).
 
 ### Milestone 4 live results
 

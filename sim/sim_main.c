@@ -131,14 +131,21 @@ static void fixture_power(void) {
     {"electrical.resolved.solar.288.voltage", 13.5},     {"electrical.resolved.solar.288.current", 18.0},
     {"electrical.resolved.solar.288.panelPower", 260},
     {"electrical.resolved.chargers.276.voltage", 13.6},  {"electrical.resolved.chargers.276.current", 10.0},
-    {"electrical.alternators.0.voltage", 14.1}, {"electrical.alternators.0.current", 30.0},
+    {"electrical.resolved.alternators.0.voltage", 14.1}, {"electrical.alternators.0.current", 30.0},
   };
   const struct { const char *path; const char *v; } t[] = {
     {"electrical.resolved.solar.288.chargingMode", "bulk"},
     {"electrical.resolved.chargers.276.chargingMode", "absorption"},
     {"electrical.inverters.275.acin.acState.acSource", "grid"},
     {"electrical.inverters.275.inverterMode", "charging"},
-    {"electrical.alternators.0.chargingMode", "bulk"},
+    {"electrical.resolved.alternators.0.chargingMode", "bulk"},
+    // The refs the resolver publishes (CAN NAME and endpoint instance): the shunt on .0 is house, its aux input on .1 start.
+    {"electrical.resolved.batteries.279.ref", "c046aa002cc001f9.0"},
+    {"electrical.resolved.solar.288.ref", "c046a0002cc001f5.1"},
+    {"electrical.resolved.chargers.276.ref", "c046a0002cc001f8.0"},
+    {"electrical.resolved.alternators.0.ref", "aa00000000000001.0"},
+    {"electrical.resolved.batteries.279.label", "SmartShunt"}, {"electrical.resolved.solar.288.label", "BlueSolar"},
+    {"electrical.resolved.chargers.276.label", "Phoenix"}, {"electrical.resolved.alternators.0.label", "Alternator"},
   };
   int64_t now = platform_millis();
   for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
@@ -147,7 +154,8 @@ static void fixture_power(void) {
 }
 
 // The three-bank boat of docs/specs/2026-11-04-multi-bank-power-design.md, on top of fixture_power():
-// house 279 (from fixture_power), start 280, nav 281, the two converters, and the start-bank alternator.
+// house 279 (from fixture_power), start 280 (the shunt's aux input), nav 281, the two converters, the MPPT's
+// output side, the charger's second output, and the start-bank alternator.
 static void fixture_banks(void) {
   fixture_power();
   const struct { const char *path; double v; } d[] = {
@@ -156,38 +164,57 @@ static void fixture_banks(void) {
     {"electrical.resolved.batteries.280.capacity.stateOfCharge", 0.96},
     {"electrical.resolved.batteries.281.voltage", 13.1}, {"electrical.resolved.batteries.281.current", 1.0},
     {"electrical.resolved.batteries.281.capacity.stateOfCharge", 0.90},
-    {"electrical.dcdc.1.voltage", 13.6}, {"electrical.dcdc.1.current", 8.0},
-    {"electrical.dcdc.2.voltage", 13.4}, {"electrical.dcdc.2.current", 4.0},
-    {"electrical.dcdc.2.input.voltage", 13.3}, {"electrical.dcdc.2.input.current", 4.4},
-    {"electrical.alternators.0.current", 0.0},
+    {"electrical.resolved.chargers.288.voltage", 13.5}, {"electrical.resolved.chargers.288.current", 18.0},
+    {"electrical.resolved.chargers.277.voltage", 13.6}, {"electrical.resolved.chargers.277.current", 0.5},
+    {"electrical.resolved.chargers.dc1.voltage", 13.6}, {"electrical.resolved.chargers.dc1.current", 8.0},
+    {"electrical.resolved.chargers.dc2.voltage", 13.4}, {"electrical.resolved.chargers.dc2.current", 4.0},
+    {"electrical.resolved.alternators.0.current", 0.0},
   };
   int64_t now = platform_millis();
   for (size_t i = 0; i < sizeof d / sizeof d[0]; i++) bd_set_number(bd_intern(d[i].path), d[i].v, SK_SOURCE_ID, now);
-  bd_set_text(bd_intern("electrical.dcdc.1.chargingMode"), "bulk", SK_SOURCE_ID, now);
-  bd_set_text(bd_intern("electrical.dcdc.2.chargingMode"), "float", SK_SOURCE_ID, now);
+  const struct { const char *path; const char *v; } t[] = {
+    {"electrical.resolved.batteries.280.ref", "c046aa002cc001f9.1"},
+    {"electrical.resolved.batteries.281.ref", "c046aa002cc00201.0"},
+    {"electrical.resolved.batteries.280.label", "SmartShunt 2"}, {"electrical.resolved.batteries.281.label", "NavShunt"},
+    {"electrical.resolved.chargers.288.label", "BlueSolar"}, {"electrical.resolved.chargers.277.label", "Phoenix 2"},
+    {"electrical.resolved.chargers.dc1.label", "Orion"}, {"electrical.resolved.chargers.dc2.label", "Orion 2"},
+    {"electrical.resolved.chargers.288.ref", "c046a0002cc001f5.0"},
+    {"electrical.resolved.chargers.277.ref", "c046a0002cc001f8.1"},
+    {"electrical.resolved.chargers.dc1.ref", "aa00000000000002.0"},
+    {"electrical.resolved.chargers.dc2.ref", "aa00000000000003.0"},
+    {"electrical.resolved.chargers.288.chargingMode", "bulk"},
+    {"electrical.resolved.chargers.277.chargingMode", "float"},
+    {"electrical.resolved.chargers.dc1.chargingMode", "bulk"},
+    {"electrical.resolved.chargers.dc2.chargingMode", "float"},
+  };
+  for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) bd_set_text(bd_intern(t[i].path), t[i].v, SK_SOURCE_ID, now);
   bd_set_invalid(bd_intern("electrical.resolved.batteries.280.capacity.timeRemaining"));
   bd_set_invalid(bd_intern("electrical.resolved.batteries.281.capacity.timeRemaining"));
 }
 
 static void set_banks(cfg_role_t *r) {
-  static const struct { const char *id, *name, *kind; } banks[] = {
-    {"279", "HOUSE", "house"}, {"280", "START", "start"}, {"281", "NAV", "nav"}};
-  static const struct { const char *src; uint8_t output; const char *from, *to; } links[] = {
-    {"charger:276", 0, "", "house"}, {"charger:276", 1, "", "start"}, {"alternator:0", 0, "", "start"},
-    {"solar:288", 0, "", "house"}, {"dcdc:1", 0, "start", "house"}, {"dcdc:2", 0, "house", "nav"}};
-  r->bank_count = r->link_count = 0;
+  static const struct { const char *id, *name, *kind, *battery; } banks[] = {
+    {"start", "START", "start", "c046aa002cc001f9.1"}, {"house", "HOUSE", "house", "c046aa002cc001f9.0"},
+    {"nav", "NAV", "nav", "c046aa002cc00201.0"}};
+  static const struct { const char *device, *kind; uint8_t output; const char *from, *to; } flows[] = {
+    {"c046a0002cc001f8", "shore", 0, "", "house"}, {"c046a0002cc001f8", "shore", 1, "", "start"},
+    {"aa00000000000001", "engine", 0, "", "start"}, {"c046a0002cc001f5", "solar", 0, "", "house"},
+    {"aa00000000000002", "converter", 0, "start", "house"}, {"aa00000000000003", "converter", 0, "house", "nav"}};
+  r->bank_count = r->flow_count = 0;
   for (size_t i = 0; i < sizeof banks / sizeof banks[0]; i++) {
     cfg_bank_t *k = &r->bank[r->bank_count++];
     snprintf(k->id, sizeof k->id, "%s", banks[i].id);
     snprintf(k->name, sizeof k->name, "%s", banks[i].name);
     snprintf(k->kind, sizeof k->kind, "%s", banks[i].kind);
+    snprintf(k->battery, sizeof k->battery, "%s", banks[i].battery);
   }
-  for (size_t i = 0; i < sizeof links / sizeof links[0]; i++) {
-    cfg_link_t *l = &r->link[r->link_count++];
-    snprintf(l->src, sizeof l->src, "%s", links[i].src);
-    l->output = links[i].output;
-    snprintf(l->from, sizeof l->from, "%s", links[i].from);
-    snprintf(l->to, sizeof l->to, "%s", links[i].to);
+  for (size_t i = 0; i < sizeof flows / sizeof flows[0]; i++) {
+    cfg_flow_t *l = &r->flow[r->flow_count++];
+    snprintf(l->device, sizeof l->device, "%s", flows[i].device);
+    snprintf(l->kind, sizeof l->kind, "%s", flows[i].kind);
+    l->output = flows[i].output;
+    snprintf(l->from, sizeof l->from, "%s", flows[i].from);
+    snprintf(l->to, sizeof l->to, "%s", flows[i].to);
   }
 }
 
@@ -637,7 +664,8 @@ static int run_snapshots(const char *out) {
             lv_timer_handler();
             static const struct { ui_setup_screen_t s; const char *name; } shots[] = {
               {SETUP_MENU, "setup-menu"}, {SETUP_DISPLAY, "setup-display"}, {SETUP_ABOUT, "setup-about"},
-              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}, {SETUP_SOURCES, "setup-sources"}};
+              {SETUP_ROLES, "setup-roles"}, {SETUP_DISCOVERY, "setup-discovery"}, {SETUP_SOURCES, "setup-sources"},
+              {SETUP_POWER, "setup-power"}};
             for (size_t k = 0; k < sizeof shots / sizeof shots[0]; k++) {
               ui_setup_show(shots[k].s);
               lv_obj_invalidate(lv_display_get_screen_active(disp));
@@ -688,6 +716,27 @@ static int run_snapshots(const char *out) {
           if (write_page(disp, dir, "-banks-fault", b)) return 1;
           if (write_fallback(disp, dir, b, true)) return 1;
           ui_shell_move(NAV_UP);
+        }
+        if ((!strcmp(b->id, "sim800") || !strcmp(b->id, "sim480")) && pal == PALETTE_DAY) {   // Setup > Power with banks, and a menu open
+          fixture_banks();
+          lv_obj_send_event(ui_shell_strip_tap(), LV_EVENT_CLICKED, NULL);
+          lv_obj_send_event(ui_quick_part(UI_QUICK_SETUP), LV_EVENT_CLICKED, NULL);
+          lv_timer_handler();
+          ui_setup_show(SETUP_POWER);
+          lv_timer_handler();
+          static const char *const shots[] = {"setup-power-banks", "setup-power-menu"};
+          for (int k = 0; k < 2; k++) {
+            if (k == 1) {
+              lv_obj_send_event(ui_setup_part("bank_kind_0"), LV_EVENT_CLICKED, NULL);
+              lv_timer_handler();
+            }
+            lv_obj_invalidate(lv_display_get_screen_active(disp));
+            lv_refr_now(disp);
+            snprintf(path, sizeof path, "%s/%s.png", dir, shots[k]);
+            if (!snapshot_write_png(path, snap_fb, b->width, b->height)) return 1;
+          }
+          ui_setup_close();
+          lv_timer_handler();
         }
       }
     }

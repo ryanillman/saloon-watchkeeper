@@ -256,96 +256,138 @@ static void test_power_primary_round_trip(void) {
   TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
 }
 
-// ---- multi-bank power: banks and links ----
+// ---- power configuration: banks with ids, flows with NAME refs ----
+
+#define N1 "c046aa002cc001f9"
+#define N2 "c046a0002cc001f5"
+#define N3 "c046a0002cc001f8"
 
 static const char *BANKS_OK =
   "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", \"x-note\": \"keep\",\n"
-  "  \"banks\": [ {\"id\":\"279\",\"name\":\"HOUSE\",\"kind\":\"house\"},\n"
-  "               {\"id\":\"280\",\"name\":\"START\",\"kind\":\"start\"},\n"
-  "               {\"id\":\"281\",\"name\":\"NAV\",\"kind\":\"nav\"} ],\n"
-  "  \"links\": [ {\"src\":\"charger:276\",\"output\":0,\"to\":\"house\"},\n"
-  "               {\"src\":\"charger:276\",\"output\":1,\"to\":\"start\"},\n"
-  "               {\"src\":\"alternator:0\",\"to\":\"start\"},\n"
-  "               {\"src\":\"solar:288\",\"to\":\"house\"},\n"
-  "               {\"src\":\"dcdc:1\",\"from\":\"start\",\"to\":\"house\"},\n"
-  "               {\"src\":\"dcdc:2\",\"from\":\"house\",\"to\":\"nav\"} ] } ] }\n";
+  "  \"banks\": [ {\"id\":\"house\",\"name\":\"HOUSE\",\"kind\":\"house\",\"battery\":\"" N1 ".0\"},\n"
+  "               {\"id\":\"start\",\"name\":\"START\",\"kind\":\"start\",\"battery\":\"" N1 ".1\"},\n"
+  "               {\"id\":\"bow\",\"name\":\"THRUSTER\",\"kind\":\"thruster\",\"battery\":\"" N2 ".0\"},\n"
+  "               {\"id\":\"odd\",\"name\":\"ODD JOB\",\"kind\":\"other\",\"battery\":\"" N3 ".0\"} ],\n"
+  "  \"flows\": [ {\"device\":\"" N2 "\",\"kind\":\"solar\",\"to\":\"house\"},\n"
+  "               {\"device\":\"" N3 "\",\"kind\":\"shore\",\"to\":\"house\",\"output\":1},\n"
+  "               {\"device\":\"aa00000000000001\",\"kind\":\"engine\",\"to\":\"start\"},\n"
+  "               {\"device\":\"aa00000000000002\",\"kind\":\"converter\",\"from\":\"start\",\"to\":\"house\"} ] } ] }\n";
 
-static void test_power_banks_round_trip(void) {
+static void test_power_roundtrip_all_kinds(void) {
   write_file("config.json", BANKS_OK);
   cfg_t c;
   cfg_report_t r;
   cfg_load(dir, &c, &r);
   TEST_ASSERT_EQUAL_UINT8(0, r.count);
   const cfg_role_t *p = &c.roles[0];
-  TEST_ASSERT_EQUAL_UINT8(3, p->bank_count);
-  TEST_ASSERT_EQUAL_UINT8(6, p->link_count);
-  TEST_ASSERT_EQUAL_STRING("280", p->bank[1].id);
-  TEST_ASSERT_EQUAL_STRING("START", p->bank[1].name);
-  TEST_ASSERT_EQUAL_STRING("nav", p->bank[2].kind);
-  TEST_ASSERT_EQUAL_STRING("charger:276", p->link[1].src);
-  TEST_ASSERT_EQUAL_UINT8(1, p->link[1].output);
-  TEST_ASSERT_EQUAL_STRING("start", p->link[4].from);
-  TEST_ASSERT_EQUAL_STRING("house", p->link[4].to);
+  TEST_ASSERT_EQUAL_UINT8(4, p->bank_count);
+  TEST_ASSERT_EQUAL_UINT8(4, p->flow_count);
+  TEST_ASSERT_EQUAL_STRING("start", p->bank[1].id);
+  TEST_ASSERT_EQUAL_STRING("thruster", p->bank[2].kind);
+  TEST_ASSERT_EQUAL_STRING("ODD JOB", p->bank[3].name);
+  TEST_ASSERT_EQUAL_STRING(N1 ".1", p->bank[1].battery);
+  TEST_ASSERT_EQUAL_STRING("shore", p->flow[1].kind);
+  TEST_ASSERT_EQUAL_UINT8(1, p->flow[1].output);
+  TEST_ASSERT_EQUAL_STRING("start", p->flow[3].from);
   TEST_ASSERT_TRUE(cfg_save(dir, &c));
   cfg_t d;
   cfg_load(dir, &d, &r);
   TEST_ASSERT_EQUAL_UINT8(0, r.count);
-  TEST_ASSERT_EQUAL_UINT8(3, d.roles[0].bank_count);
-  TEST_ASSERT_EQUAL_UINT8(6, d.roles[0].link_count);
-  TEST_ASSERT_EQUAL_STRING("dcdc:2", d.roles[0].link[5].src);
-  TEST_ASSERT_EQUAL_STRING("house", d.roles[0].link[5].from);
+  TEST_ASSERT_EQUAL_UINT8(4, d.roles[0].bank_count);
+  TEST_ASSERT_EQUAL_UINT8(4, d.roles[0].flow_count);
+  TEST_ASSERT_EQUAL_STRING("aa00000000000002", d.roles[0].flow[3].device);
+  TEST_ASSERT_EQUAL_STRING("house", d.roles[0].flow[3].to);
   TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "x-note"));
 }
 
 // A bad topology is reported once and dropped; the rest of the role (primary) still loads.
-static void expect_banks_rejected(const char *banks_and_links) {
+static void expect_rejected(const char *banks_and_flows, const char *message_part) {
   char text[2048];
-  snprintf(text, sizeof text, "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", %s } ] }", banks_and_links);
+  snprintf(text, sizeof text, "{ \"roles\": [ { \"role\": \"power\", \"primary\": \"279\", %s } ] }", banks_and_flows);
   write_file("config.json", text);
   cfg_t c;
   cfg_report_t r;
   cfg_load(dir, &c, &r);
   TEST_ASSERT_EQUAL_UINT8(1, r.count);
   TEST_ASSERT_EQUAL_STRING("roles.power.banks", r.issues[0].key_path);
+  if (message_part) TEST_ASSERT_NOT_NULL(strstr(r.issues[0].message, message_part));
   TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].bank_count);
-  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].link_count);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].flow_count);
   TEST_ASSERT_EQUAL_STRING("279", c.roles[0].primary);
 }
+#define HB "{\"id\":\"house\",\"kind\":\"house\",\"battery\":\"" N1 ".0\"}"
 
-static void test_power_banks_two_house_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"}, {\"id\":\"2\",\"kind\":\"house\"} ]");
+static void test_power_two_banks_same_kind_ok(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [" HB ","
+    "{\"id\":\"s1\",\"kind\":\"start\",\"battery\":\"" N1 ".1\"}, {\"id\":\"s2\",\"kind\":\"start\",\"battery\":\"" N2 ".0\"} ] } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(0, r.count);
+  TEST_ASSERT_EQUAL_UINT8(3, c.roles[0].bank_count);
 }
-static void test_power_banks_no_house_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"start\"} ]");
+static void test_power_two_house_rejected(void) {
+  expect_rejected("\"banks\": [" HB ", {\"id\":\"h2\",\"kind\":\"house\",\"battery\":\"" N2 ".0\"} ]", "house");
 }
-static void test_power_banks_unknown_kind_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"}, {\"id\":\"2\",\"kind\":\"galley\"} ]");
+static void test_power_no_house_rejected(void) {
+  expect_rejected("\"banks\": [ {\"id\":\"s\",\"kind\":\"start\",\"battery\":\"" N1 ".0\"} ]", "house");
 }
-static void test_power_banks_link_to_missing_kind_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
-                        " \"links\": [ {\"src\":\"solar:2\",\"to\":\"nav\"} ]");
+static void test_power_unknown_kind_rejected(void) {
+  expect_rejected("\"banks\": [" HB ", {\"id\":\"g\",\"kind\":\"galley\",\"battery\":\"" N2 ".0\"} ]", "kind");
 }
-static void test_power_dcdc_without_from_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
-                        " \"links\": [ {\"src\":\"dcdc:1\",\"to\":\"house\"} ]");
+static void test_power_dangling_flow_to_rejected(void) {
+  expect_rejected("\"banks\": [" HB "], \"flows\": [ {\"device\":\"" N2 "\",\"kind\":\"solar\",\"to\":\"nav\"} ]", "to");
 }
-static void test_power_non_dcdc_with_from_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
-                        " \"links\": [ {\"src\":\"solar:2\",\"from\":\"house\",\"to\":\"house\"} ]");
+static void test_power_converter_needs_from_and_others_refuse_it(void) {
+  expect_rejected("\"banks\": [" HB "], \"flows\": [ {\"device\":\"" N2 "\",\"kind\":\"converter\",\"to\":\"house\"} ]", "from");
+  expect_rejected("\"banks\": [" HB "], \"flows\": [ {\"device\":\"" N2 "\",\"kind\":\"solar\",\"from\":\"house\",\"to\":\"house\"} ]", "from");
 }
-static void test_power_link_bad_src_rejected(void) {
-  expect_banks_rejected("\"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ],"
-                        " \"links\": [ {\"src\":\"toaster:2\",\"to\":\"house\"} ]");
+static void test_power_other_needs_name(void) {
+  expect_rejected("\"banks\": [" HB ", {\"id\":\"o\",\"kind\":\"other\",\"battery\":\"" N2 ".0\"} ]", "name");
+}
+static void test_power_duplicate_battery_ref_rejected(void) {
+  expect_rejected("\"banks\": [" HB ", {\"id\":\"s\",\"kind\":\"start\",\"battery\":\"" N1 ".0\"} ]", "battery");
+}
+static void test_power_bad_ref_rejected(void) {
+  expect_rejected("\"banks\": [ {\"id\":\"house\",\"kind\":\"house\",\"battery\":\"279\"} ]", "battery");
+}
+static void test_power_too_many_banks_rejected(void) {
+  char b[1024] = "\"banks\": [";
+  for (int i = 0; i < CFG_MAX_BANKS + 1; i++) {
+    char one[128];
+    snprintf(one, sizeof one, "%s{\"id\":\"b%d\",\"kind\":\"%s\",\"battery\":\"" N1 ".%d\"}", i ? "," : "", i, i ? "start" : "house", i);
+    strcat(b, one);
+  }
+  strcat(b, "]");
+  expect_rejected(b, "too many");
 }
 
-static void test_power_banks_without_links_is_valid(void) {
-  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [ {\"id\":\"1\",\"kind\":\"house\"} ] } ] }");
+static void test_power_two_flows_on_one_output_rejected(void) {
+  expect_rejected("\"banks\": [" HB "], \"flows\": [ {\"device\":\"" N2 "\",\"kind\":\"solar\",\"to\":\"house\"},"
+                  " {\"device\":\"" N2 "\",\"kind\":\"other\",\"to\":\"house\"} ]", "output");
+}
+
+// Old-format files (instance-id banks, links with group:instance) are not read; the message says so.
+static void test_power_old_keys_message_and_flag(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [ {\"id\":\"279\",\"kind\":\"house\"} ],"
+                            " \"links\": [ {\"src\":\"charger:276\",\"to\":\"house\"} ] } ] }");
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  TEST_ASSERT_EQUAL_UINT8(1, r.count);
+  TEST_ASSERT_NOT_NULL(strstr(r.issues[0].message, "old-format"));
+  TEST_ASSERT_TRUE(cfg_power_has_old_keys(&c.roles[0]));
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].bank_count);
+}
+
+static void test_power_banks_without_flows_is_valid(void) {
+  write_file("config.json", "{ \"roles\": [ { \"role\": \"power\", \"banks\": [" HB "] } ] }");
   cfg_t c;
   cfg_report_t r;
   cfg_load(dir, &c, &r);
   TEST_ASSERT_EQUAL_UINT8(0, r.count);
   TEST_ASSERT_EQUAL_UINT8(1, c.roles[0].bank_count);
-  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].link_count);
+  TEST_ASSERT_EQUAL_UINT8(0, c.roles[0].flow_count);
 }
 
 // A rejected topology is not loaded, but a save from the setup screen must not delete the user's text.
@@ -357,6 +399,19 @@ static void test_rejected_banks_survive_a_save(void) {
   TEST_ASSERT_EQUAL_UINT8(1, r.count);
   TEST_ASSERT_TRUE(cfg_save(dir, &c));
   TEST_ASSERT_NOT_NULL(strstr(read_file("config.json"), "galley"));
+}
+
+// Banks removed on the display are removed from the file (only a rejected topology is kept as written).
+static void test_cleared_banks_are_removed_on_save(void) {
+  write_file("config.json", BANKS_OK);
+  cfg_t c;
+  cfg_report_t r;
+  cfg_load(dir, &c, &r);
+  c.roles[0].bank_count = 0;
+  c.roles[0].flow_count = 0;
+  TEST_ASSERT_TRUE(cfg_save(dir, &c));
+  TEST_ASSERT_NULL(strstr(read_file("config.json"), "banks"));
+  TEST_ASSERT_NULL(strstr(read_file("config.json"), "flows"));
 }
 
 static void test_no_banks_key_changes_nothing(void) {
@@ -819,16 +874,22 @@ int main(void) {
   RUN_TEST(test_cfg_set_rejects_a_utc_offset_that_is_not_a_number);
   RUN_TEST(test_cfg_show_masks_secrets);
   RUN_TEST(test_power_primary_round_trip);
-  RUN_TEST(test_power_banks_round_trip);
-  RUN_TEST(test_power_banks_two_house_rejected);
-  RUN_TEST(test_power_banks_no_house_rejected);
-  RUN_TEST(test_power_banks_unknown_kind_rejected);
-  RUN_TEST(test_power_banks_link_to_missing_kind_rejected);
-  RUN_TEST(test_power_dcdc_without_from_rejected);
-  RUN_TEST(test_power_non_dcdc_with_from_rejected);
-  RUN_TEST(test_power_link_bad_src_rejected);
-  RUN_TEST(test_power_banks_without_links_is_valid);
+  RUN_TEST(test_power_roundtrip_all_kinds);
+  RUN_TEST(test_power_two_banks_same_kind_ok);
+  RUN_TEST(test_power_two_house_rejected);
+  RUN_TEST(test_power_no_house_rejected);
+  RUN_TEST(test_power_unknown_kind_rejected);
+  RUN_TEST(test_power_dangling_flow_to_rejected);
+  RUN_TEST(test_power_converter_needs_from_and_others_refuse_it);
+  RUN_TEST(test_power_other_needs_name);
+  RUN_TEST(test_power_duplicate_battery_ref_rejected);
+  RUN_TEST(test_power_bad_ref_rejected);
+  RUN_TEST(test_power_too_many_banks_rejected);
+  RUN_TEST(test_power_two_flows_on_one_output_rejected);
+  RUN_TEST(test_power_old_keys_message_and_flag);
+  RUN_TEST(test_power_banks_without_flows_is_valid);
   RUN_TEST(test_rejected_banks_survive_a_save);
+  RUN_TEST(test_cleared_banks_are_removed_on_save);
   RUN_TEST(test_no_banks_key_changes_nothing);
   RUN_TEST(test_anchor_plugin_default);
   RUN_TEST(test_anchor_plugin_roundtrip);

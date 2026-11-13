@@ -26,6 +26,7 @@ static void on_save(const cfg_t *c) {
 }
 static void on_about(char *out, size_t n) { snprintf(out, n, "firmware: test\nboard: sim800"); }
 static bool disc_extra;   // discovery now also finds engine "center"
+static bool disc_power;   // ... and reports the power role too
 static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
   (void)max;
   memset(out, 0, sizeof *out);
@@ -35,6 +36,13 @@ static uint8_t on_discovery(ui_disc_role_t *out, uint8_t max) {
   strcpy(out[0].ids[2], "wing");
   out[0].count = 3;
   if (disc_extra) strcpy(out[0].ids[out[0].count++], "center");
+  if (disc_power) {
+    memset(&out[1], 0, sizeof out[1]);
+    strcpy(out[1].role, "power");
+    strcpy(out[1].ids[0], "battery.x");
+    out[1].count = 1;
+    return 2;
+  }
   return 1;
 }
 static void on_disc_name(const char *role, const char *id, char *out, size_t n) {
@@ -596,6 +604,530 @@ static void test_discovery_label_edit(void) {
   TEST_ASSERT_EQUAL_STRING("MAIN", r->inst[0].label);
 }
 
+// ---- Setup > Power ----
+
+#define PN1 "c046aa002cc001f9"
+#define PN2 "c046a0002cc001f5"
+#define PN3 "c046a0002cc001f8"
+static ui_power_row_t pw_rows[UI_POWER_ROWS];
+static uint8_t pw_n;
+static uint8_t on_power_rows(ui_power_row_t *out, uint8_t max) {
+  (void)max;
+  memcpy(out, pw_rows, sizeof pw_rows[0] * pw_n);
+  return pw_n;
+}
+static void pw_add(const char *ref, const char *label, uint8_t fn, double v, const char *proposed) {
+  ui_power_row_t *r = &pw_rows[pw_n++];
+  memset(r, 0, sizeof *r);
+  snprintf(r->ref, sizeof r->ref, "%s", ref);
+  snprintf(r->label, sizeof r->label, "%s", label);
+  r->fn = fn;
+  r->value = v;
+  r->value_ok = true;
+  snprintf(r->proposed, sizeof r->proposed, "%s", proposed);
+}
+static void pw_fixture(void) {
+  pw_n = 0;
+  pw_add(PN1 ".0", "SmartShunt", UI_PW_BATTERY, 13.1, "");
+  pw_add(PN1 ".1", "SmartShunt", UI_PW_BATTERY, 12.8, "");
+  pw_add("", "Battery", UI_PW_BATTERY, 12.0, "");                    // identity not here yet
+  pw_add(PN2 ".0", "BlueSolar", UI_PW_OUTPUT, 200, "solar");
+  pw_add(PN3 ".0", "Phoenix", UI_PW_OUTPUT, 3, "shore");
+  pw_add(PN3 ".1", "Phoenix", UI_PW_OUTPUT, 0, "shore");
+}
+static cfg_role_t *pw_role(void) {
+  cfg_t *w = (cfg_t *)ui_setup_working();
+  for (uint8_t i = 0; i < w->role_count; i++)
+    if (!strcmp(w->roles[i].role, "power")) return &w->roles[i];
+  return NULL;
+}
+static void pw_open(void) {
+  cb.power_rows = on_power_rows;
+  pw_fixture();
+  cfg_defaults(&cfg);
+  bool have = false;
+  for (uint8_t i = 0; i < cfg.role_count; i++) have |= !strcmp(cfg.roles[i].role, "power");
+  if (!have) strcpy(cfg.roles[cfg.role_count++].role, "power");
+  open_setup();
+}
+static void pw_bank(cfg_role_t *r, const char *id, const char *name, const char *kind, const char *ref) {
+  cfg_bank_t *k = &r->bank[r->bank_count++];
+  snprintf(k->id, sizeof k->id, "%s", id);
+  snprintf(k->name, sizeof k->name, "%s", name);
+  snprintf(k->kind, sizeof k->kind, "%s", kind);
+  snprintf(k->battery, sizeof k->battery, "%s", ref);
+}
+static const char *text_of(const char *part) {
+  lv_obj_t *o = ui_setup_part(part);
+  return o && lv_obj_check_type(o, &lv_label_class) ? lv_label_get_text(o) : "(none)";
+}
+
+
+// A choice button opens one shared menu (a column of options); these drive it as a finger would.
+static lv_obj_t *menu_obj(void) { return ui_setup_part("menu"); }
+static void choose(const char *part, uint32_t idx) {
+  click(part);
+  lv_obj_t *m = menu_obj();
+  TEST_ASSERT_NOT_NULL_MESSAGE(m, part);
+  lv_buttonmatrix_set_selected_button(m, (uint32_t)idx);
+  lv_obj_send_event(m, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_timer_handler();
+}
+static char options_buf[512];
+static const char *options_of(const char *part) {   // the options a choice offers, one a line
+  click(part);
+  lv_obj_t *m = menu_obj();
+  options_buf[0] = 0;
+  if (!m) return "(none)";
+  for (uint32_t i = 0; i < 16; i++) {
+    const char *t = lv_buttonmatrix_get_button_text(m, i);
+    if (!t || !*t || !strcmp(t, "\n")) break;
+    strncat(options_buf, t, sizeof options_buf - strlen(options_buf) - 2);
+    strcat(options_buf, "\n");
+  }
+  click("menu_cancel");
+  return options_buf;
+}
+static const char *button_text(const char *part) {
+  lv_obj_t *b = ui_setup_part(part);
+  lv_obj_t *l = b ? lv_obj_get_child(b, 0) : NULL;
+  return l ? lv_label_get_text(l) : "(none)";
+}
+
+static void test_power_screen_lists_sections(void) {
+  pw_open();
+  click("menu_power");
+  TEST_ASSERT_EQUAL(SETUP_POWER, ui_setup_screen());
+  TEST_ASSERT_NOT_NULL(ui_setup_part("add_bank"));
+  TEST_ASSERT_NOT_NULL(ui_setup_part("addto_" PN1 ".0"));   // a battery: ADD TO BANK
+  TEST_ASSERT_NULL(ui_setup_part("feeds_" PN2 ".0"));       // a source needs a bank to feed first
+  TEST_ASSERT_NOT_NULL(ui_setup_part("wait_2"));
+}
+
+static void test_power_unnamed_device_says_it_is_identifying(void) {
+  pw_open();
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(text_of("wait_2"), "Identifying"));
+  TEST_ASSERT_NULL(strstr(text_of("wait_2"), "identity"));   // not the bus's word for it
+}
+
+static void test_power_bank_kind_is_a_menu(void) {
+  pw_open();
+  pw_bank(pw_role(), "x", "Anchor", "other", PN1 ".0");
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(options_of("bank_kind_0"), "THRUSTER"));
+  choose("bank_kind_0", 0);
+  TEST_ASSERT_EQUAL_STRING("house", pw_role()->bank[0].kind);
+}
+
+static void test_power_kind_menu_does_not_offer_a_second_house(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "START", "start", PN1 ".1");
+  click("menu_power");
+  const char *o = options_of("bank_kind_1");   // the start bank's own kind and the free ones
+  TEST_ASSERT_NULL(strstr(o, "HOUSE"));
+  TEST_ASSERT_NOT_NULL(strstr(o, "START"));
+  TEST_ASSERT_NOT_NULL(strstr(o, "NAV"));
+}
+
+static void test_power_battery_menu_lists_unplaced_batteries_by_input(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  click("menu_power");
+  const char *o = options_of("bank_batt_0");
+  TEST_ASSERT_NOT_NULL(strstr(o, "input 1"));   // two inputs of one shunt are told apart
+  TEST_ASSERT_NOT_NULL(strstr(o, "input 2"));
+  TEST_ASSERT_NULL(strstr(o, "Battery"));       // the one still identifying is not offered
+  choose("bank_batt_0", 1);
+  TEST_ASSERT_EQUAL_STRING(PN1 ".1", pw_role()->bank[0].battery);
+}
+
+static void test_power_unassigned_source_picks_the_bank_it_feeds(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "Start", "start", PN1 ".1");
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(options_of("feeds_" PN2 ".0"), "START"));   // it names banks, not devices
+  choose("feeds_" PN2 ".0", 0);
+  choose("feeds_" PN3 ".1", 1);
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_UINT8(2, r->flow_count);
+  TEST_ASSERT_EQUAL_STRING(PN2, r->flow[0].device);
+  TEST_ASSERT_EQUAL_STRING("solar", r->flow[0].kind);       // the proposal, to be changed in Sources
+  TEST_ASSERT_EQUAL_STRING("house", r->flow[0].to);
+  TEST_ASSERT_EQUAL_STRING(PN3, r->flow[1].device);
+  TEST_ASSERT_EQUAL_UINT8(1, r->flow[1].output);            // the second output of that device
+  TEST_ASSERT_EQUAL_STRING("start", r->flow[1].to);
+  TEST_ASSERT_NULL(ui_setup_part("feeds_" PN3 ".1"));       // placed
+  TEST_ASSERT_NOT_NULL(ui_setup_part("feeds_" PN3 ".0"));
+}
+
+static void test_power_source_row_shows_kind_and_fed_bank(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "Start", "start", PN1 ".1");
+  click("menu_power");
+  choose("feeds_" PN2 ".0", 0);
+  TEST_ASSERT_NOT_NULL(strstr(button_text("flow_kind_0"), "SOLAR"));
+  TEST_ASSERT_NOT_NULL(strstr(button_text("flow_to_0"), "HOUSE"));   // it names the bank, not a device
+  choose("flow_to_0", 1);
+  TEST_ASSERT_EQUAL_STRING("start", pw_role()->flow[0].to);
+  choose("flow_kind_0", 4);   // SOLAR SHORE ENGINE CONVERTER OTHER
+  TEST_ASSERT_EQUAL_STRING("other", pw_role()->flow[0].kind);
+}
+
+static void test_power_converter_kind_asks_where_it_draws_from(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "Start", "start", PN1 ".1");
+  click("menu_power");
+  choose("feeds_" PN3 ".0", 0);
+  choose("flow_kind_0", 3);
+  TEST_ASSERT_EQUAL_STRING("converter", pw_role()->flow[0].kind);
+  TEST_ASSERT_EQUAL_STRING("start", pw_role()->flow[0].from);   // not the bank it feeds
+  TEST_ASSERT_NOT_NULL(ui_setup_part("flow_from_0"));
+  char why[96];
+  TEST_ASSERT_TRUE_MESSAGE(cfg_power_check(pw_role(), why, sizeof why), why);
+}
+
+static void test_power_second_output_of_a_device_says_which(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  click("menu_power");
+  choose("feeds_" PN3 ".1", 0);
+  TEST_ASSERT_NOT_NULL(ui_setup_part("flow_out_0"));
+  TEST_ASSERT_NOT_NULL(strstr(options_of("flow_out_0"), "OUTPUT 2"));
+}
+
+static void test_power_save_refuses_without_a_house_bank(void) {
+  pw_open();
+  click("menu_power");
+  click("addto_" PN1 ".0");
+  lv_buttonmatrix_set_selected_button(menu_obj(), 6);   // OTHER
+  lv_obj_send_event(menu_obj(), LV_EVENT_VALUE_CHANGED, NULL);
+  lv_timer_handler();
+  click("save");
+  TEST_ASSERT_EQUAL_INT(0, saves);
+  TEST_ASSERT_EQUAL(SETUP_POWER, ui_setup_screen());
+  TEST_ASSERT_NOT_NULL(strstr(text_of("power_error"), "house"));
+  choose("bank_kind_0", 0);
+  click("save");
+  TEST_ASSERT_EQUAL_INT(1, saves);
+  const cfg_role_t *sp = NULL;
+  for (uint8_t i = 0; i < saved.role_count; i++)
+    if (!strcmp(saved.roles[i].role, "power")) sp = &saved.roles[i];
+  TEST_ASSERT_NOT_NULL(sp);
+  TEST_ASSERT_EQUAL_STRING("house", sp->bank[0].kind);
+}
+
+static void test_power_placed_unseen_reads_missing(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", "bb00000000000009.0");
+  cfg_flow_t *f = &pw_role()->flow[pw_role()->flow_count++];
+  strcpy(f->device, "aa00000000000009");
+  strcpy(f->kind, "engine");
+  strcpy(f->to, "house");
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(ui_setup_part("missing_bank_0"));
+  TEST_ASSERT_NOT_NULL(ui_setup_part("missing_flow_0"));
+}
+
+static void test_power_old_keys_message_shown(void) {
+  pw_open();
+  pw_role()->power_old_keys = true;
+  pw_role()->power_rejected = true;
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(text_of("power_notice"), "old-format"));
+}
+
+static void test_power_delete_bank_returns_its_sources_to_unassigned(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  cfg_flow_t *f = &pw_role()->flow[pw_role()->flow_count++];
+  strcpy(f->device, PN2);
+  strcpy(f->kind, "solar");
+  strcpy(f->to, "house");
+  click("menu_power");
+  click("bank_del_0");
+  TEST_ASSERT_EQUAL_UINT8(0, pw_role()->bank_count);
+  TEST_ASSERT_EQUAL_UINT8(0, pw_role()->flow_count);          // a source never exists without a destination
+  TEST_ASSERT_NOT_NULL(ui_setup_part("addto_" PN1 ".0"));     // and the battery and the source are listed again
+}
+
+static void test_power_one_bank_places_a_one_battery_boat(void) {
+  pw_open();
+  pw_n = 0;
+  pw_add(PN1 ".0", "SmartShunt", UI_PW_BATTERY, 13.1, "");
+  pw_add(PN2 ".0", "BlueSolar", UI_PW_OUTPUT, 200, "solar");
+  pw_add(PN3 ".0", "Phoenix", UI_PW_OUTPUT, 3, "shore");
+  pw_add("", "Charger", UI_PW_OUTPUT, 0, "shore");   // still identifying: left alone
+  click("menu_power");
+  click("one_bank");
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_UINT8(1, r->bank_count);
+  TEST_ASSERT_EQUAL_STRING("house", r->bank[0].kind);
+  TEST_ASSERT_EQUAL_STRING("HOUSE", r->bank[0].name);
+  TEST_ASSERT_EQUAL_STRING(PN1 ".0", r->bank[0].battery);
+  TEST_ASSERT_EQUAL_UINT8(2, r->flow_count);
+  for (int i = 0; i < 2; i++) TEST_ASSERT_EQUAL_STRING("house", r->flow[i].to);
+  TEST_ASSERT_EQUAL_STRING("solar", r->flow[0].kind);
+  TEST_ASSERT_EQUAL_STRING("shore", r->flow[1].kind);
+  char why[96];
+  TEST_ASSERT_TRUE_MESSAGE(cfg_power_check(r, why, sizeof why), why);
+}
+
+static void test_power_one_bank_noop_with_two_batteries(void) {
+  pw_open();   // the fixture has three batteries
+  click("menu_power");
+  click("one_bank");
+  TEST_ASSERT_EQUAL_UINT8(0, pw_role()->bank_count);
+  TEST_ASSERT_NOT_NULL(strstr(text_of("power_error"), "one battery"));
+}
+
+static void test_power_one_bank_skips_converters(void) {
+  pw_open();
+  pw_n = 0;
+  pw_add(PN1 ".0", "SmartShunt", UI_PW_BATTERY, 13.1, "");
+  pw_add(PN2 ".0", "Orion", UI_PW_OUTPUT, 40, "converter");   // needs two banks
+  pw_add(PN3 ".0", "Phoenix", UI_PW_OUTPUT, 3, "shore");
+  click("menu_power");
+  click("one_bank");
+  TEST_ASSERT_EQUAL_UINT8(1, pw_role()->flow_count);
+  TEST_ASSERT_EQUAL_STRING("shore", pw_role()->flow[0].kind);
+}
+
+static void test_power_one_bank_is_offered_only_when_nothing_is_placed(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  TEST_ASSERT_NULL(ui_setup_part("one_bank"));
+}
+
+static void test_discovery_leaves_power_to_its_own_page(void) {
+  disc_power = true;
+  pw_open();
+  click("menu_discovery");
+  TEST_ASSERT_NULL(ui_setup_part("keep_power_battery.x"));
+  TEST_ASSERT_NOT_NULL(ui_setup_part("open_power"));
+  disc_power = false;
+}
+
+static void test_power_a_menu_left_open_does_not_outlive_setup(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  click("menu_power");
+  click("bank_kind_0");                 // the menu is open
+  TEST_ASSERT_NOT_NULL(ui_setup_part("menu"));
+  ui_setup_close();
+  lv_timer_handler();
+  pw_open();                             // reopened: nothing stale to delete
+  pw_bank(pw_role(), "house", "House", "house", PN1 ".0");
+  click("menu_power");
+  click("bank_kind_0");
+  TEST_ASSERT_NOT_NULL(ui_setup_part("menu"));
+  click("menu_cancel");
+  TEST_ASSERT_NULL(ui_setup_part("menu"));
+}
+
+static void test_power_bank_battery_button_names_the_battery(void) {
+  pw_open();
+  pw_bank(pw_role(), "start", "Start", "start", PN1 ".1");
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(button_text("bank_batt_0"), "SmartShunt input 2"));   // which input, not just "BATTERY"
+  TEST_ASSERT_NOT_NULL(strstr(button_text("bank_batt_0"), "12.80 V"));
+}
+
+static void test_power_add_to_bank_asks_which_bank(void) {
+  pw_open();
+  click("menu_power");
+  click("addto_" PN1 ".0");
+  TEST_ASSERT_NULL(ui_setup_part("kb"));                      // nothing is typed
+  TEST_ASSERT_NOT_NULL(ui_setup_part("menu"));
+  lv_buttonmatrix_set_selected_button(menu_obj(), 0);         // HOUSE, START, NAV, ...
+  lv_obj_send_event(menu_obj(), LV_EVENT_VALUE_CHANGED, NULL);
+  lv_timer_handler();
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_UINT8(1, r->bank_count);
+  TEST_ASSERT_EQUAL_STRING("house", r->bank[0].kind);
+  TEST_ASSERT_EQUAL_STRING("HOUSE", r->bank[0].name);         // the name is the kind
+  TEST_ASSERT_EQUAL_STRING(PN1 ".0", r->bank[0].battery);
+  TEST_ASSERT_NULL(ui_setup_part("addto_" PN1 ".0"));         // placed, no longer unassigned
+}
+
+static void test_power_the_house_bank_is_not_offered_twice(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  click("addto_" PN1 ".1");
+  lv_obj_t *m = menu_obj();
+  TEST_ASSERT_NOT_NULL(m);
+  TEST_ASSERT_EQUAL_STRING("START", lv_buttonmatrix_get_button_text(m, 0));   // first on the list now
+  for (uint32_t i = 0; i < 8; i++) {
+    const char *t = lv_buttonmatrix_get_button_text(m, i);
+    if (!t || !*t || !strcmp(t, "\n")) break;
+    TEST_ASSERT_NOT_EQUAL(0, strcmp(t, "HOUSE"));
+  }
+  click("menu_cancel");
+}
+
+static void test_power_a_kind_already_added_is_not_offered_again(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "START", "start", PN1 ".1");
+  pw_add("c046aa002cc00201.0", "NavShunt", UI_PW_BATTERY, 13.0, "");   // a third battery is seen
+  click("menu_power");
+  click("addto_c046aa002cc00201.0");
+  lv_obj_t *m = menu_obj();
+  TEST_ASSERT_NOT_NULL(m);
+  TEST_ASSERT_EQUAL_STRING("NAV", lv_buttonmatrix_get_button_text(m, 0));   // house and start are taken
+  for (uint32_t i = 0; i < 8; i++) {
+    const char *t = lv_buttonmatrix_get_button_text(m, i);
+    if (!t || !*t || !strcmp(t, "\n")) break;
+    TEST_ASSERT_NOT_EQUAL(0, strcmp(t, "HOUSE"));
+    TEST_ASSERT_NOT_EQUAL(0, strcmp(t, "START"));
+  }
+  click("menu_cancel");
+}
+
+static void test_power_every_kind_added_means_no_more_banks(void) {
+  pw_open();
+  const char *kinds[] = {"house", "start", "nav", "windlass", "thruster", "genset", "other"};
+  for (int i = 0; i < 7; i++) {
+    char ref[32];
+    snprintf(ref, sizeof ref, PN1 ".%d", i + 3);
+    pw_bank(pw_role(), kinds[i], kinds[i], kinds[i], ref);
+  }
+  pw_add("c046aa002cc00201.0", "NavShunt", UI_PW_BATTERY, 13.0, "");
+  click("menu_power");
+  click("addto_c046aa002cc00201.0");
+  TEST_ASSERT_NULL(menu_obj());
+  TEST_ASSERT_NOT_NULL(strstr(text_of("power_error"), "kind of bank"));
+}
+
+static void test_power_add_bank_picks_the_kind_and_takes_an_unplaced_battery(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  click("add_bank");
+  lv_buttonmatrix_set_selected_button(menu_obj(), 0);   // START (the house bank exists)
+  lv_obj_send_event(menu_obj(), LV_EVENT_VALUE_CHANGED, NULL);
+  lv_timer_handler();
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_UINT8(2, r->bank_count);
+  TEST_ASSERT_EQUAL_STRING("start", r->bank[1].kind);
+  TEST_ASSERT_EQUAL_STRING(PN1 ".1", r->bank[1].battery);   // not the placed one, not the one still identifying
+  click("add_bank");                                         // nothing unplaced is left: no menu, a reason
+  TEST_ASSERT_NULL(ui_setup_part("menu"));
+  TEST_ASSERT_EQUAL_UINT8(2, r->bank_count);
+  TEST_ASSERT_NOT_NULL(strstr(text_of("power_error"), "No unplaced"));
+}
+
+static void test_power_bank_row_leads_with_its_kind(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  TEST_ASSERT_NULL(ui_setup_part("bank_name_0"));            // there is no name to type
+  lv_obj_t *kind = ui_setup_part("bank_kind_0"), *batt = ui_setup_part("bank_batt_0");
+  TEST_ASSERT_NOT_NULL(kind);
+  TEST_ASSERT_NOT_NULL(batt);
+  lv_obj_update_layout(scr);
+  lv_area_t ak, ab;
+  lv_obj_get_coords(kind, &ak);
+  lv_obj_get_coords(batt, &ab);
+  TEST_ASSERT_LESS_THAN_INT(ab.x1, ak.x1);                   // the kind is the leftmost field
+}
+
+static void test_power_changing_a_banks_kind_renames_it(void) {
+  pw_open();
+  pw_bank(pw_role(), "x", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  choose("bank_kind_0", 3);   // WINDLASS
+  TEST_ASSERT_EQUAL_STRING("windlass", pw_role()->bank[0].kind);
+  TEST_ASSERT_EQUAL_STRING("WINDLASS", pw_role()->bank[0].name);
+}
+
+static void test_power_screen_square_battery_on_second_line(void) {
+  cb.power_rows = on_power_rows;
+  pw_fixture();
+  cfg_defaults(&cfg);
+  bool have = false;
+  for (uint8_t i = 0; i < cfg.role_count; i++) have |= !strcmp(cfg.roles[i].role, "power");
+  if (!have) strcpy(cfg.roles[cfg.role_count++].role, "power");
+  ui_setup_open(scr, &cfg, SIZE_SQUARE, &cb);
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  click("menu_power");
+  lv_obj_update_layout(scr);
+  lv_obj_t *kind = ui_setup_part("bank_kind_0"), *batt = ui_setup_part("bank_batt_0");
+  TEST_ASSERT_NOT_NULL(kind);
+  TEST_ASSERT_NOT_NULL(batt);
+  lv_area_t a, b;
+  lv_obj_get_coords(kind, &a);
+  lv_obj_get_coords(batt, &b);
+  TEST_ASSERT_GREATER_THAN_INT(a.y2, b.y1 - 1);   // the long battery button starts below the kind, not beside it
+}
+
+static void test_power_menu_options_fire_on_a_click_not_a_touch(void) {
+  pw_open();
+  click("menu_power");
+  click("addto_" PN1 ".0");
+  lv_obj_t *m = menu_obj();
+  TEST_ASSERT_NOT_NULL(m);
+  for (uint32_t i = 0; i < 7; i++) {   // a swipe to scroll a long menu must not choose what the finger lands on
+    TEST_ASSERT_TRUE(lv_buttonmatrix_has_button_ctrl(m, i, LV_BUTTONMATRIX_CTRL_CLICK_TRIG));
+    TEST_ASSERT_TRUE(lv_buttonmatrix_has_button_ctrl(m, i, LV_BUTTONMATRIX_CTRL_NO_REPEAT));
+  }
+  click("menu_cancel");
+}
+
+static void test_power_one_bank_does_not_duplicate_sources_left_without_a_bank(void) {
+  pw_open();
+  pw_n = 0;
+  pw_add(PN1 ".0", "SmartShunt", UI_PW_BATTERY, 13.1, "");
+  pw_add(PN2 ".0", "BlueSolar", UI_PW_OUTPUT, 200, "solar");
+  pw_add(PN3 ".0", "Phoenix", UI_PW_OUTPUT, 3, "shore");
+  cfg_flow_t *f = &pw_role()->flow[pw_role()->flow_count++];   // what is left when the only bank is deleted in an older build
+  strcpy(f->device, PN2);
+  strcpy(f->kind, "solar");
+  click("menu_power");
+  click("one_bank");
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_UINT8(2, r->flow_count);                    // the solar source is not added twice
+  TEST_ASSERT_EQUAL_STRING("house", r->flow[0].to);             // it gets the new bank
+  char why[96];
+  TEST_ASSERT_TRUE_MESSAGE(cfg_power_check(r, why, sizeof why), why);
+}
+
+static void test_power_a_file_banks_own_name_is_what_its_row_shows(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  pw_bank(pw_role(), "fridge", "Fridge", "other", PN1 ".1");
+  click("menu_power");
+  TEST_ASSERT_NOT_NULL(strstr(button_text("bank_kind_1"), "FRIDGE"));   // the same name the source menus list
+}
+
+static void test_power_changing_a_kind_updates_the_id_and_the_sources_that_name_it(void) {
+  pw_open();
+  pw_bank(pw_role(), "house", "HOUSE", "house", PN1 ".0");
+  pw_bank(pw_role(), "start", "START", "start", PN1 ".1");
+  cfg_flow_t *f = &pw_role()->flow[pw_role()->flow_count++];
+  strcpy(f->device, PN2);
+  strcpy(f->kind, "solar");
+  strcpy(f->to, "start");
+  click("menu_power");
+  // the start bank's menu has no HOUSE (taken): START NAV WINDLASS THRUSTER GENSET OTHER
+  choose("bank_kind_1", 1);
+  cfg_role_t *r = pw_role();
+  TEST_ASSERT_EQUAL_STRING("nav", r->bank[1].kind);
+  TEST_ASSERT_EQUAL_STRING("NAV", r->bank[1].name);
+  TEST_ASSERT_EQUAL_STRING("nav", r->bank[1].id);
+  TEST_ASSERT_EQUAL_STRING("nav", r->flow[0].to);               // the source follows its bank
+  char why[96];
+  TEST_ASSERT_TRUE_MESSAGE(cfg_power_check(r, why, sizeof why), why);
+  choose("bank_kind_1", 5);                                     // OTHER
+  TEST_ASSERT_EQUAL_STRING("OTHER", r->bank[1].name);           // an other bank still has a name
+}
+
 int main(void) {
   lv_init();
   lv_tick_set_cb(fake_tick);
@@ -642,5 +1174,37 @@ int main(void) {
   RUN_TEST(test_discovery_shows_the_name_the_source_gave);
   RUN_TEST(test_a_saved_label_replaces_the_sources_name_and_the_name_is_never_saved);
   RUN_TEST(test_discovery_label_edit);
+  RUN_TEST(test_power_screen_lists_sections);
+  RUN_TEST(test_power_unnamed_device_says_it_is_identifying);
+  RUN_TEST(test_power_bank_kind_is_a_menu);
+  RUN_TEST(test_power_kind_menu_does_not_offer_a_second_house);
+  RUN_TEST(test_power_battery_menu_lists_unplaced_batteries_by_input);
+  RUN_TEST(test_power_unassigned_source_picks_the_bank_it_feeds);
+  RUN_TEST(test_power_source_row_shows_kind_and_fed_bank);
+  RUN_TEST(test_power_converter_kind_asks_where_it_draws_from);
+  RUN_TEST(test_power_second_output_of_a_device_says_which);
+  RUN_TEST(test_power_save_refuses_without_a_house_bank);
+  RUN_TEST(test_power_placed_unseen_reads_missing);
+  RUN_TEST(test_power_old_keys_message_shown);
+  RUN_TEST(test_power_delete_bank_returns_its_sources_to_unassigned);
+  RUN_TEST(test_power_one_bank_places_a_one_battery_boat);
+  RUN_TEST(test_power_one_bank_noop_with_two_batteries);
+  RUN_TEST(test_power_one_bank_skips_converters);
+  RUN_TEST(test_power_one_bank_is_offered_only_when_nothing_is_placed);
+  RUN_TEST(test_power_a_menu_left_open_does_not_outlive_setup);
+  RUN_TEST(test_power_bank_battery_button_names_the_battery);
+  RUN_TEST(test_discovery_leaves_power_to_its_own_page);
+  RUN_TEST(test_power_add_to_bank_asks_which_bank);
+  RUN_TEST(test_power_the_house_bank_is_not_offered_twice);
+  RUN_TEST(test_power_a_kind_already_added_is_not_offered_again);
+  RUN_TEST(test_power_every_kind_added_means_no_more_banks);
+  RUN_TEST(test_power_menu_options_fire_on_a_click_not_a_touch);
+  RUN_TEST(test_power_one_bank_does_not_duplicate_sources_left_without_a_bank);
+  RUN_TEST(test_power_a_file_banks_own_name_is_what_its_row_shows);
+  RUN_TEST(test_power_changing_a_kind_updates_the_id_and_the_sources_that_name_it);
+  RUN_TEST(test_power_add_bank_picks_the_kind_and_takes_an_unplaced_battery);
+  RUN_TEST(test_power_bank_row_leads_with_its_kind);
+  RUN_TEST(test_power_changing_a_banks_kind_renames_it);
+  RUN_TEST(test_power_screen_square_battery_on_second_line);
   return UNITY_END();
 }

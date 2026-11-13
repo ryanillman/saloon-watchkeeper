@@ -70,6 +70,7 @@ typedef struct {
   el_fn_t pubfn;
   uint64_t pubkey;
   char publabel[16];          // the label last written (it changes when a neighbour appears)
+  bool refd;                  // the `ref` leaf (NAME.instance) has been written under pubkey
   int64_t t[EL_F_COUNT];      // when
 } el_endpoint_t;
 
@@ -112,8 +113,10 @@ void el_observe_path(el_t *e, uint8_t feed, el_ref_t ref, uint8_t instance, el_f
 bool el_leaf(const el_t *e, const el_endpoint_t *p, el_field_t f, double *value, el_ref_t *src);
 
 // Writes changed leaves of every visible battery, PV and charger endpoint into boatdata (source BD_SRC_ELECTRICAL) as
-// electrical.resolved.{batteries,solar,chargers}.<id>.<leaf>, where <id> is el_endpoint_id, plus a text leaf `label`
-// (el_endpoint_label) that roles use as the instance's name. Leaves that did not change
+// electrical.resolved.{batteries,solar,chargers,alternators,acin}.<id>.<leaf>, where <id> is el_endpoint_id, plus a text leaf `label`
+// (el_endpoint_label) that roles use as the instance's name, and, once the device's CAN NAME is known, a text leaf
+// `ref` ("<NAME in lower-case hex>.<instance>") that config uses to name the endpoint. A converter publishes as a
+// charger; an AC input publishes only `current`. Leaves that did not change
 // are not rewritten, so a quiet value does not look fresh; an endpoint that became hidden or changed function has its
 // old leaves invalidated. Call from the adapter's tick.
 void el_publish(el_t *e, int64_t now_ms);

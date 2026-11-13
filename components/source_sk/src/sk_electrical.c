@@ -81,13 +81,13 @@ static void on_observe(const char *path, double num, const char *text, const cha
   size_t n, n2;
   el_ref_t ref = ref_of(source);
   el_field_t f;
-  if (!strncmp(p, "batteries.", 10) || !strncmp(p, "solar.", 6) || !strncmp(p, "chargers.", 9)) {
-    int kind = p[0] == 'b' ? 0 : p[0] == 's' ? 1 : 2;
+  if (!strncmp(p, "batteries.", 10) || !strncmp(p, "solar.", 6) || !strncmp(p, "chargers.", 9) || !strncmp(p, "alternators.", 12)) {
+    int kind = p[0] == 'b' ? 0 : p[0] == 's' ? 1 : p[0] == 'c' ? 2 : 3;
     p = strchr(p, '.') + 1;
     if (!segment(&p, &seg, &n)) return;
     uint8_t inst = inst_of(seg, n);
-    el_fn_t fn = kind == 1 ? EL_FN_PV : EL_FN_CHARGER;
-    if (!strcmp(p, "chargingMode") && kind != 0 && text) {   // an adopted charger or panel names its stage as text
+    el_fn_t fn = kind == 1 ? EL_FN_PV : kind == 3 ? EL_FN_ALTERNATOR : EL_FN_CHARGER;
+    if (!strcmp(p, "chargingMode") && kind != 0 && text) {   // an adopted charger, panel or alternator names its stage as text
       int code = state_code(text);
       if (code >= 0) observe_path(ref, inst, fn, EL_F_CONV_STATE, code, now);
     } else if (text) {

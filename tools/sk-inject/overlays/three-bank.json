@@ -1,5 +1,5 @@
 {
-  "description": "Three banks: house 279, start 280, nav 281. Shore charger 276 (30 A side), solar 288, start-to-house converter dcdc 1, house-to-nav converter dcdc 2 (with input side), alternator 0 on start (idle). At 30 s the nav bank discharges while the nav converter covers it from house. At 50 s the charger's current goes null (HOUSE IN and LOAD fail, NAV LOAD stays). Restored at 70 s. UNVERIFIED: every path here, in particular dcdc input.voltage/input.current, is a guess until a real Cerbo capture. Needs the power role config in docs/testing.md (banks and links).",
+  "description": "Three banks: house 279, start 280, nav 281. Shore charger 276 (30 A side), solar 288, start-to-house converter dcdc 1, house-to-nav converter dcdc 2 (with input side), alternator 0 on start (idle). At 30 s the nav bank discharges while the nav converter covers it from house. At 50 s the charger's current goes null (HOUSE IN and LOAD fail, NAV LOAD stays). Restored at 70 s. UNVERIFIED: every path here, in particular dcdc input.voltage/input.current, is a guess until a real Cerbo capture. Power is configured by NAME now (docs/testing.md, Power configuration): this overlay's synthetic devices carry no identity, so it cannot be placed on the synthetic profile.",
   "durationMs": 90000,
   "with": ["three-bank"],
   "after": [

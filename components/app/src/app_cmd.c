@@ -9,6 +9,8 @@
 #include "config.h"
 #include "platform.h"
 
+#define EL_LISTING_MAX 32   // endpoints listed per group
+
 static void outf(app_out_fn out, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static void outf(app_out_fn out, const char *fmt, ...) {
   char line[160];
@@ -48,9 +50,103 @@ static int data(int argc, char **argv, app_out_fn out) {
   return 0;
 }
 
+// Every published endpoint with its ref (the CAN NAME and instance a config file names it by), label, live value and what the
+// power configuration does with it; then what is configured but not seen. Enough to write banks and flows by hand.
+static bool text_of(const char *path, char *out, size_t n) {
+  bd_id_t id = bd_find(path);
+  bd_sample_t s;
+  if (id == BD_NONE || !bd_get(id, &s) || !s.valid || s.kind != BD_TEXT) return false;
+  snprintf(out, n, "%s", s.text);
+  return true;
+}
+
+static int power(app_out_fn out) {
+  static const struct { const char *group, *leaf, *unit; bool battery; } G[] = {
+    {"batteries", "voltage", "V", true}, {"solar", "voltage", "V", false}, {"chargers", "voltage", "V", false},
+    {"alternators", "voltage", "V", false}, {"acin", "current", "A", false}};
+  const cfg_t *c = app_config();
+  const cfg_role_t *r = NULL;
+  for (uint8_t i = 0; i < c->role_count; i++)
+    if (!strcmp(c->roles[i].role, "power")) r = &c->roles[i];
+  if (r && r->power_old_keys) out("old-format banks/links in config.json are not read: place banks and flows again (Setup > Power)");
+  else if (r && r->power_rejected) out("banks/flows in config.json are invalid and not loaded: see config reload");
+  bool bank_seen[CFG_MAX_BANKS] = {0}, flow_seen[CFG_MAX_FLOWS] = {0};
+  unsigned rows = 0;
+  for (size_t g = 0; g < sizeof G / sizeof G[0]; g++) {
+    char pat[96];
+    snprintf(pat, sizeof pat, "electrical.resolved.%s.*.ref", G[g].group);
+    bd_id_t ids[EL_LISTING_MAX];
+    size_t n = bd_match(pat, ids, EL_LISTING_MAX);
+    for (size_t k = 0; k < n; k++) {
+      const char *path = bd_path(ids[k]);
+      char ref[40], label[24] = "-", stem[96], p2[112], assign[96] = "UNASSIGNED";
+      if (!path || !text_of(path, ref, sizeof ref)) continue;
+      snprintf(stem, sizeof stem, "%s", path);
+      stem[strlen(stem) - 3] = 0;   // drop "ref"
+      snprintf(p2, sizeof p2, "%slabel", stem);
+      text_of(p2, label, sizeof label);
+      char val[24] = "-";
+      snprintf(p2, sizeof p2, "%s%s", stem, G[g].leaf);
+      bd_sample_t s;
+      bd_id_t vid = bd_find(p2);
+      if (vid != BD_NONE && bd_get(vid, &s) && s.valid && s.kind == BD_NUMBER) snprintf(val, sizeof val, "%.1f %s", s.num, G[g].unit);
+      if (G[g].battery) {
+        for (uint8_t b = 0; r && b < r->bank_count; b++)
+          if (!strcmp(r->bank[b].battery, ref)) { snprintf(assign, sizeof assign, "bank %s", r->bank[b].id); bank_seen[b] = true; }
+      } else if (!strcmp(G[g].group, "acin")) {
+        snprintf(assign, sizeof assign, "AC input");
+      } else {
+        int ordinal = 0, inst = atoi(ref + 17);   // which of the device's outputs this is, by instance
+        for (size_t j = 0; j < n; j++) {
+          char other[40];
+          const char *op = bd_path(ids[j]);
+          if (j != k && op && text_of(op, other, sizeof other) && !strncmp(other, ref, 16) && atoi(other + 17) < inst) ordinal++;
+        }
+        bool any = false;
+        assign[0] = 0;
+        for (uint8_t f = 0; r && f < r->flow_count; f++) {
+          bool panel = !strcmp(G[g].group, "solar");
+          if (strncmp(r->flow[f].device, ref, 16) || (!panel && r->flow[f].output != ordinal)) continue;
+          size_t len = strlen(assign);
+          if (panel) snprintf(assign + len, sizeof assign - len, "%spanel of flow %s", any ? "; " : "", r->flow[f].kind);
+          else if (r->flow[f].from[0]) snprintf(assign + len, sizeof assign - len, "%sflow %s %s -> %s", any ? "; " : "", r->flow[f].kind, r->flow[f].from, r->flow[f].to);
+          else snprintf(assign + len, sizeof assign - len, "%sflow %s -> %s", any ? "; " : "", r->flow[f].kind, r->flow[f].to);
+          flow_seen[f] = true;
+          any = true;
+        }
+        if (!any) snprintf(assign, sizeof assign, "UNASSIGNED");
+      }
+      outf(out, "%s  %s  %s  %s", ref, label, val, assign);
+      rows++;
+    }
+  }
+  if (!rows) out("no endpoints seen (nothing with a CAN NAME yet)");
+  for (uint8_t b = 0; r && b < r->bank_count; b++)
+    if (!bank_seen[b]) outf(out, "MISSING bank %s  %s", r->bank[b].id, r->bank[b].battery);
+  for (uint8_t f = 0; r && f < r->flow_count; f++)
+    if (!flow_seen[f]) outf(out, "MISSING flow %s  %s", r->flow[f].kind, r->flow[f].device);
+  return 0;
+}
+
+// The config is rewritten whole on the UI task (app_apply_config), so the listing runs there too.
+typedef struct { app_out_fn out; int rc; } power_req_t;
+static void power_on_ui(void *arg) {
+  power_req_t *r = arg;
+  r->rc = power(r->out);
+}
+static int power_cmd(app_out_fn out) {
+  power_req_t r = {out, 1};
+  if (!app_post(power_on_ui, &r, 2000)) {
+    out("power: the display did not answer");
+    return 1;
+  }
+  return r.rc;
+}
+
 static int help(app_out_fn out) {
   out("status                      firmware, network, Signal K, memory, SD, alerts");
   out("data <prefix>               the data model under a path prefix: value, age, source (data electrical.resolved)");
+  out("power                       endpoints by ref (CAN NAME.instance) with what Power does with each, for writing banks and flows");
   out("config show                 the config (password and token masked)");
   out("config set <path> <value>   change one setting, save it, and apply it");
   out("                            e.g. config set sources.signalk.token <token>");
@@ -182,6 +278,7 @@ int app_cmd_run(int argc, char **argv, app_out_fn out) {
   if (!strcmp(argv[0], "help")) return help(out);
   if (!strcmp(argv[0], "status")) return status(out);
   if (!strcmp(argv[0], "data")) return data(argc, argv, out);
+  if (!strcmp(argv[0], "power")) return power_cmd(out);
   if (!strcmp(argv[0], "config")) return config(argc, argv, out);
   if (!strcmp(argv[0], "sk")) return sk(argc, argv, out);
   if (!strcmp(argv[0], "reboot")) {

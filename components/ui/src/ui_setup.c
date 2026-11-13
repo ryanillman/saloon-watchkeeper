@@ -7,9 +7,10 @@
 #include <string.h>
 #include "platform.h"
 #include "ui_alerts.h"
+#include "ui_setup_priv.h"
 #include "ui_shell.h"
 
-#define MAX_PARTS 160
+#define MAX_PARTS 400
 #define MAX_SEGS 10
 #define ROW_H 56
 
@@ -28,7 +29,7 @@ PLATFORM_EXT_BSS static struct {
   ui_setup_screen_t screen;
   cfg_t work, base;   // the edited copy and the config it started from (or was last saved as)
   struct { char name[32]; lv_obj_t *obj; } parts[MAX_PARTS];
-  uint8_t n_parts, n_parts_frame;
+  uint16_t n_parts, n_parts_frame;
   seg_t segs[MAX_SEGS];
   uint8_t n_segs;
   ui_disc_role_t disc[CFG_MAX_ROLES];
@@ -57,7 +58,7 @@ static void part(const char *name, lv_obj_t *o) {
 
 // Forgets a part whose object is being deleted, so a lookup never returns a freed pointer.
 static void unpart(const char *name) {
-  for (uint8_t i = 0; i < u.n_parts; i++) {
+  for (uint16_t i = 0; i < u.n_parts; i++) {
     if (strcmp(u.parts[i].name, name)) continue;
     memmove(&u.parts[i], &u.parts[i + 1], (u.n_parts - i - 1) * sizeof u.parts[0]);
     u.n_parts--;
@@ -68,7 +69,7 @@ static void unpart(const char *name) {
 
 lv_obj_t *ui_setup_part(const char *name) {
   if (!open_now()) return NULL;
-  for (uint8_t i = 0; i < u.n_parts; i++)
+  for (uint16_t i = 0; i < u.n_parts; i++)
     if (!strcmp(u.parts[i].name, name)) return u.parts[i].obj;
   return NULL;
 }
@@ -165,6 +166,7 @@ static void segmented(lv_obj_t *parent, const char *label, const char *kind, cha
 
 static void show_screen(ui_setup_screen_t s);
 static void kb_close(void);
+static void menu_close(void);
 
 static void on_menu(lv_event_t *e) { show_screen((ui_setup_screen_t)(uintptr_t)lv_event_get_user_data(e)); }
 static void on_close(lv_event_t *e) {
@@ -177,6 +179,7 @@ static void build_menu(void) {
     {SETUP_WIFI, "Wi-Fi", "menu_wifi"},       {SETUP_SIGNALK, "Signal K", "menu_signalk"},
     {SETUP_SOURCES, "Sources", "menu_sources"},
     {SETUP_ROLES, "Roles", "menu_roles"},     {SETUP_DISCOVERY, "Discovery", "menu_discovery"},
+    {SETUP_POWER, "Power", "menu_power"},
     {SETUP_DISPLAY, "Display", "menu_display"}, {SETUP_ABOUT, "About", "menu_about"},
   };
   for (size_t i = 0; i < sizeof items / sizeof items[0]; i++) {
@@ -281,7 +284,13 @@ static void build_later(void) {
 // Rebuilding from inside a click on a body child would delete the clicked object mid-event.
 static void rebuild_cb(void *arg) {
   (void)arg;
-  if (open_now()) show_screen(u.screen);
+  if (!open_now()) return;
+  int32_t y = u.screen == SETUP_POWER ? lv_obj_get_scroll_y(u.body) : 0;   // a long list stays where it was
+  show_screen(u.screen);
+  if (y) {
+    lv_obj_update_layout(u.body);
+    lv_obj_scroll_to_y(u.body, y, LV_ANIM_OFF);
+  }
 }
 static void rebuild_later(void) { lv_async_call(rebuild_cb, NULL); }
 
@@ -299,12 +308,13 @@ static void on_role(lv_event_t *e) {
   uintptr_t v = (uintptr_t)lv_event_get_user_data(e);
   uint8_t i = (uint8_t)(v >> 4), op = (uint8_t)(v & 15), n = u.work.role_count;
   cfg_role_t *r = u.work.roles;
+  PLATFORM_EXT_BSS static cfg_role_t t;   // a role is 3.5 KB: not for the UI task's stack
   if (op == ROLE_UP && i > 0) {
-    cfg_role_t t = r[i - 1];
+    t = r[i - 1];
     r[i - 1] = r[i];
     r[i] = t;
   } else if (op == ROLE_DOWN && i + 1 < n) {
-    cfg_role_t t = r[i + 1];
+    t = r[i + 1];
     r[i + 1] = r[i];
     r[i] = t;
   } else if (op == ROLE_REMOVE && n > 1) {   // a panel always shows at least one role
@@ -478,6 +488,13 @@ static void build_discovery(void) {
     cfg_role_t *r = &u.work.roles[ri];
     char title[16], pn[48];
     upper(r->role, title, sizeof title);
+    if (!strcmp(r->role, "power")) {   // banks and flows are placed on their own screen
+      lv_obj_t *pr = row(u.body);
+      text(pr, "POWER", c->accent);
+      text(pr, "is set up on its own screen", c->dim);
+      part("open_power", button(pr, "OPEN", on_menu, (void *)(uintptr_t)SETUP_POWER));
+      continue;
+    }
     lv_obj_t *head = row(u.body);
     lv_obj_t *t = text(head, title, c->accent);
     lv_obj_set_width(t, u.sc == SIZE_WIDE ? 200 : lv_pct(100));
@@ -632,6 +649,110 @@ static void kb_open(const char *prompt, const char *initial, bool password, kb_k
   lv_obj_set_style_text_color(kb, c->fg, LV_PART_ITEMS | LV_STATE_CHECKED);
   lv_obj_add_event_cb(kb, on_kb, LV_EVENT_ALL, NULL);
   part("kb", kb);
+}
+
+// ---- one shared choice menu ----
+// What a "dropdown" is here: a button that shows its value opens this single column of options over the page. One widget
+// for the whole screen, not one list object per choice, so a long Power page costs no more memory than a short one.
+
+#define MENU_MAX 16
+PLATFORM_EXT_BSS static struct {
+  lv_obj_t *box, *matrix;
+  const char *map[2 * MENU_MAX + 1];
+  char text[MENU_MAX][44];
+  void (*done)(uint32_t sel, uintptr_t arg);
+  uintptr_t arg;
+} mn;
+
+static void menu_close(void) {
+  if (!mn.box) return;
+  lv_obj_delete_async(mn.box);   // inside one of its own events
+  mn.box = mn.matrix = NULL;
+  unpart("menu");
+  unpart("menu_cancel");
+}
+
+static void on_menu_pick(lv_event_t *e) {
+  uint32_t sel = lv_buttonmatrix_get_selected_button(lv_event_get_target(e));
+  if (sel == LV_BUTTONMATRIX_BUTTON_NONE) return;
+  void (*done)(uint32_t, uintptr_t) = mn.done;
+  uintptr_t arg = mn.arg;
+  menu_close();
+  if (done) done(sel, arg);
+}
+
+static void on_menu_cancel(lv_event_t *e) {
+  (void)e;
+  menu_close();
+}
+
+void setup_menu(const char *title, const char *const *options, uint8_t n, uint8_t selected,
+                void (*done)(uint32_t, uintptr_t), uintptr_t arg) {
+  if (!open_now() || n == 0) return;
+  menu_close();
+  if (n > MENU_MAX) n = MENU_MAX;
+  const ui_colors_t *c = ui_theme();
+  mn.done = done;
+  mn.arg = arg;
+  int32_t w = lv_obj_get_width(u.root), h = lv_obj_get_height(u.root);
+  const int32_t item_h = 52, title_h = 40, pad = 8;
+  mn.box = lv_obj_create(u.root);   // the backdrop: a tap outside the menu closes it
+  lv_obj_remove_style_all(mn.box);
+  lv_obj_set_size(mn.box, w, h);
+  lv_obj_set_style_bg_color(mn.box, c->bg, 0);
+  lv_obj_set_style_bg_opa(mn.box, LV_OPA_70, 0);
+  lv_obj_add_flag(mn.box, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(mn.box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(mn.box, on_menu_cancel, LV_EVENT_CLICKED, NULL);
+  part("menu_cancel", mn.box);
+  int32_t pw_ = w - 32 < 460 ? w - 32 : 460, ph = n * item_h + title_h + 3 * pad;
+  if (ph > h - 24) ph = h - 24;
+  lv_obj_t *panel = lv_obj_create(mn.box);
+  lv_obj_remove_style_all(panel);
+  lv_obj_set_size(panel, pw_, ph);
+  lv_obj_center(panel);
+  lv_obj_set_style_bg_color(panel, c->strip_bg, 0);
+  lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(panel, c->accent, 0);
+  lv_obj_set_style_border_width(panel, 2, 0);
+  lv_obj_set_style_radius(panel, 8, 0);
+  lv_obj_set_style_pad_all(panel, pad, 0);
+  lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+  lv_obj_t *t = lv_label_create(panel);
+  lv_label_set_text(t, title);
+  lv_obj_set_style_text_font(t, font(), 0);
+  lv_obj_set_style_text_color(t, c->accent, 0);
+  lv_obj_set_pos(t, 0, 0);
+  uint8_t k = 0;
+  for (uint8_t i = 0; i < n; i++) {
+    snprintf(mn.text[i], sizeof mn.text[i], "%s", options[i]);
+    mn.map[k++] = mn.text[i];
+    if (i + 1 < n) mn.map[k++] = "\n";
+  }
+  mn.map[k] = "";
+  mn.matrix = lv_buttonmatrix_create(panel);
+  lv_buttonmatrix_set_map(mn.matrix, mn.map);
+  lv_buttonmatrix_set_one_checked(mn.matrix, true);
+  // Chosen on a click, not on touch-down: the panel scrolls, and a swipe must not pick what the finger lands on.
+  for (uint8_t i = 0; i < n; i++)
+    lv_buttonmatrix_set_button_ctrl(mn.matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE | LV_BUTTONMATRIX_CTRL_CLICK_TRIG | LV_BUTTONMATRIX_CTRL_NO_REPEAT);
+  if (selected < n) lv_buttonmatrix_set_button_ctrl(mn.matrix, selected, LV_BUTTONMATRIX_CTRL_CHECKED);
+  lv_obj_set_size(mn.matrix, pw_ - 2 * pad, n * item_h);
+  lv_obj_set_pos(mn.matrix, 0, title_h);
+  lv_obj_set_style_pad_all(mn.matrix, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(mn.matrix, 4, LV_PART_MAIN);
+  lv_obj_set_style_border_width(mn.matrix, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(mn.matrix, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(mn.matrix, c->bg, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(mn.matrix, c->fg, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(mn.matrix, font(), LV_PART_ITEMS);
+  lv_obj_set_style_border_color(mn.matrix, c->dim, LV_PART_ITEMS);
+  lv_obj_set_style_border_width(mn.matrix, 2, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(mn.matrix, 0, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(mn.matrix, c->accent, LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(mn.matrix, c->bg, LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_add_event_cb(mn.matrix, on_menu_pick, LV_EVENT_VALUE_CHANGED, NULL);
+  part("menu", mn.matrix);
 }
 
 // ---- live state lines (Wi-Fi, Signal K, access request) ----
@@ -889,7 +1010,7 @@ void ui_setup_discovery_changed(void) {
 }
 
 static const char *title_of(ui_setup_screen_t s) {
-  static const char *t[] = {"SETUP", "WI-FI", "SIGNAL K", "SOURCES", "ROLES", "DISCOVERY", "DISPLAY", "ABOUT"};
+  static const char *t[] = {"SETUP", "WI-FI", "SIGNAL K", "SOURCES", "ROLES", "DISCOVERY", "POWER", "DISPLAY", "ABOUT"};
   return t[s];
 }
 
@@ -911,6 +1032,7 @@ static void show_screen(ui_setup_screen_t s) {
     u.dialog = NULL;
   }
   kb_close();   // a screen change drops a half-typed field
+  menu_close();
   u.screen = s;
   u.live_state = u.live_access = NULL;
   u.live_fn = NULL;
@@ -932,6 +1054,7 @@ static void show_screen(ui_setup_screen_t s) {
     case SETUP_ABOUT: build_about(); break;
     case SETUP_ROLES: build_roles(); break;
     case SETUP_DISCOVERY: build_discovery(); break;
+    case SETUP_POWER: setup_build_power(); break;
     case SETUP_WIFI: build_wifi(); break;
     case SETUP_SIGNALK: build_signalk(); break;
     case SETUP_SOURCES: build_sources(); break;
@@ -981,6 +1104,7 @@ static void on_back(lv_event_t *e) {
 
 static void on_save(lv_event_t *e) {
   (void)e;
+  if (u.screen == SETUP_POWER && !setup_power_can_save()) return;   // the reason is on the page
   if (u.cb->save) u.cb->save(&u.work);   // the app applies it; the palette may change under us
   u.base = u.work;
   show_screen(SETUP_MENU);
@@ -991,6 +1115,7 @@ static void on_save(lv_event_t *e) {
 void ui_setup_open(lv_obj_t *screen, const cfg_t *current, size_class_t sc, const ui_setup_cb_t *cb) {
   if (open_now()) return;
   memset(&u, 0, sizeof u);
+  memset(&mn, 0, sizeof mn);   // a menu left open when setup was closed died with its screen
   u.cb = cb;
   u.sc = sc;
   u.work = u.base = *current;
@@ -1042,6 +1167,7 @@ void ui_setup_close(void) {
   if (!open_now()) return;
   lv_obj_delete_async(u.root);   // may be called from an event on one of its own children
   u.root = NULL;
+  mn.box = mn.matrix = NULL;     // the menu goes with the screen
   u.dialog = NULL;
 }
 
@@ -1051,6 +1177,22 @@ void ui_setup_tick(void) {
     ui_setup_close();
     return;
   }
+  if (u.screen == SETUP_POWER) setup_power_tick();
   refresh_live(u.live_state, u.live_fn);
   refresh_live(u.live_access, u.cb->access_state);
 }
+
+// ---- for the setup screens in their own files ----
+
+cfg_t *setup_work(void) { return &u.work; }
+const ui_setup_cb_t *setup_cb(void) { return u.cb; }
+bool setup_wide(void) { return u.sc == SIZE_WIDE; }
+lv_obj_t *setup_body(void) { return u.body; }
+lv_obj_t *setup_button(lv_obj_t *parent, const char *t, lv_event_cb_t fn, void *arg) { return button(parent, t, fn, arg); }
+lv_obj_t *setup_row(lv_obj_t *parent) { return row(parent); }
+lv_obj_t *setup_text(lv_obj_t *parent, const char *t, lv_color_t col) { return text(parent, t, col); }
+void setup_part(const char *name, lv_obj_t *o) { part(name, o); }
+void setup_kb(const char *prompt, const char *initial, uint32_t max_len, void (*done)(const char *, uintptr_t), uintptr_t arg) {
+  kb_open(prompt, initial, false, KB_TEXT, max_len, done, arg);
+}
+void setup_rebuild(void) { rebuild_later(); }
